@@ -25,21 +25,21 @@ private:
     RequestHandler requestHandler;
     
 public:
-    explicit ServiceClient(const ServiceIdentity& serviceIdentity, 
+    explicit ServiceClient(ServiceIdentity  serviceIdentity,
                           const std::string& address = "unix:///tmp/service_broker.sock");
     ~ServiceClient();
     
     // Connection management
     bool connect();
     void disconnect();
-    bool isConnected() const { return connected.load(); }
-    bool isRegistered() const { return registered.load(); }
+    [[nodiscard]] bool isConnected() const { return connected.load(); }
+    [[nodiscard]] bool isRegistered() const { return registered.load(); }
     
     // Service registration
     bool registerService();
     
     // Request handling
-    void setRequestHandler(RequestHandler handler);
+    void setRequestHandler(const RequestHandler &handler);
     
     // Communication
     bool sendPing(const Json::Value& stats = Json::Value());
@@ -51,15 +51,15 @@ public:
     
 private:
     // Socket management
-    int createConnection();
-    bool sendMessage(const Json::Value& message);
+    [[nodiscard]] int createConnection() const;
+    [[nodiscard]] bool sendMessage(const Json::Value& message) const;
     void messageLoop();
     void pingLoop();
     
     // Message handlers
     void handleMessage(const std::string& message);
     void handleRequest(const Json::Value& message);
-    void handlePong(const Json::Value& message);
+    static void handlePong(const Json::Value& message);
 };
 
 } // namespace servicebroker

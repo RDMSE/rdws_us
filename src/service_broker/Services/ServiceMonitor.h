@@ -11,8 +11,8 @@ class ServiceMonitor {
 private:
     const ServiceBroker& broker;
     
-    void clearScreen() const;
-    void printHeader() const;
+    static void clearScreen() ;
+    static void printHeader() ;
     void printBrokerStatus() const;
     void printConnectionTable() const;
     void printServiceTable() const;
@@ -22,7 +22,7 @@ public:
     explicit ServiceMonitor(const ServiceBroker& serviceBroker);
     
     void displayStatus() const;
-    void displayContinuous(int refreshIntervalSeconds = 5);
+    void displayContinuous(int refreshIntervalSeconds = 5) const;
     void saveStatusToFile(const std::string& filename) const;
     
     // Specific queries

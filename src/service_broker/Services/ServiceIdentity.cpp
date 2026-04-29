@@ -53,22 +53,21 @@ ServiceIdentity ServiceIdentity::fromJson(const Json::Value& json) {
     identity.errorCount = json.get("errorCount", 0).asUInt();
     
     // Read capabilities
-    const Json::Value& caps = json["capabilities"];
-    if (caps.isArray()) {
+    if (const Json::Value& caps = json["capabilities"]; caps.isArray()) {
         for (const auto& cap : caps) {
             identity.capabilities.push_back(cap.asString());
         }
     }
     
     // Average response time
-    int responseTimeMs = json.get("avgResponseTimeMs", 0).asInt();
+    const int responseTimeMs = json.get("avgResponseTimeMs", 0).asInt();
     identity.avgResponseTime = std::chrono::milliseconds(responseTimeMs);
     
     return identity;
 }
 
 bool ServiceIdentity::hasCapability(const std::string& capability) const {
-    return std::find(capabilities.begin(), capabilities.end(), capability) != capabilities.end();
+    return std::ranges::find(capabilities, capability) != capabilities.end();
 }
 
 double ServiceIdentity::getLoadPercentage() const {
@@ -81,13 +80,13 @@ bool ServiceIdentity::isOverloaded() const {
 }
 
 std::chrono::seconds ServiceIdentity::getUptime() const {
-    auto now = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
     return std::chrono::duration_cast<std::chrono::seconds>(now - connectedAt);
 }
 
 bool ServiceIdentity::isHealthy(std::chrono::seconds pingTimeout) const {
-    auto now = std::chrono::steady_clock::now();
-    auto timeSinceLastPing = std::chrono::duration_cast<std::chrono::seconds>(now - lastPing);
+    const auto now = std::chrono::steady_clock::now();
+    const auto timeSinceLastPing = std::chrono::duration_cast<std::chrono::seconds>(now - lastPing);
     return timeSinceLastPing <= pingTimeout;
 }
 

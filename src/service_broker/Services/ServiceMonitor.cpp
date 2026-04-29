@@ -17,7 +17,7 @@ void ServiceMonitor::displayStatus() const {
     printCapabilityIndex();
 }
 
-void ServiceMonitor::displayContinuous(int refreshIntervalSeconds) {
+void ServiceMonitor::displayContinuous(const int refreshIntervalSeconds) const {
     while (broker.isRunning()) {
         displayStatus();
         
@@ -55,7 +55,7 @@ void ServiceMonitor::saveStatusToFile(const std::string& filename) const {
 
 void ServiceMonitor::showServicesByCapability(const std::string& capability) const {
     const auto& registry = broker.getRegistry();
-    auto serviceIds = registry.findServicesByCapability(capability);
+    const auto serviceIds = registry.findServicesByCapability(capability);
     
     std::cout << "\n=== Services with capability: " << capability << " ===" << std::endl;
     
@@ -72,8 +72,7 @@ void ServiceMonitor::showServicesByCapability(const std::string& capability) con
     std::cout << std::string(70, '-') << std::endl;
     
     for (const auto& serviceId : serviceIds) {
-        const auto* identity = registry.findServiceById(serviceId);
-        if (identity) {
+        if (const auto* identity = registry.findServiceById(serviceId)) {
             std::cout << std::left << std::setw(15) << serviceId
                       << std::setw(20) << identity->serviceName
                       << std::setw(15) << identity->machineName
@@ -95,8 +94,7 @@ void ServiceMonitor::showServicesByMachine(const std::string& machine) const {
     }
     
     for (const auto& serviceId : serviceIds) {
-        const auto* identity = registry.findServiceById(serviceId);
-        if (identity) {
+        if (const auto* identity = registry.findServiceById(serviceId)) {
             std::cout << "  " << serviceId << " (" << identity->serviceName << ")"
                       << " - Load: " << identity->getLoadPercentage() << "%"
                       << " - Requests: " << identity->totalRequests
@@ -108,7 +106,7 @@ void ServiceMonitor::showServicesByMachine(const std::string& machine) const {
 void ServiceMonitor::showHealthStatus() const {
     const auto& registry = broker.getRegistry();
     auto healthyServices = registry.findHealthyServices();
-    auto allServices = registry.getAllServiceIds();
+    const auto allServices = registry.getAllServiceIds();
     
     std::cout << "\n=== Health Status ===" << std::endl;
     std::cout << "Total Services: " << allServices.size() << std::endl;
@@ -120,10 +118,9 @@ void ServiceMonitor::showHealthStatus() const {
         std::set<std::string> healthySet(healthyServices.begin(), healthyServices.end());
         
         for (const auto& serviceId : allServices) {
-            if (healthySet.find(serviceId) == healthySet.end()) {
-                const auto* identity = registry.findServiceById(serviceId);
-                if (identity) {
-                    auto secsSinceLastPing = std::chrono::duration_cast<std::chrono::seconds>(
+            if (!healthySet.contains(serviceId)) {
+                if (const auto* identity = registry.findServiceById(serviceId)) {
+                    const auto secsSinceLastPing = std::chrono::duration_cast<std::chrono::seconds>(
                         std::chrono::steady_clock::now() - identity->lastPing).count();
                     std::cout << "  " << serviceId << " - Last ping: " << secsSinceLastPing << "s ago" << std::endl;
                 }
@@ -132,11 +129,11 @@ void ServiceMonitor::showHealthStatus() const {
     }
 }
 
-void ServiceMonitor::clearScreen() const {
+void ServiceMonitor::clearScreen() {
     std::cout << "\033[2J\033[1;1H"; // ANSI escape sequence to clear screen
 }
 
-void ServiceMonitor::printHeader() const {
+void ServiceMonitor::printHeader() {
     auto now = std::chrono::steady_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     
@@ -164,7 +161,7 @@ void ServiceMonitor::printBrokerStatus() const {
 void ServiceMonitor::printConnectionTable() const {
     auto connections = broker.getConnectionStatus();
     
-    std::cout << "\n🔗 ACTIVE CONNECTIONS" << std::endl;
+    std::cout << "\nACTIVE CONNECTIONS" << std::endl;
     
     if (!connections.isArray() || connections.size() == 0) {
         std::cout << "   No active connections" << std::endl;
@@ -187,16 +184,16 @@ void ServiceMonitor::printConnectionTable() const {
         }
         
         std::string status = conn["identified"].asBool() ? "✅ Ready" : "⏳ Pending";
-        
-        auto uptimeSeconds = conn["uptimeSeconds"].asInt64();
+
+        const auto uptimeSeconds = conn["uptimeSeconds"].asInt64();
         std::string uptime;
         if (uptimeSeconds < 60) {
             uptime = std::to_string(uptimeSeconds) + "s";
         } else if (uptimeSeconds < 3600) {
             uptime = std::to_string(uptimeSeconds / 60) + "m" + std::to_string(uptimeSeconds % 60) + "s";
         } else {
-            auto hours = uptimeSeconds / 3600;
-            auto minutes = (uptimeSeconds % 3600) / 60;
+            const auto hours = uptimeSeconds / 3600;
+            const auto minutes = (uptimeSeconds % 3600) / 60;
             uptime = std::to_string(hours) + "h" + std::to_string(minutes) + "m";
         }
         
@@ -213,9 +210,9 @@ void ServiceMonitor::printConnectionTable() const {
 
 void ServiceMonitor::printServiceTable() const {
     const auto& registry = broker.getRegistry();
-    auto services = registry.getAllServices();
+    const auto services = registry.getAllServices();
     
-    std::cout << "\n🚀 REGISTERED SERVICES" << std::endl;
+    std::cout << "\nREGISTERED SERVICES" << std::endl;
     
     if (services.empty()) {
         std::cout << "   No registered services" << std::endl;
@@ -265,7 +262,7 @@ void ServiceMonitor::printServiceTable() const {
 
 void ServiceMonitor::printCapabilityIndex() const {
     const auto& registry = broker.getRegistry();
-    auto allServices = registry.getAllServices();
+    const auto allServices = registry.getAllServices();
     
     // Build capability index
     std::map<std::string, std::vector<std::string>> capabilityMap;

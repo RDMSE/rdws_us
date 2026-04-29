@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <random>
+#include <utility>
 
 using namespace servicebroker;
 
@@ -22,9 +23,9 @@ private:
     std::atomic<bool> running{false};
     
 public:
-    ExampleService(const std::string& serviceId, const std::string& machineName, 
-                   bool devMode = false, const std::string& broker = "unix:///tmp/service_broker.sock")
-        : developmentMode(devMode), brokerAddress(broker) {
+    ExampleService(const std::string& serviceId, const std::string& machineName,
+                   const bool devMode = false, std::string  broker = "unix:///tmp/service_broker.sock")
+        : brokerAddress(std::move(broker)), developmentMode(devMode) {
         
         // Setup service identity
         identity.machineName = machineName;
@@ -82,8 +83,8 @@ public:
     }
     
 private:
-    Json::Value processRequest(const Json::Value& request) {
-        std::string command = request.get("command", "").asString();
+    [[nodiscard]] Json::Value processRequest(const Json::Value& request) const {
+        const std::string command = request.get("command", "").asString();
         
         std::cout << "[" << identity.serviceId << "] Processing: " << command << std::endl;
         
@@ -149,7 +150,7 @@ void signalHandler(int signal) {
     }
 }
 
-int main(int argc, char* argv[]) {
+int main(const int argc, char* argv[]) {
     bool developmentMode = false;
     std::string brokerAddress = "unix:///tmp/service_broker.sock";
     std::string serviceId = "example_001";

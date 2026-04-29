@@ -7,13 +7,15 @@
 #include <fcntl.h>
 #include <cstring>
 #include <iostream>
+#include <ranges>
 #include <sstream>
+#include <utility>
 #include <json/json.h>
 
 namespace servicebroker {
 
-ServiceBroker::ServiceBroker(int port, const std::string& unixSocket)
-    : tcpPort(port), unixSocketPath(unixSocket) {
+ServiceBroker::ServiceBroker(const int port, std::string  unixSocket)
+    : tcpPort(port), unixSocketPath(std::move(unixSocket)) {
     
     // Set up default message handlers
     setMessageHandler("IDENTIFY", [this](const std::string& serviceId, const Json::Value& message) {
@@ -59,8 +61,8 @@ void ServiceBroker::stop() {
     running.store(false);
     
     // Close all active connections
-    std::lock_guard<std::mutex> lock(connectionsMutex);
-    for (auto& [fd, conn] : activeConnections) {
+    std::lock_guard lock(connectionsMutex);
+    for (const auto &fd: activeConnections | std::views::keys) {
         close(fd);
     }
     activeConnections.clear();
@@ -77,18 +79,18 @@ void ServiceBroker::stop() {
 }
 
 void ServiceBroker::startTcpListener() {
-    int serverFd = createTcpSocket();
+    const int serverFd = createTcpSocket();
     if (serverFd == -1) {
         std::cerr << "Failed to create TCP socket" << std::endl;
         return;
     }
-    
-    struct sockaddr_in address;
+
+    sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(tcpPort);
     
-    if (bind(serverFd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+    if (bind(serverFd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) < 0) {
         std::cerr << "TCP bind failed on port " << tcpPort << std::endl;
         close(serverFd);
         return;
@@ -103,10 +105,10 @@ void ServiceBroker::startTcpListener() {
     std::cout << "TCP listener started on port " << tcpPort << std::endl;
     
     while (running.load()) {
-        struct sockaddr_in clientAddr;
+        sockaddr_in clientAddr{};
         socklen_t clientLen = sizeof(clientAddr);
         
-        int clientFd = accept(serverFd, (struct sockaddr*)&clientAddr, &clientLen);
+        int clientFd = accept(serverFd, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientLen);
         if (clientFd < 0) {
             if (running.load()) {
                 std::cerr << "TCP accept failed" << std::endl;
@@ -118,28 +120,28 @@ void ServiceBroker::startTcpListener() {
         char clientIP[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
         
-        std::string address = std::string(clientIP) + ":" + std::to_string(ntohs(clientAddr.sin_port));
-        handleNewConnection(clientFd, address, "tcp");
+        const std::string tcpTarget = std::string(clientIP) + ":" + std::to_string(ntohs(clientAddr.sin_port));
+        handleNewConnection(clientFd, tcpTarget, "tcp");
     }
     
     close(serverFd);
 }
 
 void ServiceBroker::startUnixListener() {
-    int serverFd = createUnixSocket();
+    const int serverFd = createUnixSocket();
     if (serverFd == -1) {
         std::cerr << "Failed to create UNIX socket" << std::endl;
         return;
     }
     
-    struct sockaddr_un address;
+    sockaddr_un address{};
     address.sun_family = AF_UNIX;
     strncpy(address.sun_path, unixSocketPath.c_str(), sizeof(address.sun_path) - 1);
     
     // Remove existing socket file
     unlink(unixSocketPath.c_str());
     
-    if (bind(serverFd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+    if (bind(serverFd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) < 0) {
         std::cerr << "UNIX bind failed on " << unixSocketPath << std::endl;
         close(serverFd);
         return;
@@ -189,7 +191,7 @@ void ServiceBroker::handleNewConnection(int clientFd, const std::string& address
     std::thread([this, clientFd]() {
         char buffer[4096];
         while (running.load()) {
-            ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
+            const ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
             if (bytesRead <= 0) {
                 closeConnection(clientFd);
                 break;
@@ -205,18 +207,15 @@ void ServiceBroker::handleNewConnection(int clientFd, const std::string& address
 void ServiceBroker::handleClientMessage(int clientFd, const std::string& message) {
     try {
         Json::Value jsonMessage;
-        Json::CharReaderBuilder reader;
+        const Json::CharReaderBuilder reader;
         Json::String errs;
-        std::istringstream iss(message);
-        
-        if (!Json::parseFromStream(reader, iss, &jsonMessage, &errs)) {
+
+        if (std::istringstream iss(message); !Json::parseFromStream(reader, iss, &jsonMessage, &errs)) {
             std::cerr << "Invalid JSON from client fd=" << clientFd << ": " << errs << std::endl;
             return;
         }
-        
-        std::string messageType = jsonMessage["type"].asString();
-        
-        if (messageType == "IDENTIFY") {
+
+        if (const std::string messageType = jsonMessage["type"].asString(); messageType == "IDENTIFY") {
             handleIdentifyMessage(clientFd, jsonMessage);
         } else if (messageType == "PING") {
             handlePingMessage(clientFd, jsonMessage);
@@ -231,7 +230,7 @@ void ServiceBroker::handleClientMessage(int clientFd, const std::string& message
     }
 }
 
-bool ServiceBroker::handleIdentifyMessage(int clientFd, const Json::Value& message) {
+bool ServiceBroker::handleIdentifyMessage(const int clientFd, const Json::Value& message) {
     try {
         // Parse service identity from message
         ServiceIdentity identity = ServiceIdentity::fromJson(message["identity"]);
@@ -244,7 +243,7 @@ bool ServiceBroker::handleIdentifyMessage(int clientFd, const Json::Value& messa
         
         // Set connection info
         {
-            std::lock_guard<std::mutex> lock(connectionsMutex);
+            std::lock_guard lock(connectionsMutex);
             auto it = activeConnections.find(clientFd);
             if (it != activeConnections.end()) {
                 identity.connectionType = it->second.connectionType;
@@ -261,9 +260,9 @@ bool ServiceBroker::handleIdentifyMessage(int clientFd, const Json::Value& messa
             ackMessage["type"] = "ACKNOWLEDGED";
             ackMessage["serviceId"] = identity.serviceId;
             ackMessage["status"] = "registered";
-            
-            Json::StreamWriterBuilder builder;
-            std::string ackStr = Json::writeString(builder, ackMessage);
+
+            const Json::StreamWriterBuilder builder;
+            const std::string ackStr = Json::writeString(builder, ackMessage);
             
             sendMessage(clientFd, ackStr);
             
@@ -279,14 +278,13 @@ bool ServiceBroker::handleIdentifyMessage(int clientFd, const Json::Value& messa
     return false;
 }
 
-bool ServiceBroker::handlePingMessage(int clientFd, const Json::Value& message) {
+bool ServiceBroker::handlePingMessage(const int clientFd, const Json::Value& message) {
     std::string serviceId;
     
     // Find serviceId for this connection
     {
-        std::lock_guard<std::mutex> lock(connectionsMutex);
-        auto it = activeConnections.find(clientFd);
-        if (it != activeConnections.end() && it->second.identified) {
+        std::lock_guard lock(connectionsMutex);
+        if (const auto it = activeConnections.find(clientFd); it != activeConnections.end() && it->second.identified) {
             serviceId = it->second.serviceId;
         }
     }
@@ -296,7 +294,7 @@ bool ServiceBroker::handlePingMessage(int clientFd, const Json::Value& message) 
         if (message.isMember("stats")) {
             const auto& stats = message["stats"];
             if (stats.isMember("currentLoad")) {
-                uint32_t load = stats["currentLoad"].asUInt();
+                const uint32_t load = stats["currentLoad"].asUInt();
                 registry.updateServiceStats(serviceId, load, std::chrono::milliseconds(0));
             }
         }
@@ -307,12 +305,11 @@ bool ServiceBroker::handlePingMessage(int clientFd, const Json::Value& message) 
         // Send pong
         Json::Value pongMessage;
         pongMessage["type"] = "PONG";
-        pongMessage["timestamp"] = static_cast<Json::Int64>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count());
-        
-        Json::StreamWriterBuilder builder;
-        std::string pongStr = Json::writeString(builder, pongMessage);
+        pongMessage["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+
+        const Json::StreamWriterBuilder builder;
+        const std::string pongStr = Json::writeString(builder, pongMessage);
         
         return sendMessage(clientFd, pongStr);
     }
@@ -320,8 +317,8 @@ bool ServiceBroker::handlePingMessage(int clientFd, const Json::Value& message) 
     return false;
 }
 
-bool ServiceBroker::handleResponseMessage(int clientFd, const Json::Value& message) {
-    std::string requestId = message["requestId"].asString();
+bool ServiceBroker::handleResponseMessage(const int clientFd, const Json::Value& message) {
+    const std::string requestId = message["requestId"].asString();
     
     // TODO: Handle response forwarding to original client
     // For now, just log it
@@ -331,11 +328,10 @@ bool ServiceBroker::handleResponseMessage(int clientFd, const Json::Value& messa
     return true;
 }
 
-void ServiceBroker::closeConnection(int clientFd) {
-    std::lock_guard<std::mutex> lock(connectionsMutex);
-    
-    auto it = activeConnections.find(clientFd);
-    if (it != activeConnections.end()) {
+void ServiceBroker::closeConnection(const int clientFd) {
+    std::lock_guard lock(connectionsMutex);
+
+    if (const auto it = activeConnections.find(clientFd); it != activeConnections.end()) {
         std::cout << "Closing connection fd=" << clientFd 
                   << " (" << it->second.address << ")" << std::endl;
         
@@ -361,7 +357,7 @@ Json::Value ServiceBroker::getBrokerStatus() const {
 }
 
 Json::Value ServiceBroker::getConnectionStatus() const {
-    std::lock_guard<std::mutex> lock(connectionsMutex);
+    std::lock_guard lock(connectionsMutex);
     
     Json::Value connections(Json::arrayValue);
     for (const auto& [fd, conn] : activeConnections) {
@@ -371,10 +367,10 @@ Json::Value ServiceBroker::getConnectionStatus() const {
         connInfo["type"] = conn.connectionType;
         connInfo["serviceId"] = conn.serviceId;
         connInfo["identified"] = conn.identified;
-        
-        auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+
+        const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - conn.connectedAt).count();
-        connInfo["uptimeSeconds"] = static_cast<Json::Int64>(uptime);
+        connInfo["uptimeSeconds"] = uptime;
         
         connections.append(connInfo);
     }
@@ -383,17 +379,17 @@ Json::Value ServiceBroker::getConnectionStatus() const {
 }
 
 size_t ServiceBroker::getActiveConnectionCount() const {
-    std::lock_guard<std::mutex> lock(connectionsMutex);
+    std::lock_guard lock(connectionsMutex);
     return activeConnections.size();
 }
 
 void ServiceBroker::setMessageHandler(const std::string& messageType, MessageHandler handler) {
-    messageHandlers[messageType] = handler;
+    messageHandlers[messageType] = std::move(handler);
 }
 
 // Helper methods
-bool ServiceBroker::sendMessage(int socketFd, const std::string& message) {
-    ssize_t sent = send(socketFd, message.c_str(), message.length(), MSG_NOSIGNAL);
+bool ServiceBroker::sendMessage(const int socketFd, const std::string& message) {
+    const ssize_t sent = send(socketFd, message.c_str(), message.length(), MSG_NOSIGNAL);
     return sent == static_cast<ssize_t>(message.length());
 }
 
@@ -411,7 +407,7 @@ void ServiceBroker::performHealthCheck() {
 }
 
 int ServiceBroker::createTcpSocket() {
-    int socketFd = socket(AF_INET, SOCK_STREAM, 0);
+    const int socketFd = socket(AF_INET, SOCK_STREAM, 0);
     if (socketFd == -1) {
         return -1;
     }

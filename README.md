@@ -10,7 +10,7 @@ Modular C++ prooject with multiple supbprojects in `src/`, each with:
 
 - `CMakeLists.txt`: root configiration and googletest dependency 
 - `src/greeting_app/`: example subproject
-- `src/loader/`: main loader subproject
+- `src/service_broker/`: main service broker subproject
 - `tools/new_subproject.sh`: new subprject generator
 
 ## Build and tests

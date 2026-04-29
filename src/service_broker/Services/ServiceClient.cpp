@@ -6,13 +6,13 @@
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
-#include <cstring>
 #include <thread>
+#include <utility>
 
 namespace servicebroker {
 
-ServiceClient::ServiceClient(const ServiceIdentity& serviceIdentity, const std::string& address)
-    : identity(serviceIdentity), brokerAddress(address) {
+ServiceClient::ServiceClient(ServiceIdentity  serviceIdentity, const std::string& address)
+    : identity(std::move(serviceIdentity)), brokerAddress(address) {
 }
 
 ServiceClient::~ServiceClient() {
@@ -70,7 +70,7 @@ bool ServiceClient::registerService() {
     return false;
 }
 
-void ServiceClient::setRequestHandler(RequestHandler handler) {
+void ServiceClient::setRequestHandler(const RequestHandler &handler) {
     requestHandler = handler;
 }
 
@@ -135,26 +135,26 @@ void ServiceClient::stop() {
     if (pingThread.joinable()) pingThread.join();
 }
 
-int ServiceClient::createConnection() {
+int ServiceClient::createConnection() const {
     if (brokerAddress.starts_with("tcp://")) {
         // TCP connection
         std::string address = brokerAddress.substr(6); // Remove "tcp://"
-        size_t colonPos = address.find(':');
+        const size_t colonPos = address.find(':');
         if (colonPos == std::string::npos) {
             std::cerr << "Invalid TCP address format" << std::endl;
             return -1;
         }
-        
-        std::string host = address.substr(0, colonPos);
-        int port = std::stoi(address.substr(colonPos + 1));
-        
-        int sockFd = socket(AF_INET, SOCK_STREAM, 0);
+
+        const std::string host = address.substr(0, colonPos);
+        const int port = std::stoi(address.substr(colonPos + 1));
+
+        const int sockFd = socket(AF_INET, SOCK_STREAM, 0);
         if (sockFd == -1) {
             std::cerr << "Failed to create TCP socket" << std::endl;
             return -1;
         }
-        
-        struct sockaddr_in serverAddr;
+
+        sockaddr_in serverAddr{};
         serverAddr.sin_family = AF_INET;
         serverAddr.sin_port = htons(port);
         
@@ -164,7 +164,7 @@ int ServiceClient::createConnection() {
             return -1;
         }
         
-        if (::connect(sockFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        if (::connect(sockFd, reinterpret_cast<struct sockaddr *>(&serverAddr), sizeof(serverAddr)) < 0) {
             std::cerr << "Failed to connect to TCP " << host << ":" << port << std::endl;
             close(sockFd);
             return -1;
@@ -172,21 +172,22 @@ int ServiceClient::createConnection() {
         
         return sockFd;
         
-    } else if (brokerAddress.starts_with("unix://")) {
+    }
+    if (brokerAddress.starts_with("unix://")) {
         // UNIX socket connection
-        std::string socketPath = brokerAddress.substr(7); // Remove "unix://"
-        
-        int sockFd = socket(AF_UNIX, SOCK_STREAM, 0);
+        const std::string socketPath = brokerAddress.substr(7); // Remove "unix://"
+
+        const int sockFd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (sockFd == -1) {
             std::cerr << "Failed to create UNIX socket" << std::endl;
             return -1;
         }
-        
-        struct sockaddr_un serverAddr;
+
+        sockaddr_un serverAddr{};
         serverAddr.sun_family = AF_UNIX;
         strncpy(serverAddr.sun_path, socketPath.c_str(), sizeof(serverAddr.sun_path) - 1);
         
-        if (::connect(sockFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        if (::connect(sockFd, reinterpret_cast<sockaddr *>(&serverAddr), sizeof(serverAddr)) < 0) {
             std::cerr << "Failed to connect to UNIX socket " << socketPath << std::endl;
             close(sockFd);
             return -1;
@@ -194,20 +195,20 @@ int ServiceClient::createConnection() {
         
         return sockFd;
     }
-    
+
     std::cerr << "Unknown address format: " << brokerAddress << std::endl;
     return -1;
 }
 
-bool ServiceClient::sendMessage(const Json::Value& message) {
+bool ServiceClient::sendMessage(const Json::Value& message) const {
     if (socketFd == -1) {
         return false;
     }
-    
-    Json::StreamWriterBuilder builder;
-    std::string messageStr = Json::writeString(builder, message);
-    
-    ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
+
+    const Json::StreamWriterBuilder builder;
+    const std::string messageStr = Json::writeString(builder, message);
+
+    const ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
     return sent == static_cast<ssize_t>(messageStr.length());
 }
 
@@ -215,7 +216,7 @@ void ServiceClient::messageLoop() {
     char buffer[4096];
     
     while (connected.load()) {
-        ssize_t bytesRead = recv(socketFd, buffer, sizeof(buffer) - 1, 0);
+        const ssize_t bytesRead = recv(socketFd, buffer, sizeof(buffer) - 1, 0);
         if (bytesRead <= 0) {
             if (connected.load()) {
                 std::cerr << "Connection lost to broker" << std::endl;
@@ -248,18 +249,15 @@ void ServiceClient::pingLoop() {
 void ServiceClient::handleMessage(const std::string& message) {
     try {
         Json::Value jsonMessage;
-        Json::CharReaderBuilder reader;
         Json::String errs;
         std::istringstream iss(message);
         
-        if (!Json::parseFromStream(reader, iss, &jsonMessage, &errs)) {
+        if (const Json::CharReaderBuilder reader; !Json::parseFromStream(reader, iss, &jsonMessage, &errs)) {
             std::cerr << "Invalid JSON from broker: " << errs << std::endl;
             return;
         }
-        
-        std::string messageType = jsonMessage["type"].asString();
-        
-        if (messageType == "ACKNOWLEDGED") {
+
+        if (std::string messageType = jsonMessage["type"].asString(); messageType == "ACKNOWLEDGED") {
             registered.store(true);
             std::cout << "Service registered successfully: " << jsonMessage["serviceId"].asString() << std::endl;
         } else if (messageType == "REQUEST") {
@@ -280,15 +278,15 @@ void ServiceClient::handleRequest(const Json::Value& message) {
         std::cerr << "No request handler set for service" << std::endl;
         return;
     }
-    
-    std::string requestId = message["requestId"].asString();
+
+    const std::string requestId = message["requestId"].asString();
     const Json::Value& requestData = message["data"];
     
     std::cout << "Processing request " << requestId << std::endl;
     
     try {
         // Process request
-        Json::Value response = requestHandler(requestData);
+        const Json::Value response = requestHandler(requestData);
         
         // Send response back to broker
         sendResponse(requestId, response);

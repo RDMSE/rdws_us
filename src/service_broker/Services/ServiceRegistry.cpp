@@ -3,11 +3,12 @@
 #include <random>
 #include <chrono>
 #include <iostream>
+#include <ranges>
 
 namespace servicebroker {
 
 bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     if (identity.serviceId.empty()) {
         std::cerr << "Cannot register service with empty serviceId" << std::endl;
@@ -15,7 +16,7 @@ bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
     }
     
     // Check if service already exists
-    if (identities.find(identity.serviceId) != identities.end()) {
+    if (identities.contains(identity.serviceId)) {
         std::cout << "Service " << identity.serviceId << " already registered, updating..." << std::endl;
         return updateService(identity);
     }
@@ -33,9 +34,9 @@ bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
 }
 
 bool ServiceRegistry::unregisterService(const std::string& serviceId) {
-    std::lock_guard<std::mutex> lock(registryMutex);
-    
-    auto it = identities.find(serviceId);
+    std::lock_guard lock(registryMutex);
+
+    const auto it = identities.find(serviceId);
     if (it == identities.end()) {
         return false;
     }
@@ -51,9 +52,9 @@ bool ServiceRegistry::unregisterService(const std::string& serviceId) {
 }
 
 bool ServiceRegistry::updateService(const ServiceIdentity& identity) {
-    std::lock_guard<std::mutex> lock(registryMutex);
-    
-    auto it = identities.find(identity.serviceId);
+    std::lock_guard lock(registryMutex);
+
+    const auto it = identities.find(identity.serviceId);
     if (it == identities.end()) {
         return false;
     }
@@ -71,14 +72,14 @@ bool ServiceRegistry::updateService(const ServiceIdentity& identity) {
 }
 
 ServiceIdentity* ServiceRegistry::findServiceById(const std::string& serviceId) {
-    std::lock_guard<std::mutex> lock(registryMutex);
-    auto it = identities.find(serviceId);
+    std::lock_guard lock(registryMutex);
+    const auto it = identities.find(serviceId);
     return (it != identities.end()) ? &it->second : nullptr;
 }
 
 const ServiceIdentity* ServiceRegistry::findServiceById(const std::string& serviceId) const {
-    std::lock_guard<std::mutex> lock(registryMutex);
-    auto it = identities.find(serviceId);
+    std::lock_guard lock(registryMutex);
+    const auto it = identities.find(serviceId);
     return (it != identities.end()) ? &it->second : nullptr;
 }
 
@@ -86,9 +87,9 @@ std::vector<std::string> ServiceRegistry::findServicesByCapability(const std::st
     std::lock_guard<std::mutex> lock(registryMutex);
     
     std::vector<std::string> result;
-    auto range = capabilityIndex.equal_range(capability);
+    auto [fst, snd] = capabilityIndex.equal_range(capability);
     
-    for (auto it = range.first; it != range.second; ++it) {
+    for (auto it = fst; it != snd; ++it) {
         result.push_back(it->second);
     }
     
@@ -97,9 +98,8 @@ std::vector<std::string> ServiceRegistry::findServicesByCapability(const std::st
 
 std::vector<std::string> ServiceRegistry::findServicesByMachine(const std::string& machine) const {
     std::lock_guard<std::mutex> lock(registryMutex);
-    
-    auto it = machineIndex.find(machine);
-    if (it != machineIndex.end()) {
+
+    if (const auto it = machineIndex.find(machine); it != machineIndex.end()) {
         return it->second;
     }
     return {};
@@ -107,16 +107,15 @@ std::vector<std::string> ServiceRegistry::findServicesByMachine(const std::strin
 
 std::vector<std::string> ServiceRegistry::findServicesByEnvironment(const std::string& environment) const {
     std::lock_guard<std::mutex> lock(registryMutex);
-    
-    auto it = environmentIndex.find(environment);
-    if (it != environmentIndex.end()) {
+
+    if (const auto it = environmentIndex.find(environment); it != environmentIndex.end()) {
         return it->second;
     }
     return {};
 }
 
 std::vector<std::string> ServiceRegistry::findServicesByName(const std::string& serviceName) const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     std::vector<std::string> result;
     for (const auto& [serviceId, identity] : identities) {
@@ -134,14 +133,13 @@ std::vector<std::string> ServiceRegistry::findHealthyServices() const {
 }
 
 std::vector<std::string> ServiceRegistry::findAvailableServices(const std::string& capability) const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     std::vector<std::string> result;
     auto serviceIds = findServicesByCapability(capability);
     
     for (const auto& serviceId : serviceIds) {
-        auto it = identities.find(serviceId);
-        if (it != identities.end() && it->second.isHealthy() && !it->second.isOverloaded()) {
+        if (auto it = identities.find(serviceId); it != identities.end() && it->second.isHealthy() && !it->second.isOverloaded()) {
             result.push_back(serviceId);
         }
     }
@@ -157,7 +155,7 @@ std::string ServiceRegistry::selectBestService(const std::string& capability,
         return "";
     }
     
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     switch (strategy) {
         case LoadBalancingStrategy::ROUND_ROBIN: {
@@ -172,10 +170,8 @@ std::string ServiceRegistry::selectBestService(const std::string& capability,
             double minLoad = 100.0;
             
             for (const auto& serviceId : availableServices) {
-                auto it = identities.find(serviceId);
-                if (it != identities.end()) {
-                    double load = it->second.getLoadPercentage();
-                    if (load < minLoad) {
+                if (auto it = identities.find(serviceId); it != identities.end()) {
+                    if (double load = it->second.getLoadPercentage(); load < minLoad) {
                         minLoad = load;
                         bestService = serviceId;
                     }
@@ -212,7 +208,7 @@ std::string ServiceRegistry::selectBestService(const std::string& capability,
 }
 
 size_t ServiceRegistry::getServiceCount() const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     return identities.size();
 }
 
@@ -221,24 +217,24 @@ size_t ServiceRegistry::getHealthyServiceCount() const {
 }
 
 std::vector<std::string> ServiceRegistry::getAllServiceIds() const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     std::vector<std::string> result;
-    for (const auto& [serviceId, _] : identities) {
+    for (const auto &serviceId: identities | std::views::keys) {
         result.push_back(serviceId);
     }
     return result;
 }
 
 Json::Value ServiceRegistry::getRegistryStatus() const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     Json::Value status;
     status["totalServices"] = static_cast<int>(identities.size());
     status["healthyServices"] = static_cast<int>(findHealthyServices().size());
     
     Json::Value servicesArray(Json::arrayValue);
-    for (const auto& [serviceId, identity] : identities) {
+    for (const auto &identity: identities | std::views::values) {
         servicesArray.append(identity.toJson());
     }
     status["services"] = servicesArray;
@@ -247,17 +243,17 @@ Json::Value ServiceRegistry::getRegistryStatus() const {
 }
 
 std::vector<ServiceIdentity> ServiceRegistry::getAllServices() const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     std::vector<ServiceIdentity> result;
-    for (const auto& [_, identity] : identities) {
+    for (const auto &identity: identities | std::views::values) {
         result.push_back(identity);
     }
     return result;
 }
 
 void ServiceRegistry::removeUnhealthyServices(std::chrono::seconds timeout) {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     std::vector<std::string> toRemove;
     for (const auto& [serviceId, identity] : identities) {
@@ -275,9 +271,8 @@ void ServiceRegistry::removeUnhealthyServices(std::chrono::seconds timeout) {
 void ServiceRegistry::updateServiceStats(const std::string& serviceId, uint32_t currentLoad, 
                                        std::chrono::milliseconds responseTime) {
     std::lock_guard<std::mutex> lock(registryMutex);
-    
-    auto it = identities.find(serviceId);
-    if (it != identities.end()) {
+
+    if (const auto it = identities.find(serviceId); it != identities.end()) {
         it->second.currentLoad = currentLoad;
         it->second.totalRequests++;
         
@@ -285,16 +280,16 @@ void ServiceRegistry::updateServiceStats(const std::string& serviceId, uint32_t 
         if (it->second.totalRequests == 1) {
             it->second.avgResponseTime = responseTime;
         } else {
-            auto avgMs = it->second.avgResponseTime.count();
-            auto newMs = responseTime.count();
-            auto newAvg = (avgMs * 0.9) + (newMs * 0.1); // Weighted average
+            const auto avgMs = it->second.avgResponseTime.count();
+            const auto newMs = responseTime.count();
+            const auto newAvg = (static_cast<double>(avgMs) * 0.9) + (static_cast<double>(newMs) * 0.1); // Weighted average
             it->second.avgResponseTime = std::chrono::milliseconds(static_cast<long>(newAvg));
         }
     }
 }
 
 void ServiceRegistry::recordServiceError(const std::string& serviceId) {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     auto it = identities.find(serviceId);
     if (it != identities.end()) {
@@ -303,7 +298,7 @@ void ServiceRegistry::recordServiceError(const std::string& serviceId) {
 }
 
 void ServiceRegistry::pingService(const std::string& serviceId) {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     auto it = identities.find(serviceId);
     if (it != identities.end()) {
@@ -312,7 +307,7 @@ void ServiceRegistry::pingService(const std::string& serviceId) {
 }
 
 std::vector<std::string> ServiceRegistry::findServices(std::function<bool(const ServiceIdentity&)> predicate) const {
-    std::lock_guard<std::mutex> lock(registryMutex);
+    std::lock_guard lock(registryMutex);
     
     std::vector<std::string> result;
     for (const auto& [serviceId, identity] : identities) {
@@ -340,8 +335,8 @@ void ServiceRegistry::addToIndexes(const ServiceIdentity& identity) {
 void ServiceRegistry::removeFromIndexes(const ServiceIdentity& identity) {
     // Remove from capability index
     for (const auto& capability : identity.capabilities) {
-        auto range = capabilityIndex.equal_range(capability);
-        for (auto it = range.first; it != range.second; ++it) {
+        auto [fst, snd] = capabilityIndex.equal_range(capability);
+        for (auto it = fst; it != snd; ++it) {
             if (it->second == identity.serviceId) {
                 capabilityIndex.erase(it);
                 break;
@@ -352,14 +347,14 @@ void ServiceRegistry::removeFromIndexes(const ServiceIdentity& identity) {
     // Remove from machine index
     auto& machineServices = machineIndex[identity.machineName];
     machineServices.erase(
-        std::remove(machineServices.begin(), machineServices.end(), identity.serviceId),
+        std::ranges::remove(machineServices, identity.serviceId).begin(),
         machineServices.end()
     );
     
     // Remove from environment index
     auto& envServices = environmentIndex[identity.environment];
     envServices.erase(
-        std::remove(envServices.begin(), envServices.end(), identity.serviceId),
+        std::ranges::remove(envServices, identity.serviceId).begin(),
         envServices.end()
     );
 }

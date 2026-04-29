@@ -5,7 +5,6 @@
 #include <atomic>
 #include <functional>
 #include <map>
-#include <queue>
 #include <mutex>
 
 namespace servicebroker {
@@ -58,7 +57,7 @@ private:
     std::thread healthCheckThread;
     
 public:
-    explicit ServiceBroker(int port = 8080, const std::string& unixSocket = "/tmp/service_broker.sock");
+    explicit ServiceBroker(int port = 8080, std::string  unixSocket = "/tmp/service_broker.sock");
     ~ServiceBroker();
     
     // Lifecycle management
@@ -79,7 +78,7 @@ public:
     // Protocol handlers
     bool handleIdentifyMessage(int clientFd, const Json::Value& message);
     bool handlePingMessage(int clientFd, const Json::Value& message);
-    bool handleResponseMessage(int clientFd, const Json::Value& message);
+    static bool handleResponseMessage(int clientFd, const Json::Value& message);
     
     // Request routing
     std::string sendRequest(const std::string& capability, const Json::Value& requestData, 
@@ -100,14 +99,15 @@ public:
     
 private:
     // Helper methods
-    bool sendMessage(int socketFd, const std::string& message);
+    static bool sendMessage(int socketFd, const std::string& message);
     std::string generateRequestId();
-    void cleanupExpiredRequests();
+
+    static void cleanupExpiredRequests();
     void performHealthCheck();
     
     // Socket helpers
-    int createTcpSocket();
-    int createUnixSocket();
+    static int createTcpSocket();
+    static int createUnixSocket();
     void setSocketNonBlocking(int socketFd);
 };
 
