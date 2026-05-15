@@ -1,59 +1,59 @@
-#include "../Services/ServiceBroker.h"
+#include "../Services/ServiceGateway.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
 
-using namespace servicebroker;
+using namespace servicegateway;
 
 int main()
 {
-    std::cout << "=== ServiceBroker Example ===" << '\n';
+    std::cout << "=== ServiceGateway Example ===" << '\n';
 
-    // Create and start broker
-    ServiceBroker broker(8080, "/tmp/example_service_broker.sock");
+    // Create and start gateway
+    ServiceGateway gateway(8080, "/tmp/example_service_gateway.sock");
 
-    if (!broker.start())
+    if (!gateway.start())
     {
-        std::cerr << "Failed to start broker" << '\n';
+        std::cerr << "Failed to start gateway" << '\n';
         return 1;
     }
 
-    std::cout << "\nBroker started! Waiting for service connections..." << '\n';
+    std::cout << "\nGateway started! Waiting for service connections..." << '\n';
     std::cout << "Services can connect via:" << '\n';
     std::cout << "  TCP: localhost:8080" << '\n';
-    std::cout << "  UNIX: /tmp/example_service_broker.sock" << '\n';
+    std::cout << "  UNIX: /tmp/example_service_gateway.sock" << '\n';
 
-    // Monitor broker status
-    std::thread monitorThread([&broker]()
+    // Monitor gateway status
+    std::thread monitorThread([&gateway]()
                               {
-        while (broker.isRunning()) {
+        while (gateway.isRunning()) {
             std::this_thread::sleep_for(std::chrono::seconds(10));
             
-            auto status = broker.getBrokerStatus();
-            std::cout << "\n--- Broker Status ---" << '\n';
-            std::cout << "Active Connections: " << status["activeConnections"].asInt() << '\n';
-            std::cout << "Registered Services: " << status["registryStatus"]["totalServices"].asInt() << '\n';
-            std::cout << "Healthy Services: " << status["registryStatus"]["healthyServices"].asInt() << '\n';
+            auto status = gateway.getBrokerStatus();
+            std::cout << "\n--- Gateway Status ---" << '\n';
+            std::cout << "Active Connections: " << status["activeConnections"].GetInt() << '\n';
+            std::cout << "Registered Services: " << status["registryStatus"]["totalServices"].GetInt() << '\n';
+            std::cout << "Healthy Services: " << status["registryStatus"]["healthyServices"].GetInt() << '\n';
             
             // Show connection details
-            auto connections = broker.getConnectionStatus();
-            if (connections.isArray() && connections.size() > 0) {
+            auto connections = gateway.getConnectionStatus();
+            if (connections.IsArray() && connections.Size() > 0) {
                 std::cout << "\nActive Connections:" << '\n';
-                for (const auto& conn : connections) {
-                    std::cout << "  fd=" << conn["fd"].asInt() 
-                              << " type=" << conn["type"].asString()
-                              << " addr=" << conn["address"].asString();
-                    if (conn["identified"].asBool()) {
-                        std::cout << " serviceId=" << conn["serviceId"].asString();
+                for (const auto& conn : connections.GetArray()) {
+                    std::cout << "  fd=" << conn["fd"].GetInt()
+                              << " type=" << conn["type"].GetString()
+                              << " addr=" << conn["address"].GetString();
+                    if (conn["identified"].GetBool()) {
+                        std::cout << " serviceId=" << conn["serviceId"].GetString();
                     } else {
                         std::cout << " (not identified)";
                     }
-                    std::cout << " uptime=" << conn["uptimeSeconds"].asInt64() << "s" << '\n';
+                    std::cout << " uptime=" << conn["uptimeSeconds"].GetInt64() << "s" << '\n';
                 }
             }
             
             // Show registered services
-            const auto& registry = broker.getRegistry();
+            const auto& registry = gateway.getRegistry();
             auto serviceIds = registry.getAllServiceIds();
             if (!serviceIds.empty()) {
                 std::cout << "\nRegistered Services:" << '\n';
@@ -79,12 +79,12 @@ int main()
             }
         } });
 
-    std::cout << "\nPress Enter to stop broker..." << '\n';
+    std::cout << "\nPress Enter to stop gateway..." << '\n';
     std::cin.get();
 
-    broker.stop();
+    gateway.stop();
     monitorThread.join();
 
-    std::cout << "Broker stopped." << '\n';
+    std::cout << "Gateway stopped." << '\n';
     return 0;
 }

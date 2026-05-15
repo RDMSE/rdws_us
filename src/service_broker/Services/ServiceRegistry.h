@@ -6,8 +6,9 @@
 #include <string>
 #include <functional>
 #include <mutex>
+#include <rapidjson/document.h>
 
-namespace servicebroker {
+namespace servicegateway {
 
 enum class LoadBalancingStrategy {
     ROUND_ROBIN,
@@ -69,7 +70,7 @@ public:
     std::vector<std::string> getAllServiceIds() const;
     
     // Monitoring
-    Json::Value getRegistryStatus() const;
+    rapidjson::Document getRegistryStatus() const;
     std::vector<ServiceIdentity> getAllServices() const;
     
     // Maintenance operations
@@ -83,4 +84,4 @@ public:
     std::vector<std::string> findServices(const std::function<bool(const ServiceIdentity&)>& predicate) const;
 };
 
-} // namespace servicebroker
+} // namespace servicegateway

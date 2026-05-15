@@ -1,0 +1,46 @@
+#pragma once
+
+#include "Services/ServiceGateway.h"
+
+#include <atomic>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+
+#include <httplib.h>
+#include <rapidjson/document.h>
+
+namespace servicegateway {
+
+class HttpGateway {
+public:
+    HttpGateway(ServiceGateway &gateway, int port = 3001, std::string host = "0.0.0.0");
+
+    bool start();
+    void stop();
+    bool isRunning() const { return running_.load(); }
+
+private:
+    ServiceGateway &gateway_;
+    std::string host_;
+    int port_;
+    std::atomic<bool> running_{false};
+    httplib::Server server_;
+    std::thread serverThread_;
+
+    void registerRoutes();
+    static std::optional<std::string> extractCapability(const std::string &path);
+    static std::optional<std::string> extractRequestId(const std::string &path);
+    static std::string documentToString(const rapidjson::Document &document);
+    static rapidjson::Document documentFromRequest(const httplib::Request &request,
+                                                   const std::string &capability);
+    static rapidjson::Document buildAcceptedResponse(const std::string &capability,
+                                                     const std::string &requestId,
+                                                     const rapidjson::Document &event);
+    static rapidjson::Document buildErrorResponse(const std::string &message, int statusCode);
+    static std::string responseDocumentToBody(const rapidjson::Document &document);
+};
+
+} // namespace servicegateway

@@ -3,9 +3,8 @@
 #include <random>
 #include <chrono>
 #include <iostream>
-#include <ranges>
 
-namespace servicebroker
+namespace servicegateway
 {
 
     bool ServiceRegistry::registerService(const ServiceIdentity &identity)
@@ -19,7 +18,7 @@ namespace servicebroker
         }
 
         // Check if service already exists
-        if (identities.contains(identity.serviceId))
+        if (identities.find(identity.serviceId) != identities.end())
         {
             std::cout << "Service " << identity.serviceId << " already registered, updating..." << '\n';
             return updateService(identity);
@@ -156,10 +155,11 @@ namespace servicebroker
         std::lock_guard lock(registryMutex);
 
         std::vector<std::string> result;
-        auto serviceIds = findServicesByCapability(capability);
+        auto [fst, snd] = capabilityIndex.equal_range(capability);
 
-        for (const auto &serviceId : serviceIds)
+        for (auto it = fst; it != snd; ++it)
         {
+            const auto &serviceId = it->second;
             if (auto it = identities.find(serviceId); it != identities.end() && it->second.isHealthy() && !it->second.isOverloaded())
             {
                 result.push_back(serviceId);
@@ -258,27 +258,39 @@ namespace servicebroker
         std::lock_guard lock(registryMutex);
 
         std::vector<std::string> result;
-        for (const auto &serviceId : identities | std::views::keys)
+        for (const auto &[serviceId, identity] : identities)
         {
             result.push_back(serviceId);
         }
         return result;
     }
 
-    Json::Value ServiceRegistry::getRegistryStatus() const
+    rapidjson::Document ServiceRegistry::getRegistryStatus() const
     {
         std::lock_guard lock(registryMutex);
 
-        Json::Value status;
-        status["totalServices"] = static_cast<int>(identities.size());
-        status["healthyServices"] = static_cast<int>(findHealthyServices().size());
+        rapidjson::Document status;
+        status.SetObject();
+        auto &allocator = status.GetAllocator();
 
-        Json::Value servicesArray(Json::arrayValue);
-        for (const auto &identity : identities | std::views::values)
+        size_t healthyCount = 0;
+        for (const auto &[serviceId, identity] : identities)
         {
-            servicesArray.append(identity.toJson());
+            if (identity.isHealthy())
+            {
+                ++healthyCount;
+            }
         }
-        status["services"] = servicesArray;
+
+        status.AddMember("totalServices", static_cast<int>(identities.size()), allocator);
+        status.AddMember("healthyServices", static_cast<int>(healthyCount), allocator);
+
+        rapidjson::Value servicesArray(rapidjson::kArrayType);
+        for (const auto &[serviceId, identity] : identities)
+        {
+            servicesArray.PushBack(identity.toJsonValue(allocator), allocator);
+        }
+        status.AddMember("services", servicesArray, allocator);
 
         return status;
     }
@@ -288,7 +300,7 @@ namespace servicebroker
         std::lock_guard lock(registryMutex);
 
         std::vector<ServiceIdentity> result;
-        for (const auto &identity : identities | std::views::values)
+        for (const auto &[serviceId, identity] : identities)
         {
             result.push_back(identity);
         }
@@ -412,14 +424,14 @@ namespace servicebroker
         // Remove from machine index
         auto &machineServices = machineIndex[identity.machineName];
         machineServices.erase(
-            std::ranges::remove(machineServices, identity.serviceId).begin(),
+            std::remove(machineServices.begin(), machineServices.end(), identity.serviceId),
             machineServices.end());
 
         // Remove from environment index
         auto &envServices = environmentIndex[identity.environment];
         envServices.erase(
-            std::ranges::remove(envServices, identity.serviceId).begin(),
+            std::remove(envServices.begin(), envServices.end(), identity.serviceId),
             envServices.end());
     }
 
-} // namespace servicebroker
+} // namespace servicegateway

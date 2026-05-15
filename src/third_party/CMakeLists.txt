@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
+include(FetchContent)
+
 # Zentraler Einstiegspunkt fuer Third-Party-Abhaengigkeiten.
 add_library(inih_lib
 	inih/ini.c
@@ -15,20 +17,10 @@ set(valijson_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(valijson_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(valijson EXCLUDE_FROM_ALL)
 
-# Build bundled jsoncpp from valijson thirdparty sources
-add_library(jsoncpp_bundled STATIC
-    valijson/thirdparty/jsoncpp/src/lib_json/json_reader.cpp
-    valijson/thirdparty/jsoncpp/src/lib_json/json_value.cpp
-    valijson/thirdparty/jsoncpp/src/lib_json/json_writer.cpp
-)
-target_include_directories(jsoncpp_bundled SYSTEM PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/valijson/thirdparty/jsoncpp/include
-)
-
 # Create wrapper library for ValiJSON with proper configuration
 add_library(valijson_wrapper INTERFACE)
-target_link_libraries(valijson_wrapper INTERFACE ValiJSON::valijson jsoncpp_bundled)
-target_include_directories(valijson_wrapper INTERFACE 
+target_link_libraries(valijson_wrapper INTERFACE ValiJSON::valijson)
+target_include_directories(valijson_wrapper INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/valijson/include
 )
 
@@ -42,4 +34,36 @@ add_library(dotenv_wrapper INTERFACE)
 target_link_libraries(dotenv_wrapper INTERFACE dotenv)
 target_include_directories(dotenv_wrapper INTERFACE 
     ${CMAKE_CURRENT_SOURCE_DIR}/dotenv-cpp/include
+)
+
+add_library(rapidjson_wrapper INTERFACE)
+target_include_directories(rapidjson_wrapper INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/valijson/thirdparty/rapidjson/include
+)
+
+# tl::expected (header-only library)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    tl_expected
+    GIT_REPOSITORY https://github.com/TartanLlama/expected.git
+    GIT_TAG v1.1.0
+)
+FetchContent_Populate(tl_expected)
+
+add_library(expected_wrapper INTERFACE)
+target_include_directories(expected_wrapper INTERFACE
+    ${tl_expected_SOURCE_DIR}/include
+)
+
+# cpp-httplib (header-only HTTP server)
+FetchContent_Declare(
+    httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG v0.15.3
+)
+FetchContent_Populate(httplib)
+
+add_library(httplib_wrapper INTERFACE)
+target_include_directories(httplib_wrapper INTERFACE
+    ${httplib_SOURCE_DIR}
 )

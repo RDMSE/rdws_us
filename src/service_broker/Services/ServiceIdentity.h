@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <json/json.h>
+#include <rapidjson/document.h>
 
-namespace servicebroker
+namespace servicegateway
 {
 
     struct ServiceIdentity
@@ -44,8 +44,9 @@ namespace servicebroker
               version(ver), capabilities(caps), environment(env), maxConcurrent(maxConc) {}
 
         // JSON serialization
-        [[nodiscard]] Json::Value toJson() const;
-        static ServiceIdentity fromJson(const Json::Value &json);
+        [[nodiscard]] rapidjson::Document toJson() const;
+        [[nodiscard]] rapidjson::Value toJsonValue(rapidjson::Document::AllocatorType& allocator) const;
+        static ServiceIdentity fromJson(const rapidjson::Value &json);
 
         // Utility methods
         [[nodiscard]] bool hasCapability(const std::string &capability) const;
@@ -55,4 +56,4 @@ namespace servicebroker
         [[nodiscard]] bool isHealthy(std::chrono::seconds pingTimeout = std::chrono::seconds(60)) const;
     };
 
-} // namespace servicebroker
+} // namespace servicegateway

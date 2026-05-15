@@ -4,10 +4,10 @@
 #include <map>
 #include <set>
 
-namespace servicebroker
+namespace servicegateway
 {
 
-    ServiceMonitor::ServiceMonitor(const ServiceBroker &serviceBroker) : broker(serviceBroker) {}
+    ServiceMonitor::ServiceMonitor(const ServiceGateway &serviceGateway) : gateway(serviceGateway) {}
 
     void ServiceMonitor::displayStatus() const {
         clearScreen();
@@ -19,7 +19,7 @@ namespace servicebroker
     }
 
     void ServiceMonitor::displayContinuous(const int refreshIntervalSeconds) const {
-        while (broker.isRunning()) {
+        while (gateway.isRunning()) {
             displayStatus();
 
             std::cout << "\n"
@@ -56,7 +56,7 @@ namespace servicebroker
     }
 
     void ServiceMonitor::showServicesByCapability(const std::string &capability) const {
-        const auto &registry = broker.getRegistry();
+        const auto &registry = gateway.getRegistry();
         const auto serviceIds = registry.findServicesByCapability(capability);
 
         std::cout << "\n=== Services with capability: " << capability << " ===" << '\n';
@@ -85,7 +85,7 @@ namespace servicebroker
     }
 
     void ServiceMonitor::showServicesByMachine(const std::string &machine) const {
-        const auto &registry = broker.getRegistry();
+        const auto &registry = gateway.getRegistry();
         auto serviceIds = registry.findServicesByMachine(machine);
 
         std::cout << "\n=== Services on machine: " << machine << " ===" << '\n';
@@ -106,7 +106,7 @@ namespace servicebroker
     }
 
     void ServiceMonitor::showHealthStatus() const {
-        const auto &registry = broker.getRegistry();
+        const auto &registry = gateway.getRegistry();
         auto healthyServices = registry.findHealthyServices();
         const auto allServices = registry.getAllServiceIds();
 
@@ -120,7 +120,7 @@ namespace servicebroker
             std::set<std::string> healthySet(healthyServices.begin(), healthyServices.end());
 
             for (const auto &serviceId : allServices) {
-                if (!healthySet.contains(serviceId)) {
+                if (healthySet.find(serviceId) == healthySet.end()) {
                     if (const auto *identity = registry.findServiceById(serviceId)) {
                         const auto secsSinceLastPing = std::chrono::duration_cast<std::chrono::seconds>(
                                                            std::chrono::steady_clock::now() - identity->lastPing)
@@ -141,32 +141,32 @@ namespace servicebroker
         auto time_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
         std::cout << "╔══════════════════════════════════════════════════════════════════════════════╗" << std::endl;
-        std::cout << "║                            SERVICE BROKER MONITOR                            ║" << std::endl;
+        std::cout << "║                           SERVICE GATEWAY MONITOR                            ║" << std::endl;
         std::cout << "╠══════════════════════════════════════════════════════════════════════════════╣" << std::endl;
         std::cout << "║ Time: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << std::string(50, ' ') << " ║" << std::endl;
         std::cout << "╚══════════════════════════════════════════════════════════════════════════════╝" << std::endl;
     }
 
     void ServiceMonitor::printBrokerStatus() const {
-        auto status = broker.getBrokerStatus();
+        auto status = gateway.getBrokerStatus();
 
-        std::cout << "\n📡 BROKER STATUS" << std::endl;
+        std::cout << "\n📡 GATEWAY STATUS" << std::endl;
         std::cout << "┌─────────────────────────────────────────────────────────────────────────┐" << std::endl;
-        std::cout << "│ Running: " << (status["running"].asBool() ? "✅ Yes" : "❌ No") << std::string(55, ' ') << "│" << std::endl;
-        std::cout << "│ TCP Port: " << status["tcpPort"].asInt() << std::string(60, ' ') << "│" << std::endl;
-        std::cout << "│ UNIX Socket: " << status["unixSocket"].asString() << std::string(45, ' ') << "│" << std::endl;
-        std::cout << "│ Active Connections: " << status["activeConnections"].asInt() << std::string(50, ' ') << "│" << std::endl;
-        std::cout << "│ Registered Services: " << status["registryStatus"]["totalServices"].asInt() << std::string(49, ' ') << "│" << std::endl;
-        std::cout << "│ Healthy Services: " << status["registryStatus"]["healthyServices"].asInt() << std::string(52, ' ') << "│" << std::endl;
+        std::cout << "│ Running: " << (status["running"].GetBool() ? "✅ Yes" : "❌ No") << std::string(55, ' ') << "│" << std::endl;
+        std::cout << "│ TCP Port: " << status["tcpPort"].GetInt() << std::string(60, ' ') << "│" << std::endl;
+        std::cout << "│ UNIX Socket: " << status["unixSocket"].GetString() << std::string(45, ' ') << "│" << std::endl;
+        std::cout << "│ Active Connections: " << status["activeConnections"].GetInt() << std::string(50, ' ') << "│" << std::endl;
+        std::cout << "│ Registered Services: " << status["registryStatus"]["totalServices"].GetInt() << std::string(49, ' ') << "│" << std::endl;
+        std::cout << "│ Healthy Services: " << status["registryStatus"]["healthyServices"].GetInt() << std::string(52, ' ') << "│" << std::endl;
         std::cout << "└─────────────────────────────────────────────────────────────────────────┘" << std::endl;
     }
 
     void ServiceMonitor::printConnectionTable() const {
-        auto connections = broker.getConnectionStatus();
+        auto connections = gateway.getConnectionStatus();
 
         std::cout << "\nACTIVE CONNECTIONS" << '\n';
 
-        if (!connections.isArray() || connections.size() == 0) {
+        if (!connections.IsArray() || connections.Size() == 0) {
             std::cout << "   No active connections" << '\n';
             return;
         }
@@ -175,20 +175,20 @@ namespace servicebroker
         std::cout << "│ FD  │ Type │ Address                     │ Service ID      │ Status   │ Uptime   │" << std::endl;
         std::cout << "├─────┼──────┼─────────────────────────────┼─────────────────┼──────────┼──────────┤" << std::endl;
 
-        for (const auto &conn : connections) {
-            std::string address = conn["address"].asString();
+        for (const auto &conn : connections.GetArray()) {
+            std::string address = conn["address"].GetString();
             if (address.length() > 27) {
                 address = "..." + address.substr(address.length() - 24);
             }
 
-            std::string serviceId = conn["serviceId"].asString();
+            std::string serviceId = conn["serviceId"].GetString();
             if (serviceId.length() > 15) {
                 serviceId = serviceId.substr(0, 12) + "...";
             }
 
-            std::string status = conn["identified"].asBool() ? "✅ Ready" : "⏳ Pending";
+            std::string status = conn["identified"].GetBool() ? "✅ Ready" : "⏳ Pending";
 
-            const auto uptimeSeconds = conn["uptimeSeconds"].asInt64();
+            const auto uptimeSeconds = conn["uptimeSeconds"].GetInt64();
             std::string uptime;
             if (uptimeSeconds < 60) {
                 uptime = std::to_string(uptimeSeconds) + "s";
@@ -202,8 +202,8 @@ namespace servicebroker
                 uptime = std::to_string(hours) + "h" + std::to_string(minutes) + "m";
             }
 
-            std::cout << "│ " << std::left << std::setw(3) << conn["fd"].asInt()
-                      << " │ " << std::setw(4) << conn["type"].asString()
+            std::cout << "│ " << std::left << std::setw(3) << conn["fd"].GetInt()
+                      << " │ " << std::setw(4) << conn["type"].GetString()
                       << " │ " << std::setw(27) << address
                       << " │ " << std::setw(15) << serviceId
                       << " │ " << std::setw(8) << status
@@ -214,7 +214,7 @@ namespace servicebroker
     }
 
     void ServiceMonitor::printServiceTable() const {
-        const auto &registry = broker.getRegistry();
+        const auto &registry = gateway.getRegistry();
         const auto services = registry.getAllServices();
 
         std::cout << "\nREGISTERED SERVICES" << '\n';
@@ -271,7 +271,7 @@ namespace servicebroker
     }
 
     void ServiceMonitor::printCapabilityIndex() const {
-        const auto &registry = broker.getRegistry();
+        const auto &registry = gateway.getRegistry();
         const auto allServices = registry.getAllServices();
 
         // Build capability index
@@ -316,4 +316,4 @@ namespace servicebroker
         std::cout << "└──────────────────────┴─────────┴─────────────────────────────────────────────┘" << std::endl;
     }
 
-} // namespace servicebroker
+} // namespace servicegateway

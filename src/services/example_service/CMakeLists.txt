@@ -3,10 +3,10 @@
 # Create the example service executable
 add_executable(example_service example_service.cpp)
 
-# Link with service_broker_core for ServiceClient access  
-target_link_libraries(example_service PRIVATE service_broker_core)
+# Link with service_gateway_core for ServiceClient access
+target_link_libraries(example_service PRIVATE service_gateway_core)
 
-# Include directories for ServiceBroker headers
+# Include directories for ServiceGateway headers
 target_include_directories(example_service PRIVATE 
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/service_broker

@@ -5,27 +5,35 @@
 #include <unistd.h>
 #include <random>
 
-using namespace servicebroker;
+using namespace servicegateway;
 
 // Example service that provides greeting capabilities
-Json::Value processGreeting(const Json::Value& request) {
-    std::string name = request.get("name", "World").asString();
-    std::string language = request.get("language", "en").asString();
-    
-    Json::Value response;
+rapidjson::Document processGreeting(const rapidjson::Document& request) {
+    std::string name = "World";
+    std::string language = "en";
+    if (request.HasMember("name") && request["name"].IsString()) {
+        name = request["name"].GetString();
+    }
+    if (request.HasMember("language") && request["language"].IsString()) {
+        language = request["language"].GetString();
+    }
+
+    rapidjson::Document response;
+    response.SetObject();
+    auto &allocator = response.GetAllocator();
     
     if (language == "pt") {
-        response["greeting"] = "Olá, " + name + "!";
+        response.AddMember("greeting", rapidjson::Value(("Olá, " + name + "!").c_str(), allocator), allocator);
     } else if (language == "es") {
-        response["greeting"] = "¡Hola, " + name + "!";
+        response.AddMember("greeting", rapidjson::Value(("¡Hola, " + name + "!").c_str(), allocator), allocator);
     } else {
-        response["greeting"] = "Hello, " + name + "!";
+        response.AddMember("greeting", rapidjson::Value(("Hello, " + name + "!").c_str(), allocator), allocator);
     }
     
-    response["service"] = "example_greeting_service";
-    response["processedAt"] = static_cast<Json::Int64>(
+    response.AddMember("service", "example_greeting_service", allocator);
+    response.AddMember("processedAt", static_cast<int64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count());
+            std::chrono::steady_clock::now().time_since_epoch()).count()), allocator);
     
     // Simulate processing time
     std::this_thread::sleep_for(std::chrono::milliseconds(100 + (rand() % 200)));
@@ -37,12 +45,12 @@ int main(int argc, char* argv[]) {
     std::cout << "=== Example Service Client ===" << std::endl;
     
     // Parse command line arguments
-    std::string brokerAddress = "unix:///tmp/example_service_broker.sock";
+    std::string gatewayAddress = "unix:///tmp/example_service_gateway.sock";
     std::string machineName = "localhost";
     std::string serviceId = "greeting_001";
     
     if (argc > 1) {
-        brokerAddress = argv[1];
+        gatewayAddress = argv[1];
     }
     if (argc > 2) {
         machineName = argv[2];
@@ -72,10 +80,10 @@ int main(int argc, char* argv[]) {
         if (i < identity.capabilities.size() - 1) std::cout << ", ";
     }
     std::cout << std::endl;
-    std::cout << "  Broker: " << brokerAddress << std::endl;
+    std::cout << "  Broker: " << gatewayAddress << std::endl;
     
     // Create service client
-    ServiceClient client(identity, brokerAddress);
+    ServiceClient client(identity, gatewayAddress);
     
     // Set request handler
     client.setRequestHandler(processGreeting);

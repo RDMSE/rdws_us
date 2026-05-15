@@ -1,13 +1,25 @@
 #pragma once
 
 #include "ServiceRegistry.h"
-#include <thread>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <map>
 #include <mutex>
+#include <string>
+#include <thread>
+#include <rapidjson/document.h>
 
-namespace servicebroker {
+namespace servicegateway {
+
+enum class RequestState {
+    QUEUED,
+    IN_FLIGHT,
+    COMPLETED,
+    FAILED,
+    TIMED_OUT
+};
 
 struct ClientConnection {
     int socketFd;
@@ -21,17 +33,24 @@ struct ClientConnection {
 struct PendingRequest {
     std::string requestId;
     std::string targetServiceId;
-    std::string clientData;
-    std::chrono::time_point<std::chrono::steady_clock> timestamp = std::chrono::steady_clock::now();
+    std::string capability;
+    std::string requestPayload;
+    std::string responsePayload;
+    std::string errorMessage;
+    RequestState state = RequestState::QUEUED;
+    int statusCode = 202;
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000);
+    std::chrono::time_point<std::chrono::steady_clock> createdAt = std::chrono::steady_clock::now();
+    std::chrono::time_point<std::chrono::steady_clock> updatedAt = createdAt;
 };
 
-using MessageHandler = std::function<void(const std::string& serviceId, const Json::Value& message)>;
+using MessageHandler = std::function<void(const std::string& serviceId, const rapidjson::Document& message)>;
 
-class ServiceBroker {
+class ServiceGateway {
 private:
     // Configuration
     int tcpPort = 8080;
-    std::string unixSocketPath = "/tmp/service_broker.sock";
+    std::string unixSocketPath = "/tmp/service_gateway.sock";
     
     // Core components
     ServiceRegistry registry;
@@ -47,8 +66,9 @@ private:
     
     // Request management
     std::map<std::string, PendingRequest> pendingRequests;
-    std::mutex requestsMutex;
+    mutable std::mutex requestsMutex;
     std::atomic<uint64_t> requestIdCounter{0};
+    std::map<std::string, std::shared_ptr<std::condition_variable>> responseWaiters_;
     
     // Message handlers
     std::map<std::string, MessageHandler> messageHandlers;
@@ -57,8 +77,8 @@ private:
     std::thread healthCheckThread;
     
 public:
-    explicit ServiceBroker(int port = 8080, std::string  unixSocket = "/tmp/service_broker.sock");
-    ~ServiceBroker();
+    explicit ServiceGateway(int port = 8080, std::string  unixSocket = "/tmp/service_gateway.sock");
+    ~ServiceGateway();
     
     // Lifecycle management
     bool start();
@@ -76,19 +96,23 @@ public:
     void closeConnection(int clientFd);
     
     // Protocol handlers
-    bool handleIdentifyMessage(int clientFd, const Json::Value& message);
-    bool handlePingMessage(int clientFd, const Json::Value& message);
-    static bool handleResponseMessage(int clientFd, const Json::Value& message);
+    bool handleIdentifyMessage(int clientFd, const rapidjson::Document& message);
+    bool handlePingMessage(int clientFd, const rapidjson::Document& message);
+    bool handleResponseMessage(int clientFd, const rapidjson::Document& message);
     
     // Request routing
-    std::string sendRequest(const std::string& capability, const Json::Value& requestData, 
+    std::string sendRequest(const std::string& capability, const rapidjson::Document& requestData,
                           LoadBalancingStrategy strategy = LoadBalancingStrategy::LEAST_LOADED);
-    bool sendDirectRequest(const std::string& serviceId, const Json::Value& requestData);
+    bool sendDirectRequest(const std::string& serviceId, const rapidjson::Document& requestData);
+    rapidjson::Document getRequestStatus(const std::string& requestId) const;
+    PendingRequest waitForResponse(const std::string& requestId,
+                                   std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
     
     // Monitoring and management
-    Json::Value getBrokerStatus() const;
-    Json::Value getConnectionStatus() const;
+    rapidjson::Document getBrokerStatus() const;
+    rapidjson::Document getConnectionStatus() const;
     size_t getActiveConnectionCount() const;
+    size_t getTrackedRequestCount() const;
     
     // Message handlers registration
     void setMessageHandler(const std::string& messageType, MessageHandler handler);
@@ -100,9 +124,11 @@ public:
 private:
     // Helper methods
     static bool sendMessage(int socketFd, const std::string& message);
+    static std::string requestStateToString(RequestState state);
+    static std::string serializeJsonValue(const rapidjson::Value& value);
     std::string generateRequestId();
 
-    static void cleanupExpiredRequests();
+    void cleanupExpiredRequests();
     void performHealthCheck();
     
     // Socket helpers
@@ -111,4 +137,10 @@ private:
     void setSocketNonBlocking(int socketFd);
 };
 
-} // namespace servicebroker
+// Compatibility alias for phase-in rename Broker -> Gateway.
+using ServiceBroker = ServiceGateway;
+
+} // namespace servicegateway
+
+// Namespace-level compatibility alias for phase-in rename Broker -> Gateway.
+namespace servicebroker = servicegateway;

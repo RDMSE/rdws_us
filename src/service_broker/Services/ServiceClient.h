@@ -5,16 +5,16 @@
 #include <functional>
 #include <thread>
 #include <atomic>
-#include <json/json.h>
+#include <rapidjson/document.h>
 
-namespace servicebroker {
+namespace servicegateway {
 
-using RequestHandler = std::function<Json::Value(const Json::Value& request)>;
+using RequestHandler = std::function<rapidjson::Document(const rapidjson::Document& request)>;
 
 class ServiceClient {
 private:
     ServiceIdentity identity;
-    std::string brokerAddress;  // "tcp://localhost:8080" or "unix:///tmp/service_broker.sock"
+    std::string gatewayAddress;  // "tcp://localhost:8080" or "unix:///tmp/service_gateway.sock"
     int socketFd = -1;
     
     std::atomic<bool> connected{false};
@@ -26,7 +26,7 @@ private:
     
 public:
     explicit ServiceClient(ServiceIdentity  serviceIdentity,
-                          const std::string& address = "unix:///tmp/service_broker.sock");
+                          const std::string& address = "unix:///tmp/service_gateway.sock");
     ~ServiceClient();
     
     // Connection management
@@ -42,8 +42,9 @@ public:
     void setRequestHandler(const RequestHandler &handler);
     
     // Communication
-    bool sendPing(const Json::Value& stats = Json::Value());
-    bool sendResponse(const std::string& requestId, const Json::Value& response) const;
+    bool sendPing();
+    bool sendPing(const rapidjson::Document& stats);
+    bool sendResponse(const std::string& requestId, const rapidjson::Document& response) const;
     
     // Main event loop
     void run();
@@ -52,14 +53,14 @@ public:
 private:
     // Socket management
     [[nodiscard]] int createConnection() const;
-    [[nodiscard]] bool sendMessage(const Json::Value& message) const;
+    [[nodiscard]] bool sendMessage(const rapidjson::Document& message) const;
     void messageLoop();
     void pingLoop();
     
     // Message handlers
     void handleMessage(const std::string& message);
-    void handleRequest(const Json::Value& message);
-    static void handlePong(const Json::Value& message);
+    void handleRequest(const rapidjson::Document& message);
+    static void handlePong(const rapidjson::Document& message);
 };
 
-} // namespace servicebroker
+} // namespace servicegateway

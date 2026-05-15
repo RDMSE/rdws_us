@@ -19,6 +19,11 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS ON)
 
+# Workaround for RapidJSON v1.1.0 with GCC 14 const member assignment issue
+# Treat it as warning instead of error
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=narrowing -Wno-error=class-memaccess")
+add_compile_options(-fpermissive)
+
 # Configure debug settings
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG")

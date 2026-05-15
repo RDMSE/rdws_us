@@ -1,15 +1,15 @@
 #pragma once
 
-#include "ServiceBroker.h"
+#include "ServiceGateway.h"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
 
-namespace servicebroker {
+namespace servicegateway {
 
 class ServiceMonitor {
 private:
-    const ServiceBroker& broker;
+    const ServiceGateway& gateway;
     
     static void clearScreen() ;
     static void printHeader() ;
@@ -19,7 +19,7 @@ private:
     void printCapabilityIndex() const;
     
 public:
-    explicit ServiceMonitor(const ServiceBroker& serviceBroker);
+    explicit ServiceMonitor(const ServiceGateway& serviceGateway);
     
     void displayStatus() const;
     void displayContinuous(int refreshIntervalSeconds = 5) const;
@@ -31,4 +31,7 @@ public:
     void showHealthStatus() const;
 };
 
-} // namespace servicebroker
+// Compatibility alias for phase-in rename Broker -> Gateway.
+using ServiceGatewayMonitor = ServiceMonitor;
+
+} // namespace servicegateway

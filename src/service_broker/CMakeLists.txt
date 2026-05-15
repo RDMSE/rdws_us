@@ -1,12 +1,12 @@
 
-add_library(service_broker_core
-        # ServiceBroker Architecture (New)
+add_library(service_gateway_core
+        # ServiceGateway Architecture
         Services/ServiceIdentity.h
         Services/ServiceIdentity.cpp
         Services/ServiceRegistry.h
         Services/ServiceRegistry.cpp
-        Services/ServiceBroker.h
-        Services/ServiceBroker.cpp
+        Services/ServiceGateway.h
+        Services/ServiceGateway.cpp
         Services/ServiceClient.h
         Services/ServiceClient.cpp
         Services/ServiceMonitor.h
@@ -16,41 +16,61 @@ add_library(service_broker_core
         Utils/Utils.h
 )
 
-target_include_directories(service_broker_core PUBLIC
+# Compatibility alias — old name kept for external consumers.
+add_library(service_broker_core ALIAS service_gateway_core)
+
+target_include_directories(service_gateway_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/schemas
     ../third_party
     ../shared
 )
 
-target_link_libraries(service_broker_core PUBLIC
+target_link_libraries(service_gateway_core PUBLIC
     inih_lib
     ValiJSON::valijson
     rdws_shared_validation
     rdws_shared_config
 )
 
+add_executable(service_gateway_http
+    service_gateway_http.cpp
+    HttpGateway.cpp
+)
+
+# Compatibility alias — old name kept for external consumers.
+add_executable(service_broker_http ALIAS service_gateway_http)
+
+target_link_libraries(service_gateway_http PRIVATE
+    service_gateway_core
+    rdws_shared_types
+    httplib_wrapper
+)
+
 # --- Executables ---
-add_executable(service_broker_app
+add_executable(service_gateway_app
     main.cpp
 )
-target_link_libraries(service_broker_app PRIVATE service_broker_core)
+target_link_libraries(service_gateway_app PRIVATE service_gateway_core)
+add_executable(service_broker_app ALIAS service_gateway_app)
 
-# ServiceBroker Examples
-add_executable(service_broker_example
-    service_broker_example.cpp
+# ServiceGateway Examples
+add_executable(service_gateway_example
+    service_gateway_example.cpp
 )
-target_link_libraries(service_broker_example PRIVATE service_broker_core)
+target_link_libraries(service_gateway_example PRIVATE service_gateway_core)
+add_executable(service_broker_example ALIAS service_gateway_example)
 
-add_executable(service_broker_monitor
-    service_broker_monitor.cpp
+add_executable(service_gateway_monitor
+    service_gateway_monitor.cpp
 )
-target_link_libraries(service_broker_monitor PRIVATE service_broker_core)
+target_link_libraries(service_gateway_monitor PRIVATE service_gateway_core)
+add_executable(service_broker_monitor ALIAS service_gateway_monitor)
 
 add_executable(example_service_client
     example_service_client.cpp
 )
-target_link_libraries(example_service_client PRIVATE service_broker_core)
+target_link_libraries(example_service_client PRIVATE service_gateway_core)
 
 # --- Unit tests ---
 if(BUILD_TESTING)

@@ -1,6 +1,8 @@
 #include <string>
 #include <vector>
-#include <json/json.h>
+#include <memory>
+#include <rapidjson/document.h>
+#include <utility>
 #include <valijson/schema.hpp>
 #include <valijson/validator.hpp>
 
@@ -44,10 +46,10 @@ namespace rdws::validation {
     SchemaValidator(const SchemaValidator&) = delete;
     SchemaValidator& operator=(const SchemaValidator&) = delete;
 
-    [[nodiscard]] std::vector<ValidationError> validate(const Json::Value& json) const;
+    [[nodiscard]] std::vector<ValidationError> validate(const rapidjson::Document& json) const;
     [[nodiscard]] std::vector<ValidationError> validate(const std::string& jsonString) const;
 
-    [[nodiscard]] bool isValid(const Json::Value& json) const {
+    [[nodiscard]] bool isValid(const rapidjson::Document& json) const {
         return validate(json).empty();
     }
 

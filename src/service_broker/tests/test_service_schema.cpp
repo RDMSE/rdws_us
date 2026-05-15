@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
-#include <json/json.h>
+#include <rapidjson/document.h>
 #include <memory>
 #include "validator/schema_validator.h"
 #include "schemas/service.h"
 
 using namespace rdws::validation;
-using namespace servicebroker::schemas;
+using namespace servicegateway::schemas;
 
 class ServiceSchemaTest : public ::testing::Test {
 protected:
@@ -24,53 +24,60 @@ protected:
 };
 
 TEST_F(ServiceSchemaTest, ValidatesSingleServiceObject) {
-    Json::Value validService;
-    validService["name"] = "test-service";
-    validService["path"] = "./services/test";
-    validService["instances"] = 2;
+    rapidjson::Document validService;
+    validService.SetObject();
+    auto &alloc = validService.GetAllocator();
+    validService.AddMember("name", "test-service", alloc);
+    validService.AddMember("path", "./services/test", alloc);
+    validService.AddMember("instances", 2, alloc);
 
     EXPECT_TRUE(serviceValidator->isValid(validService));
     EXPECT_TRUE(serviceValidator->validate(validService).empty());
 }
 
 TEST_F(ServiceSchemaTest, RejectsServiceWithMissingName) {
-    Json::Value invalidService;
-    invalidService["path"] = "./services/test";
-    invalidService["instances"] = 1;
+    rapidjson::Document invalidService;
+    invalidService.SetObject();
+    auto &alloc = invalidService.GetAllocator();
+    invalidService.AddMember("path", "./services/test", alloc);
+    invalidService.AddMember("instances", 1, alloc);
 
     EXPECT_FALSE(serviceValidator->isValid(invalidService));
-    
+
     auto errors = serviceValidator->validate(invalidService);
     EXPECT_FALSE(errors.empty());
 }
 
 TEST_F(ServiceSchemaTest, RejectsServiceWithInvalidInstancesCount) {
-    Json::Value invalidService;
-    invalidService["name"] = "test-service";
-    invalidService["path"] = "./services/test";
-    invalidService["instances"] = -1; // Invalid: negative instances
+    rapidjson::Document invalidService;
+    invalidService.SetObject();
+    auto &alloc = invalidService.GetAllocator();
+    invalidService.AddMember("name", "test-service", alloc);
+    invalidService.AddMember("path", "./services/test", alloc);
+    invalidService.AddMember("instances", -1, alloc); // Invalid: negative instances
 
     EXPECT_FALSE(serviceValidator->isValid(invalidService));
-    
+
     auto errors = serviceValidator->validate(invalidService);
     EXPECT_FALSE(errors.empty());
 }
 
 TEST_F(ServiceSchemaTest, ValidatesServicesArray) {
-    Json::Value servicesArray(Json::arrayValue);
-    
-    Json::Value service1;
-    service1["name"] = "service-test1";
-    service1["path"] = "./services/test1";
-    service1["instances"] = 1;
-    
-    Json::Value service2;
-    service2["name"] = "service-test2";
-    service2["path"] = "./services/test2";
-    service2["instances"] = 1;
-    
-    servicesArray.append(service1);
-    servicesArray.append(service2);
+    rapidjson::Document servicesArray;
+    servicesArray.SetArray();
+
+    rapidjson::Value service1(rapidjson::kObjectType);
+    service1.AddMember("name", "service-test1", servicesArray.GetAllocator());
+    service1.AddMember("path", "./services/test1", servicesArray.GetAllocator());
+    service1.AddMember("instances", 1, servicesArray.GetAllocator());
+
+    rapidjson::Value service2(rapidjson::kObjectType);
+    service2.AddMember("name", "service-test2", servicesArray.GetAllocator());
+    service2.AddMember("path", "./services/test2", servicesArray.GetAllocator());
+    service2.AddMember("instances", 1, servicesArray.GetAllocator());
+
+    servicesArray.PushBack(service1, servicesArray.GetAllocator());
+    servicesArray.PushBack(service2, servicesArray.GetAllocator());
 
     EXPECT_TRUE(servicesArrayValidator->isValid(servicesArray));
     EXPECT_TRUE(servicesArrayValidator->validate(servicesArray).empty());
@@ -81,7 +88,7 @@ TEST_F(ServiceSchemaTest, ValidatesExistingServicesJsonStructure) {
     std::string servicesJsonContent = R"([
         {
             "name": "service-test1",
-            "path": "./services/test1", 
+            "path": "./services/test1",
             "instances": 1
         },
         {
