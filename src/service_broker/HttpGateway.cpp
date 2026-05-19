@@ -58,105 +58,92 @@ void HttpGateway::stop()
 
 void HttpGateway::registerRoutes()
 {
-    server_.set_pre_routing_handler([this](const httplib::Request &request, httplib::Response &response) {
-        const std::string capability = extractCapability(request.path).value_or("");
+    // POST /invoke/:capability — body is fully available in Post() handlers
+    server_.Post(R"(/invoke/([^/?]+))", [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string capability = request.matches[1];
+        const auto t0 = std::chrono::steady_clock::now();
+        const rapidjson::Document eventDocument = documentFromRequest(request, capability);
+        const std::string requestId = gateway_.sendRequest(capability, eventDocument);
 
-        if (request.method == "POST" && !capability.empty()) {
-            const auto t0 = std::chrono::steady_clock::now();
-            const rapidjson::Document eventDocument = documentFromRequest(request, capability);
-            const std::string requestId = gateway_.sendRequest(capability, eventDocument);
+        rdws::logger::httpRequest(requestId.empty() ? "-" : requestId,
+                                  capability, request.method, request.path);
 
-            rdws::logger::httpRequest(requestId.empty() ? "-" : requestId,
-                                      capability, request.method, request.path);
+        auto respond = [&](int status, const std::string &body) {
+            const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            rdws::logger::httpResponse(requestId.empty() ? "-" : requestId,
+                                       capability, status, latencyMs);
+            gateway_.recordMetric(capability,
+                                  static_cast<double>(latencyMs),
+                                  status < 400,
+                                  status == 504);
+            response.status = status;
+            response.set_content(body, "application/json");
+        };
 
-            auto respond = [&](int status, const std::string &body) {
-                const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - t0).count();
-                rdws::logger::httpResponse(requestId.empty() ? "-" : requestId,
-                                           capability, status, latencyMs);
-                gateway_.recordMetric(capability,
-                                      static_cast<double>(latencyMs),
-                                      status < 400,
-                                      status == 504);
-                response.status = status;
-                response.set_content(body, "application/json");
-            };
-
-            if (requestId.empty()) {
-                const auto error = buildErrorResponse("No backend service is available for capability: " + capability,
-                                                      503);
-                respond(503, documentToString(error));
-                return httplib::Server::HandlerResponse::Handled;
-            }
-
-            const PendingRequest result = gateway_.waitForResponse(requestId);
-
-            if (result.state == RequestState::TIMED_OUT) {
-                respond(504, documentToString(buildErrorResponse("Service response timed out", 504)));
-                return httplib::Server::HandlerResponse::Handled;
-            }
-
-            if (result.state == RequestState::FAILED) {
-                const auto msg = result.errorMessage.empty() ? "Service returned an error" : result.errorMessage;
-                respond(500, documentToString(buildErrorResponse(msg, 500)));
-                return httplib::Server::HandlerResponse::Handled;
-            }
-
-            respond(200, result.responsePayload);
-            return httplib::Server::HandlerResponse::Handled;
+        if (requestId.empty()) {
+            respond(503, documentToString(buildErrorResponse(
+                "No backend service is available for capability: " + capability, 503)));
+            return;
         }
 
-        if (request.method == "GET" && request.path == "/status") {
-            const rapidjson::Document status = gateway_.getBrokerStatus();
-            response.status = 200;
-            response.set_content(documentToString(status), "application/json");
-            return httplib::Server::HandlerResponse::Handled;
+        const PendingRequest result = gateway_.waitForResponse(requestId);
+
+        if (result.state == RequestState::TIMED_OUT) {
+            respond(504, documentToString(buildErrorResponse("Service response timed out", 504)));
+            return;
         }
 
-        if (request.method == "GET" && request.path == "/metrics") {
-            const rapidjson::Document metrics = gateway_.getMetrics();
-            response.status = 200;
-            response.set_content(documentToString(metrics), "application/json");
-            return httplib::Server::HandlerResponse::Handled;
+        if (result.state == RequestState::FAILED) {
+            const auto msg = result.errorMessage.empty() ? "Service returned an error" : result.errorMessage;
+            respond(500, documentToString(buildErrorResponse(msg, 500)));
+            return;
         }
 
-        if (request.method == "GET" && request.path == "/health") {
-            const rapidjson::Document health = gateway_.getHealth();
-            const bool healthy = health.HasMember("status") &&
-                                 std::string(health["status"].GetString()) == "healthy";
-            response.status = healthy ? 200 : 503;
-            response.set_content(documentToString(health), "application/json");
-            return httplib::Server::HandlerResponse::Handled;
-        }
+        respond(200, result.responsePayload);
+    });
 
-        if (request.method == "GET" && request.path == "/connections") {
-            rapidjson::Document connections;
-            connections.SetObject();
-            auto &allocator = connections.GetAllocator();
+    server_.Get("/status", [this](const httplib::Request &, httplib::Response &response) {
+        const rapidjson::Document status = gateway_.getGatewayStatus();
+        response.status = 200;
+        response.set_content(documentToString(status), "application/json");
+    });
 
-            rapidjson::Document connectionList = gateway_.getConnectionStatus();
-            rapidjson::Value connectionsValue;
-            connectionsValue.CopyFrom(connectionList, allocator);
-            connections.AddMember("connections", connectionsValue, allocator);
-            connections.AddMember("activeConnections", static_cast<int>(gateway_.getActiveConnectionCount()), allocator);
+    server_.Get("/metrics", [this](const httplib::Request &, httplib::Response &response) {
+        const rapidjson::Document metrics = gateway_.getMetrics();
+        response.status = 200;
+        response.set_content(documentToString(metrics), "application/json");
+    });
 
-            response.status = 200;
-            response.set_content(documentToString(connections), "application/json");
-            return httplib::Server::HandlerResponse::Handled;
-        }
+    server_.Get("/health", [this](const httplib::Request &, httplib::Response &response) {
+        const rapidjson::Document health = gateway_.getHealth();
+        const bool healthy = health.HasMember("status") &&
+                             std::string(health["status"].GetString()) == "healthy";
+        response.status = healthy ? 200 : 503;
+        response.set_content(documentToString(health), "application/json");
+    });
 
-        if (request.method == "GET") {
-            const auto requestId = extractRequestId(request.path);
-            if (requestId.has_value()) {
-                const rapidjson::Document status = gateway_.getRequestStatus(requestId.value());
-                const bool found = status.HasMember("found") && status["found"].IsBool() && status["found"].GetBool();
-                response.status = found ? 200 : 404;
-                response.set_content(documentToString(status), "application/json");
-                return httplib::Server::HandlerResponse::Handled;
-            }
-        }
+    server_.Get("/connections", [this](const httplib::Request &, httplib::Response &response) {
+        rapidjson::Document connections;
+        connections.SetObject();
+        auto &allocator = connections.GetAllocator();
 
-        return httplib::Server::HandlerResponse::Unhandled;
+        rapidjson::Document connectionList = gateway_.getConnectionStatus();
+        rapidjson::Value connectionsValue;
+        connectionsValue.CopyFrom(connectionList, allocator);
+        connections.AddMember("connections", connectionsValue, allocator);
+        connections.AddMember("activeConnections", static_cast<int>(gateway_.getActiveConnectionCount()), allocator);
+
+        response.status = 200;
+        response.set_content(documentToString(connections), "application/json");
+    });
+
+    server_.Get(R"(/requests/([^/?]+))", [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string requestId = request.matches[1];
+        const rapidjson::Document status = gateway_.getRequestStatus(requestId);
+        const bool found = status.HasMember("found") && status["found"].IsBool() && status["found"].GetBool();
+        response.status = found ? 200 : 404;
+        response.set_content(documentToString(status), "application/json");
     });
 }
 

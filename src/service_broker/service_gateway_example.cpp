@@ -29,7 +29,7 @@ int main()
         while (gateway.isRunning()) {
             std::this_thread::sleep_for(std::chrono::seconds(10));
             
-            auto status = gateway.getBrokerStatus();
+            auto status = gateway.getGatewayStatus();
             std::cout << "\n--- Gateway Status ---" << '\n';
             std::cout << "Active Connections: " << status["activeConnections"].GetInt() << '\n';
             std::cout << "Registered Services: " << status["registryStatus"]["totalServices"].GetInt() << '\n';

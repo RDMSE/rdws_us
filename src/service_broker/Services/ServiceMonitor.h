@@ -10,7 +10,7 @@ private:
     
     static void clearScreen() ;
     static void printHeader() ;
-    void printBrokerStatus() const;
+    void printGatewayStatus() const;
     void printConnectionTable() const;
     void printServiceTable() const;
     void printCapabilityIndex() const;

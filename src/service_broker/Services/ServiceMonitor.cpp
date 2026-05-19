@@ -13,7 +13,7 @@ namespace servicegateway
     void ServiceMonitor::displayStatus() const {
         clearScreen();
         printHeader();
-        printBrokerStatus();
+        printGatewayStatus();
         printConnectionTable();
         printServiceTable();
         printCapabilityIndex();
@@ -45,7 +45,7 @@ namespace servicegateway
 
         // Print without clearing screen
         printHeader();
-        printBrokerStatus();
+        printGatewayStatus();
         printConnectionTable();
         printServiceTable();
         printCapabilityIndex();
@@ -147,8 +147,8 @@ namespace servicegateway
         std::cout << "╚══════════════════════════════════════════════════════════════════════════════╝" << std::endl;
     }
 
-    void ServiceMonitor::printBrokerStatus() const {
-        auto status = gateway.getBrokerStatus();
+    void ServiceMonitor::printGatewayStatus() const {
+        auto status = gateway.getGatewayStatus();
 
         std::cout << "\n📡 GATEWAY STATUS" << std::endl;
         std::cout << "┌─────────────────────────────────────────────────────────────────────────┐" << std::endl;

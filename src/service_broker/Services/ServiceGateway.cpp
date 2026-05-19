@@ -648,7 +648,7 @@ namespace servicegateway
         }
     }
 
-    rapidjson::Document ServiceGateway::getBrokerStatus() const
+    rapidjson::Document ServiceGateway::getGatewayStatus() const
     {
         rapidjson::Document status;
         status.SetObject();

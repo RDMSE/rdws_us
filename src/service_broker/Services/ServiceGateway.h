@@ -113,7 +113,7 @@ public:
                                    std::chrono::milliseconds timeout = std::chrono::milliseconds(30000));
     
     // Monitoring and management
-    rapidjson::Document getBrokerStatus() const;
+    rapidjson::Document getGatewayStatus() const;
     rapidjson::Document getConnectionStatus() const;
     rapidjson::Document getMetrics() const;
     rapidjson::Document getHealth() const;
