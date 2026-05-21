@@ -60,6 +60,8 @@ private:
     std::thread tcpListener;
     std::thread unixListener;
     std::atomic<bool> running{false};
+    std::atomic<int>  tcpServerFd{-1};   // closed in stop() to unblock accept()
+    std::atomic<int>  unixServerFd{-1};
     
     // Connection management
     std::map<int, ClientConnection> activeConnections;

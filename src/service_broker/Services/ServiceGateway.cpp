@@ -67,27 +67,22 @@ namespace servicegateway
         std::cout << "Stopping ServiceGateway..." << '\n';
         running.store(false);
 
-        // Close all active connections
-        std::scoped_lock lock(connectionsMutex);
-        for (const auto& fd : activeConnections | std::views::keys)
-        {
-            close(fd);
-        }
-        activeConnections.clear();
+        // Unblock select()/accept() in listener threads.
+        if (const int fd = tcpServerFd.exchange(-1); fd != -1) close(fd);
+        if (const int fd = unixServerFd.exchange(-1); fd != -1) close(fd);
 
-        // Wait for threads to finish
-        if (tcpListener.joinable())
+        // Close all active connections (scoped so the mutex is released before joining).
         {
-            tcpListener.join();
+            std::scoped_lock lock(connectionsMutex);
+            for (const auto &fd : activeConnections | std::views::keys)
+                close(fd);
+            activeConnections.clear();
         }
-        if (unixListener.joinable())
-        {
-            unixListener.join();
-        }
-        if (healthCheckThread.joinable())
-        {
-            healthCheckThread.join();
-        }
+
+        // Wait for threads to finish (mutex NOT held here).
+        if (tcpListener.joinable())      tcpListener.join();
+        if (unixListener.joinable())     unixListener.join();
+        if (healthCheckThread.joinable()) healthCheckThread.join();
 
         // Clean up UNIX socket file
         unlink(unixSocketPath.c_str());
@@ -124,19 +119,24 @@ namespace servicegateway
         }
 
         std::cout << "TCP listener started on port " << tcpPort << '\n';
+        tcpServerFd = serverFd;
 
         while (running.load())
         {
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(serverFd, &readfds);
+            struct timeval tv{1, 0}; // 1-second timeout so stop() unblocks quickly
+            if (select(serverFd + 1, &readfds, nullptr, nullptr, &tv) <= 0)
+                continue;
+
             sockaddr_in clientAddr{};
             socklen_t clientLen = sizeof(clientAddr);
-
-            int clientFd = accept(serverFd, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientLen);
+            const int clientFd = accept(serverFd, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientLen);
             if (clientFd < 0)
             {
                 if (running.load())
-                {
                     std::cerr << "TCP accept failed" << '\n';
-                }
                 continue;
             }
 
@@ -148,6 +148,7 @@ namespace servicegateway
             handleNewConnection(clientFd, tcpTarget, "tcp");
         }
 
+        tcpServerFd = -1;
         close(serverFd);
     }
 
@@ -182,22 +183,29 @@ namespace servicegateway
         }
 
         std::cout << "UNIX listener started on " << unixSocketPath << '\n';
+        unixServerFd = serverFd;
 
         while (running.load())
         {
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(serverFd, &readfds);
+            struct timeval tv{1, 0};
+            if (select(serverFd + 1, &readfds, nullptr, nullptr, &tv) <= 0)
+                continue;
+
             const int clientFd = accept(serverFd, nullptr, nullptr);
             if (clientFd < 0)
             {
                 if (running.load())
-                {
                     std::cerr << "UNIX accept failed" << '\n';
-                }
                 continue;
             }
 
             handleNewConnection(clientFd, unixSocketPath, "unix");
         }
 
+        unixServerFd = -1;
         close(serverFd);
     }
 
@@ -205,7 +213,9 @@ namespace servicegateway
     {
         while (running.load())
         {
-            std::this_thread::sleep_for(std::chrono::seconds(30));
+            // Sleep in short increments so stop() doesn't wait 30 seconds.
+            for (int i = 0; i < 30 && running.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::seconds(1));
             if (running.load())
             {
                 performHealthCheck();
@@ -498,7 +508,8 @@ namespace servicegateway
                 return true;
             }
             return it->second.state == RequestState::COMPLETED ||
-                   it->second.state == RequestState::FAILED;
+                   it->second.state == RequestState::FAILED ||
+                   it->second.state == RequestState::TIMED_OUT;
         });
 
         responseWaiters_.erase(requestId);
@@ -573,7 +584,7 @@ namespace servicegateway
         {
             std::scoped_lock lock(requestsMutex);
             auto it = pendingRequests.find(requestId);
-            if (it != pendingRequests.end())
+            if (it != pendingRequests.end() && it->second.state == RequestState::QUEUED)
             {
                 it->second.state = RequestState::IN_FLIGHT;
                 it->second.updatedAt = std::chrono::steady_clock::now();
@@ -629,22 +640,48 @@ namespace servicegateway
 
     void ServiceGateway::closeConnection(const int clientFd)
     {
-        std::scoped_lock lock(connectionsMutex);
+        std::string disconnectedServiceId;
 
-        if (const auto it = activeConnections.find(clientFd); it != activeConnections.end())
         {
-            std::cout << "Closing connection fd=" << clientFd
-                      << " (" << it->second.address << ")" << '\n';
+            std::scoped_lock lock(connectionsMutex);
 
-            // Unregister service if it was identified
-            if (it->second.identified && !it->second.serviceId.empty())
+            if (const auto it = activeConnections.find(clientFd); it != activeConnections.end())
             {
-                rdws::logger::serviceDisconnected(it->second.serviceId, "connection closed");
-                registry.unregisterService(it->second.serviceId);
-            }
+                std::cout << "Closing connection fd=" << clientFd
+                          << " (" << it->second.address << ")" << '\n';
 
-            close(clientFd);
-            activeConnections.erase(it);
+                if (it->second.identified && !it->second.serviceId.empty())
+                {
+                    disconnectedServiceId = it->second.serviceId;
+                    rdws::logger::serviceDisconnected(it->second.serviceId, "connection closed");
+                    registry.unregisterService(it->second.serviceId);
+                }
+
+                close(clientFd);
+                activeConnections.erase(it);
+            }
+        }
+
+        // Fail any in-flight requests that were routed to the disconnected service
+        if (!disconnectedServiceId.empty())
+        {
+            std::scoped_lock lock(requestsMutex);
+            for (auto &[reqId, pending] : pendingRequests)
+            {
+                if (pending.targetServiceId == disconnectedServiceId &&
+                    (pending.state == RequestState::QUEUED || pending.state == RequestState::IN_FLIGHT))
+                {
+                    pending.state     = RequestState::FAILED;
+                    pending.statusCode = 503;
+                    pending.errorMessage = "Service disconnected";
+
+                    if (const auto waiterIt = responseWaiters_.find(reqId);
+                        waiterIt != responseWaiters_.end())
+                    {
+                        waiterIt->second->notify_one();
+                    }
+                }
+            }
         }
     }
 

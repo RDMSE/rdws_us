@@ -46,6 +46,7 @@ void ServiceClient::disconnect() {
     registered.store(false);
     
     if (socketFd != -1) {
+        shutdown(socketFd, SHUT_RDWR); // unblock any blocking recv() in messageLoop
         close(socketFd);
         socketFd = -1;
     }
@@ -150,13 +151,8 @@ void ServiceClient::run() {
 
 void ServiceClient::stop() {
     disconnect();
-    
-    if (messageThread.joinable()) {
-        messageThread.join();
-    }
-    if (pingThread.joinable()) {
-        pingThread.join();
-    }
+    // messageThread and pingThread are owned and joined by run().
+    // Callers must join the thread that called run() to ensure full cleanup.
 }
 
 int ServiceClient::createConnection() const {
@@ -258,8 +254,10 @@ void ServiceClient::messageLoop() {
 
 void ServiceClient::pingLoop() {
     while (connected.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(30));
-        
+        // Sleep in 1-second increments so stop()/disconnect() can exit quickly.
+        for (int i = 0; i < 30 && connected.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+
         if (connected.load() && registered.load()) {
             // Send ping with current stats
             rapidjson::Document stats;
@@ -268,7 +266,7 @@ void ServiceClient::pingLoop() {
             stats.AddMember("currentLoad", identity.currentLoad, allocator);
             stats.AddMember("totalRequests", identity.totalRequests, allocator);
             stats.AddMember("errorCount", identity.errorCount, allocator);
-            
+
             sendPing(stats);
         }
     }
