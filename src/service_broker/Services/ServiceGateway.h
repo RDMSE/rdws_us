@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EventBus.h"
 #include "EventRouter.h"
 #include "ServiceRegistry.h"
 #include "../../shared/utils/metrics.h"
@@ -85,9 +86,14 @@ private:
 
     // Dynamic routing rules
     EventRouter router_;
+
+    // Internal pub/sub bus
+    EventBus bus_;
     
 public:
-    explicit ServiceGateway(int port = 8080, std::string  unixSocket = "/tmp/service_gateway.sock");
+    explicit ServiceGateway(int port = 8080,
+                             std::string unixSocket  = "/tmp/service_gateway.sock",
+                             std::string routesFile  = "");
     ~ServiceGateway();
     
     // Lifecycle management
@@ -135,6 +141,10 @@ public:
 
     // EventRouter access
     EventRouter& getEventRouter() { return router_; }
+
+    // EventBus access
+    EventBus& getBus() { return bus_; }
+
     const ServiceRegistry& getRegistry() const { return registry; }
     
 private:

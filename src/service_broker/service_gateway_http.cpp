@@ -33,7 +33,8 @@ int main(const int argc, char *argv[])
     int brokerPort = 8080;
     int httpPort = 3001;
     std::string unixSocket = "/tmp/service_gateway.sock";
-    std::string logFile;   // empty = stdout only
+    std::string logFile;    // empty = stdout only
+    std::string routesFile;  // empty = no persistence
 
     if (argc >= 2) {
         brokerPort = std::stoi(argv[1]);
@@ -47,6 +48,9 @@ int main(const int argc, char *argv[])
     if (argc >= 5) {
         logFile = argv[4];
     }
+    if (argc >= 6) {
+        routesFile = argv[5];
+    }
 
     std::cout << "=== ServiceGateway HTTP Bridge ===\n";
     std::cout << "Broker port: " << brokerPort << '\n';
@@ -55,11 +59,14 @@ int main(const int argc, char *argv[])
     if (!logFile.empty()) {
         std::cout << "Log file:    " << logFile << '\n';
     }
+    if (!routesFile.empty()) {
+        std::cout << "Routes file: " << routesFile << '\n';
+    }
 
     rdws::logger::init("rdws-gateway", "info", logFile);
 
     try {
-        ServiceGateway gateway(brokerPort, unixSocket);
+        ServiceGateway gateway(brokerPort, unixSocket, routesFile);
         HttpGateway httpGateway(gateway, httpPort);
 
         g_serviceGateway = &gateway;
@@ -87,6 +94,8 @@ int main(const int argc, char *argv[])
         std::cout << "  http://localhost:" << httpPort << " /health" << '\n';
         std::cout << "  http://localhost:" << httpPort << " /metrics" << '\n';
         std::cout << "  http://localhost:" << httpPort << " /connections" << '\n';
+        std::cout << "  http://localhost:" << httpPort << " /routes" << '\n';
+        std::cout << "  http://localhost:" << httpPort << " /events" << '\n';
 
         while (gateway.isRunning() || httpGateway.isRunning()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));

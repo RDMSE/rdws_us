@@ -48,3 +48,15 @@ target_link_libraries(service_gateway_router_test PRIVATE
     gtest
 )
 gtest_discover_tests(service_gateway_router_test)
+
+
+# --- EventBus unit tests ---
+add_executable(service_gateway_bus_test
+        test_event_bus.cpp
+)
+target_link_libraries(service_gateway_bus_test PRIVATE
+    service_gateway_core
+    gtest_main
+    gtest
+)
+gtest_discover_tests(service_gateway_bus_test)

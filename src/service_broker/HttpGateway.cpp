@@ -241,6 +241,44 @@ void HttpGateway::registerRoutes()
         }
         response.status = 204;
     });
+
+    // ── EventBus endpoints ─────────────────────────────────────────────────────────
+
+    // GET /events — bus stats (topics + subscriber counts)
+    server_.Get("/events", [this](const httplib::Request &, httplib::Response &response) {
+        rapidjson::Document stats = gateway_.getBus().stats();
+        response.set_content(documentToString(stats), "application/json");
+    });
+
+    // POST /events/{topic} — publish an event to the bus
+    server_.Post(R"(/events/([^/?]+))", [this](const httplib::Request &request,
+                                               httplib::Response &response) {
+        const std::string topic = request.matches[1];
+
+        rapidjson::Document payload;
+        if (!request.body.empty()) {
+            payload.Parse(request.body.c_str());
+            if (payload.HasParseError() || !payload.IsObject()) {
+                response.status = 400;
+                response.set_content(
+                    documentToString(buildErrorResponse("Invalid JSON body", 400)),
+                    "application/json");
+                return;
+            }
+        } else {
+            payload.SetObject();
+        }
+
+        gateway_.getBus().publish(topic, std::move(payload));
+
+        rapidjson::Document resp;
+        resp.SetObject();
+        auto &alloc = resp.GetAllocator();
+        resp.AddMember("published", true, alloc);
+        resp.AddMember("topic", rapidjson::Value(topic.c_str(), alloc), alloc);
+        response.status = 202;
+        response.set_content(documentToString(resp), "application/json");
+    });
 }
 
 std::optional<std::string> HttpGateway::extractCapability(const std::string &path)

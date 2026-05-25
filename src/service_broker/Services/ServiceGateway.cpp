@@ -15,8 +15,9 @@
 namespace servicegateway
 {
 
-    ServiceGateway::ServiceGateway(const int port, std::string unixSocket)
-        : tcpPort(port), unixSocketPath(std::move(unixSocket))
+    ServiceGateway::ServiceGateway(const int port, std::string unixSocket, std::string routesFile)
+        : tcpPort(port), unixSocketPath(std::move(unixSocket)),
+          router_(std::move(routesFile))
     {
 
         // Set up default message handlers
@@ -43,6 +44,8 @@ namespace servicegateway
         }
 
         running.store(true);
+
+        bus_.start();
 
         std::cout << "Starting ServiceGateway..." << '\n';
         std::cout << "TCP Port: " << tcpPort << '\n';
@@ -83,6 +86,8 @@ namespace servicegateway
         if (tcpListener.joinable())      tcpListener.join();
         if (unixListener.joinable())     unixListener.join();
         if (healthCheckThread.joinable()) healthCheckThread.join();
+
+        bus_.stop();
 
         // Clean up UNIX socket file
         unlink(unixSocketPath.c_str());
@@ -347,6 +352,18 @@ namespace servicegateway
                 rdws::logger::serviceConnected(identity.serviceId,
                                                identity.serviceName,
                                                identity.clientAddress);
+
+                // Publish lifecycle event
+                {
+                    rapidjson::Document ev;
+                    ev.SetObject();
+                    auto &a = ev.GetAllocator();
+                    ev.AddMember("serviceId",   rapidjson::Value(identity.serviceId.c_str(),   a), a);
+                    ev.AddMember("serviceName", rapidjson::Value(identity.serviceName.c_str(), a), a);
+                    ev.AddMember("address",     rapidjson::Value(identity.clientAddress.c_str(), a), a);
+                    bus_.publish("service.connected", std::move(ev));
+                }
+
                 return true;
             }
         }
@@ -489,6 +506,19 @@ namespace servicegateway
         rdws::logger::responseCorrelated(requestId,
                                          pending.targetServiceId,
                                          requestStateToString(pending.state));
+
+        // Publish request lifecycle event (bus_.publish is non-blocking)
+        {
+            rapidjson::Document ev;
+            ev.SetObject();
+            auto &a = ev.GetAllocator();
+            ev.AddMember("requestId",  rapidjson::Value(requestId.c_str(), a), a);
+            ev.AddMember("capability", rapidjson::Value(pending.capability.c_str(), a), a);
+            ev.AddMember("serviceId",  rapidjson::Value(pending.targetServiceId.c_str(), a), a);
+            ev.AddMember("success",    !isError, a);
+            ev.AddMember("latencyMs",  static_cast<int>(latencyMs.count()), a);
+            bus_.publish("request.completed", std::move(ev));
+        }
 
         return true;
     }
@@ -658,10 +688,16 @@ namespace servicegateway
                     rdws::logger::serviceDisconnected(it->second.serviceId, "connection closed");
                     registry.unregisterService(it->second.serviceId);
                 }
-
-                close(clientFd);
-                activeConnections.erase(it);
             }
+        }
+
+        // Publish disconnect event outside the mutex
+        if (!disconnectedServiceId.empty()) {
+            rapidjson::Document ev;
+            ev.SetObject();
+            auto &a = ev.GetAllocator();
+            ev.AddMember("serviceId", rapidjson::Value(disconnectedServiceId.c_str(), a), a);
+            bus_.publish("service.disconnected", std::move(ev));
         }
 
         // Fail any in-flight requests that were routed to the disconnected service

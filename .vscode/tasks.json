@@ -22,6 +22,72 @@
                 "panel": "shared"
             },
             "problemMatcher": "$gcc"
+        },
+        {
+            "label": "run-gateway",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8080",
+                "3001",
+                "/tmp/service_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-gateway (with persistence)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8080",
+                "3001",
+                "/tmp/service_gateway.sock",
+                "${workspaceFolder}/gateway.log",
+                "${workspaceFolder}/routes.json"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-tests",
+            "type": "shell",
+            "command": "ctest",
+            "args": [
+                "--output-on-failure",
+                "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/build"
+            },
+            "dependsOn": "cmake-build",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
         }
     ]
 }

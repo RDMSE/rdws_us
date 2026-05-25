@@ -26,6 +26,32 @@
             "preLaunchTask": "cmake-build"
         },
         {
+            "name": "Gateway HTTP (with persistence)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock",
+                "${workspaceFolder}/gateway.log",
+                "${workspaceFolder}/routes.json"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
             "name": "Example Service (inst_001)",
             "type": "cppdbg",
             "request": "launch",
@@ -96,6 +122,15 @@
             "name": "Gateway + 2 Services",
             "configurations": [
                 "Gateway HTTP",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services (with persistence)",
+            "configurations": [
+                "Gateway HTTP (with persistence)",
                 "Example Service (inst_001)",
                 "Example Service (inst_002)"
             ],
