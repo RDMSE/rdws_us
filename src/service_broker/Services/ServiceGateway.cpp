@@ -539,10 +539,12 @@ namespace servicegateway
                                            const rapidjson::Document& requestData,
                                            const LoadBalancingStrategy strategy)
     {
-        const std::string targetServiceId = registry.selectBestService(capability, strategy);
+        // Apply routing rules: may remap the incoming capability to another.
+        const std::string resolvedCapability = router_.resolve(capability, requestData);
+        const std::string targetServiceId = registry.selectBestService(resolvedCapability, strategy);
         if (targetServiceId.empty())
         {
-            std::cerr << "No available service for capability: " << capability << '\n';
+            std::cerr << "No available service for capability: " << resolvedCapability << '\n';
             return "";
         }
 
@@ -551,7 +553,7 @@ namespace servicegateway
         PendingRequest pending;
         pending.requestId = requestId;
         pending.targetServiceId = targetServiceId;
-        pending.capability = capability;
+        pending.capability = resolvedCapability;
         pending.requestPayload = serializeJsonValue(requestData);
         pending.state = RequestState::QUEUED;
         pending.statusCode = 202;
@@ -568,7 +570,7 @@ namespace servicegateway
         auto &allocator = requestMessage.GetAllocator();
         requestMessage.AddMember("type", "REQUEST", allocator);
         requestMessage.AddMember("requestId", rapidjson::Value(requestId.c_str(), allocator), allocator);
-        requestMessage.AddMember("capability", rapidjson::Value(capability.c_str(), allocator), allocator);
+        requestMessage.AddMember("capability", rapidjson::Value(resolvedCapability.c_str(), allocator), allocator);
 
         rapidjson::Value data;
         data.CopyFrom(requestData, allocator);

@@ -145,6 +145,102 @@ void HttpGateway::registerRoutes()
         response.status = found ? 200 : 404;
         response.set_content(documentToString(status), "application/json");
     });
+
+    // ── EventRouter CRUD ─────────────────────────────────────────────────────
+
+    // GET /routes — list all routing rules
+    server_.Get("/routes", [this](const httplib::Request &, httplib::Response &response) {
+        const auto rules = gateway_.getEventRouter().listRules();
+
+        rapidjson::Document doc;
+        doc.SetArray();
+        auto &alloc = doc.GetAllocator();
+        for (const auto &rule : rules) {
+            rapidjson::Document rd = gateway_.getEventRouter().ruleToJson(rule);
+            rapidjson::Value rv;
+            rv.CopyFrom(rd, alloc);
+            doc.PushBack(rv, alloc);
+        }
+        response.status = 200;
+        response.set_content(documentToString(doc), "application/json");
+    });
+
+    // POST /routes — create a new routing rule
+    server_.Post("/routes", [this](const httplib::Request &request, httplib::Response &response) {
+        rapidjson::Document body;
+        body.Parse(request.body.c_str());
+        if (body.HasParseError() || !body.IsObject()) {
+            response.status = 400;
+            response.set_content(documentToString(buildErrorResponse("Invalid JSON body", 400)),
+                                 "application/json");
+            return;
+        }
+        servicegateway::RoutingRule rule = gateway_.getEventRouter().ruleFromJson(body);
+        if (rule.inputCapability.empty() || rule.outputCapability.empty()) {
+            response.status = 400;
+            response.set_content(
+                documentToString(buildErrorResponse(
+                    "inputCapability and outputCapability are required", 400)),
+                "application/json");
+            return;
+        }
+        const std::string id = gateway_.getEventRouter().addRule(std::move(rule));
+        const auto created = gateway_.getEventRouter().getRule(id);
+        response.status = 201;
+        response.set_content(documentToString(gateway_.getEventRouter().ruleToJson(*created)),
+                             "application/json");
+    });
+
+    // GET /routes/:id — get a specific routing rule
+    server_.Get(R"(/routes/([^/?]+))", [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string id = request.matches[1];
+        const auto rule = gateway_.getEventRouter().getRule(id);
+        if (!rule) {
+            response.status = 404;
+            response.set_content(documentToString(buildErrorResponse("Route not found", 404)),
+                                 "application/json");
+            return;
+        }
+        response.status = 200;
+        response.set_content(documentToString(gateway_.getEventRouter().ruleToJson(*rule)),
+                             "application/json");
+    });
+
+    // PUT /routes/:id — replace a routing rule
+    server_.Put(R"(/routes/([^/?]+))", [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string id = request.matches[1];
+        rapidjson::Document body;
+        body.Parse(request.body.c_str());
+        if (body.HasParseError() || !body.IsObject()) {
+            response.status = 400;
+            response.set_content(documentToString(buildErrorResponse("Invalid JSON body", 400)),
+                                 "application/json");
+            return;
+        }
+        servicegateway::RoutingRule rule = gateway_.getEventRouter().ruleFromJson(body);
+        if (!gateway_.getEventRouter().updateRule(id, std::move(rule))) {
+            response.status = 404;
+            response.set_content(documentToString(buildErrorResponse("Route not found", 404)),
+                                 "application/json");
+            return;
+        }
+        const auto updated = gateway_.getEventRouter().getRule(id);
+        response.status = 200;
+        response.set_content(documentToString(gateway_.getEventRouter().ruleToJson(*updated)),
+                             "application/json");
+    });
+
+    // DELETE /routes/:id — remove a routing rule
+    server_.Delete(R"(/routes/([^/?]+))", [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string id = request.matches[1];
+        if (!gateway_.getEventRouter().removeRule(id)) {
+            response.status = 404;
+            response.set_content(documentToString(buildErrorResponse("Route not found", 404)),
+                                 "application/json");
+            return;
+        }
+        response.status = 204;
+    });
 }
 
 std::optional<std::string> HttpGateway::extractCapability(const std::string &path)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EventRouter.h"
 #include "ServiceRegistry.h"
 #include "../../shared/utils/metrics.h"
 #include <atomic>
@@ -81,6 +82,9 @@ private:
 
     // Per-capability metrics
     rdws::metrics::MetricsTracker metrics_;
+
+    // Dynamic routing rules
+    EventRouter router_;
     
 public:
     explicit ServiceGateway(int port = 8080, std::string  unixSocket = "/tmp/service_gateway.sock");
@@ -128,6 +132,9 @@ public:
     
     // Registry access
     ServiceRegistry& getRegistry() { return registry; }
+
+    // EventRouter access
+    EventRouter& getEventRouter() { return router_; }
     const ServiceRegistry& getRegistry() const { return registry; }
     
 private:

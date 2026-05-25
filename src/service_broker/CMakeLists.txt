@@ -11,6 +11,8 @@ add_library(service_gateway_core
         Services/ServiceClient.cpp
         Services/ServiceMonitor.h
         Services/ServiceMonitor.cpp
+        Services/EventRouter.h
+        Services/EventRouter.cpp
         # Utils
         Utils/Utils.cpp
         Utils/Utils.h

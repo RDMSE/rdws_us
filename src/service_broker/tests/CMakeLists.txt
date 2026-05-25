@@ -37,3 +37,14 @@ target_link_libraries(service_gateway_integration_test PRIVATE
 gtest_discover_tests(service_gateway_integration_test
     PROPERTIES TIMEOUT 30  # each test has network I/O — allow 30s
 )
+
+# --- EventRouter unit tests ---
+add_executable(service_gateway_router_test
+        test_event_router.cpp
+)
+target_link_libraries(service_gateway_router_test PRIVATE
+    service_gateway_core
+    gtest_main
+    gtest
+)
+gtest_discover_tests(service_gateway_router_test)
