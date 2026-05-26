@@ -16,6 +16,7 @@ namespace servicegateway {
 class HttpGateway {
 public:
     explicit HttpGateway(ServiceGateway &gateway, int port = 3001, std::string host = "0.0.0.0");
+    HttpGateway() = delete;
 
     bool start();
     void stop();

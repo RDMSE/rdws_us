@@ -94,6 +94,7 @@ public:
     explicit ServiceGateway(int port = 8080,
                              std::string unixSocket  = "/tmp/service_gateway.sock",
                              std::string routesFile  = "");
+    ServiceGateway() = delete;                        
     ~ServiceGateway();
     
     // Lifecycle management

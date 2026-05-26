@@ -17,6 +17,7 @@ private:
     
 public:
     explicit ServiceMonitor(const ServiceGateway& serviceGateway);
+    ServiceMonitor() = delete;
     
     void displayStatus() const;
     void displayContinuous(int refreshIntervalSeconds = 5) const;
