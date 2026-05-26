@@ -60,3 +60,14 @@ target_link_libraries(service_gateway_bus_test PRIVATE
     gtest
 )
 gtest_discover_tests(service_gateway_bus_test)
+
+# --- AuthMiddleware unit tests ---
+add_executable(service_gateway_auth_test
+        test_auth_middleware.cpp
+)
+target_link_libraries(service_gateway_auth_test PRIVATE
+    service_gateway_core
+    gtest_main
+    gtest
+)
+gtest_discover_tests(service_gateway_auth_test)

@@ -15,6 +15,9 @@ add_library(service_gateway_core
         Services/EventRouter.cpp
         Services/EventBus.h
         Services/EventBus.cpp
+        # Auth middleware
+        Auth/AuthMiddleware.h
+        Auth/AuthMiddleware.cpp
         # Utils
         Utils/Utils.cpp
         Utils/Utils.h
@@ -22,6 +25,8 @@ add_library(service_gateway_core
 
 # Compatibility alias — old name kept for external consumers.
 add_library(service_broker_core ALIAS service_gateway_core)
+
+find_package(OpenSSL REQUIRED)
 
 target_include_directories(service_gateway_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -37,6 +42,7 @@ target_link_libraries(service_gateway_core PUBLIC
     rdws_shared_config
     rdws_shared_logger
     rdws_shared_utils
+    OpenSSL::Crypto
 )
 
 add_executable(service_gateway_http

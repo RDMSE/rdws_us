@@ -1,13 +1,68 @@
+#include "Auth/AuthMiddleware.h"
 #include "HttpGateway.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <csignal>
 #include <iostream>
+#include <sstream>
 #include <thread>
 
 #include "../shared/utils/logger.h"
 
 using namespace servicegateway;
+
+namespace {
+
+/// Read env var, returning empty string if unset or empty.
+std::string getenv_str(const char *name)
+{
+    const char *val = std::getenv(name); // NOLINT(concurrency-mt-unsafe)
+    return val ? val : "";
+}
+
+/// Build an AuthConfig from the standard RDWS_AUTH_* environment variables.
+///
+/// RDWS_AUTH_MODE   = none | apikey | jwt   (default: none)
+/// RDWS_API_KEYS    = key1=label1,key2=label2,...  (comma-separated, label optional)
+/// RDWS_JWT_SECRET  = <hmac-sha256-secret>
+/// RDWS_JWT_ISSUER  = <expected-iss-claim>   (optional)
+/// RDWS_JWT_AUDIENCE= <expected-aud-claim>   (optional)
+AuthConfig buildAuthConfig()
+{
+    AuthConfig cfg;
+
+    const std::string mode = getenv_str("RDWS_AUTH_MODE");
+    if (mode == "apikey") {
+        cfg.mode = AuthMode::API_KEY;
+
+        // Parse RDWS_API_KEYS="key1=label1,key2,key3=admin"
+        const std::string raw = getenv_str("RDWS_API_KEYS");
+        if (!raw.empty()) {
+            std::istringstream ss(raw);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                if (token.empty()) continue;
+                const auto eq = token.find('=');
+                if (eq == std::string::npos) {
+                    cfg.apiKeys[token] = token; // label = key itself
+                } else {
+                    cfg.apiKeys[token.substr(0, eq)] = token.substr(eq + 1);
+                }
+            }
+        }
+    } else if (mode == "jwt") {
+        cfg.mode = AuthMode::JWT;
+        cfg.jwtSecret   = getenv_str("RDWS_JWT_SECRET");
+        cfg.jwtIssuer   = getenv_str("RDWS_JWT_ISSUER");
+        cfg.jwtAudience = getenv_str("RDWS_JWT_AUDIENCE");
+    }
+    // else: NONE — no auth
+
+    return cfg;
+}
+
+} // namespace
 
 static ServiceGateway *g_serviceGateway = nullptr;
 static HttpGateway *g_httpGateway = nullptr;
@@ -63,11 +118,21 @@ int main(const int argc, char *argv[])
         std::cout << "Routes file: " << routesFile << '\n';
     }
 
+    const auto modeLabel = [&]() -> std::string {
+        const std::string mode = getenv_str("RDWS_AUTH_MODE");
+        if (mode == "apikey") return "apikey";
+        if (mode == "jwt")    return "jwt";
+        return "none";
+    }();
+    std::cout << "Auth mode:   " << modeLabel << '\n';
+
     rdws::logger::init("rdws-gateway", "info", logFile);
+
+    const AuthConfig authCfg = buildAuthConfig();
 
     try {
         ServiceGateway gateway(brokerPort, unixSocket, routesFile);
-        HttpGateway httpGateway(gateway, httpPort);
+        HttpGateway httpGateway(gateway, httpPort, "0.0.0.0", authCfg);
 
         g_serviceGateway = &gateway;
         g_httpGateway = &httpGateway;

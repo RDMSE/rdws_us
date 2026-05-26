@@ -19,8 +19,8 @@ using rdws::types::LambdaContext;
 using rdws::types::LambdaEvent;
 using rdws::types::ServiceResult;
 
-HttpGateway::HttpGateway(ServiceGateway &gateway, int port, std::string host)
-    : gateway_(gateway), host_(std::move(host)), port_(port)
+HttpGateway::HttpGateway(ServiceGateway &gateway, int port, std::string host, AuthConfig authConfig)
+    : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig))
 {
 }
 
@@ -62,7 +62,27 @@ void HttpGateway::registerRoutes()
     server_.Post(R"(/invoke/([^/?]+))", [this](const httplib::Request &request, httplib::Response &response) {
         const std::string capability = request.matches[1];
         const auto t0 = std::chrono::steady_clock::now();
-        const rapidjson::Document eventDocument = documentFromRequest(request, capability);
+
+        // ── Auth check ────────────────────────────────────────────────────
+        AuthHttpRequest authReq;
+        authReq.path = request.path;
+        for (const auto &[k, v] : request.headers)
+            authReq.headers.emplace(k, v);
+
+        const AuthResult authResult = auth_.authenticate(authReq);
+        if (!authResult.authorized) {
+            response.status = authResult.statusCode;
+            response.set_header("WWW-Authenticate", R"(Bearer realm="rdws-gateway")");
+            response.set_content(documentToString(buildErrorResponse(authResult.message,
+                                                                     authResult.statusCode)),
+                                 "application/json");
+            return;
+        }
+
+        rapidjson::Document eventDocument = documentFromRequest(request, capability);
+        if (authResult.identity)
+            AuthMiddleware::injectIdentity(*authResult.identity, eventDocument);
+
         const std::string requestId = gateway_.sendRequest(capability, eventDocument);
 
         rdws::logger::httpRequest(requestId.empty() ? "-" : requestId,

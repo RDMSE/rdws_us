@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Auth/AuthMiddleware.h"
 #include "Services/ServiceGateway.h"
 
 #include <atomic>
@@ -15,7 +16,10 @@ namespace servicegateway {
 
 class HttpGateway {
 public:
-    explicit HttpGateway(ServiceGateway &gateway, int port = 3001, std::string host = "0.0.0.0");
+    explicit HttpGateway(ServiceGateway &gateway,
+                         int port = 3001,
+                         std::string host = "0.0.0.0",
+                         AuthConfig authConfig = {});
     HttpGateway() = delete;
 
     bool start();
@@ -23,12 +27,13 @@ public:
     bool isRunning() const { return running_.load(); }
 
 private:
-    ServiceGateway &gateway_;
-    std::string host_;
-    int port_;
+    ServiceGateway   &gateway_;
+    std::string       host_;
+    int               port_;
+    AuthMiddleware    auth_;
     std::atomic<bool> running_{false};
-    httplib::Server server_;
-    std::thread serverThread_;
+    httplib::Server   server_;
+    std::thread       serverThread_;
 
     void registerRoutes();
     static std::optional<std::string> extractCapability(const std::string &path);
