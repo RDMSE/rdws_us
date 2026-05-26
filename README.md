@@ -13,9 +13,22 @@ Modular C++ prooject with multiple supbprojects in `src/`, each with:
 - `src/service_broker/`: main service broker subproject
 - `tools/new_subproject.sh`: new subprject generator
 
+## Dependencies
+
+| Biblioteca | Utilização | Instalação |
+|---|---|---|
+| `cmake` ≥ 3.20 | Build system | `sudo apt install cmake` |
+| `gdb` | Debug (VS Code) | `sudo apt install gdb` |
+| `libssl-dev` | Auth middleware — HMAC-SHA256 para JWT (HS256) | `sudo apt install libssl-dev` |
+
+As restantes dependências (GoogleTest, cpp-httplib, spdlog, RapidJSON, tl::expected, valijson) são descarregadas automaticamente via CMake FetchContent na primeira build.
+
 ## Build and tests
 
 ```bash
+# Instalar dependência de sistema necessária
+sudo apt install libssl-dev
+
 cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
