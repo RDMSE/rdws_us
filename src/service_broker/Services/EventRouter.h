@@ -59,8 +59,8 @@ public:
     bool saveToFile(const std::string &path) const;
 
     // ── Serialisation helpers (used by HttpGateway) ──────────────────────────
-    rapidjson::Document ruleToJson(const RoutingRule &rule) const;
-    RoutingRule         ruleFromJson(const rapidjson::Value &obj) const;
+    static rapidjson::Document ruleToJson(const RoutingRule &rule) ;
+    static RoutingRule         ruleFromJson(const rapidjson::Value &obj) ;
 
 private:
     std::string persistPath_;

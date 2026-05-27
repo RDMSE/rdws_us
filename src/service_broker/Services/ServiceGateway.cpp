@@ -131,7 +131,7 @@ namespace servicegateway
             fd_set readfds;
             FD_ZERO(&readfds);
             FD_SET(serverFd, &readfds);
-            struct timeval tv{1, 0}; // 1-second timeout so stop() unblocks quickly
+            struct timeval tv{.tv_sec=1, .tv_usec=0}; // 1-second timeout so stop() unblocks quickly
             if (select(serverFd + 1, &readfds, nullptr, nullptr, &tv) <= 0)
                 continue;
 
@@ -146,10 +146,11 @@ namespace servicegateway
             }
 
             // Get client IP
-            char clientIP[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
+            //char clientIP[INET_ADDRSTRLEN];
+            std::array<char, INET_ADDRSTRLEN> clientIP;
+            inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP.data(), INET_ADDRSTRLEN);
 
-            const std::string tcpTarget = std::string(clientIP) + ":" + std::to_string(ntohs(clientAddr.sin_port));
+            const std::string tcpTarget = std::string(clientIP.data()) + ":" + std::to_string(ntohs(clientAddr.sin_port));
             handleNewConnection(clientFd, tcpTarget, "tcp");
         }
 
@@ -195,7 +196,7 @@ namespace servicegateway
             fd_set readfds;
             FD_ZERO(&readfds);
             FD_SET(serverFd, &readfds);
-            struct timeval tv{1, 0};
+            struct timeval tv{.tv_sec=1, .tv_usec=0};
             if (select(serverFd + 1, &readfds, nullptr, nullptr, &tv) <= 0)
                 continue;
 
@@ -240,16 +241,16 @@ namespace servicegateway
         // Start listening for messages from this client
         std::thread([this, clientFd]()
                     {
-        char buffer[4096];
+        std::array<char,4096> buffer;
         while (running.load()) {
-            const ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
+            const ssize_t bytesRead = recv(clientFd, buffer.data(), sizeof(buffer) - 1, 0);
             if (bytesRead <= 0) {
                 closeConnection(clientFd);
                 break;
             }
             
             buffer[bytesRead] = '\0';
-            std::string message(buffer);
+            std::string message(buffer.data());
             handleClientMessage(clientFd, message);
         } })
             .detach();
@@ -361,7 +362,7 @@ namespace servicegateway
                     ev.AddMember("serviceId",   rapidjson::Value(identity.serviceId.c_str(),   a), a);
                     ev.AddMember("serviceName", rapidjson::Value(identity.serviceName.c_str(), a), a);
                     ev.AddMember("address",     rapidjson::Value(identity.clientAddress.c_str(), a), a);
-                    bus_.publish("service.connected", std::move(ev));
+                    bus_.publish("service.connected", ev);
                 }
 
                 return true;
@@ -517,7 +518,7 @@ namespace servicegateway
             ev.AddMember("serviceId",  rapidjson::Value(pending.targetServiceId.c_str(), a), a);
             ev.AddMember("success",    !isError, a);
             ev.AddMember("latencyMs",  static_cast<int>(latencyMs.count()), a);
-            bus_.publish("request.completed", std::move(ev));
+            bus_.publish("request.completed", ev);
         }
 
         return true;
@@ -697,7 +698,7 @@ namespace servicegateway
             ev.SetObject();
             auto &a = ev.GetAllocator();
             ev.AddMember("serviceId", rapidjson::Value(disconnectedServiceId.c_str(), a), a);
-            bus_.publish("service.disconnected", std::move(ev));
+            bus_.publish("service.disconnected", ev);
         }
 
         // Fail any in-flight requests that were routed to the disconnected service

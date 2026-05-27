@@ -40,7 +40,7 @@ SubscriptionId EventBus::subscribe(const std::string &topic, EventHandler handle
 {
     const std::string id = generateId();
     std::unique_lock lock(subsMutex_);
-    subscriptions_.push_back({id, topic, std::move(handler)});
+    subscriptions_.push_back({.id=id, .topic=topic, .handler=std::move(handler)});
     return id;
 }
 
@@ -48,21 +48,19 @@ bool EventBus::unsubscribe(const SubscriptionId &id)
 {
     std::unique_lock lock(subsMutex_);
     const auto before = subscriptions_.size();
-    subscriptions_.erase(
-        std::remove_if(subscriptions_.begin(), subscriptions_.end(),
-                       [&id](const Subscription &s) { return s.id == id; }),
-        subscriptions_.end());
+    std::erase_if(subscriptions_,
+                  [&id](const Subscription &s) { return s.id == id; });
     return subscriptions_.size() < before;
 }
 
 // ─── Publish ──────────────────────────────────────────────────────────────────
 
-void EventBus::publish(const std::string &topic, rapidjson::Document payload)
+void EventBus::publish(const std::string &topic, const rapidjson::Document& payload)
 {
     if (!running_.load())
         return;
     {
-        std::lock_guard lock(queueMutex_);
+        std::scoped_lock lock(queueMutex_);
         QueuedEvent ev;
         ev.topic = topic;
         ev.payload.CopyFrom(payload, ev.payload.GetAllocator());
@@ -90,10 +88,10 @@ size_t EventBus::subscriberCount(const std::string &topic) const
 {
     std::shared_lock lock(subsMutex_);
     return static_cast<size_t>(
-        std::count_if(subscriptions_.begin(), subscriptions_.end(),
-                      [&topic](const Subscription &s) {
-                          return s.topic == topic || s.topic == "*";
-                      }));
+        std::ranges::count_if(subscriptions_,
+                              [&topic](const Subscription &s) {
+                                  return s.topic == topic || s.topic == "*";
+                              }));
 }
 
 rapidjson::Document EventBus::stats() const
@@ -135,10 +133,10 @@ void EventBus::workerLoop()
 
         // Drain all pending events
         while (!eventQueue_.empty()) {
-            QueuedEvent ev = std::move(eventQueue_.front());
+            auto [topic, payload] = std::move(eventQueue_.front());
             eventQueue_.pop_front();
             lock.unlock();
-            dispatch(ev.topic, ev.payload);
+            dispatch(topic, payload);
             lock.lock();
         }
 
@@ -148,8 +146,7 @@ void EventBus::workerLoop()
 }
 
 void EventBus::dispatch(const std::string &topic,
-                         const rapidjson::Document &payload)
-{
+                         const rapidjson::Document &payload) const {
     std::shared_lock lock(subsMutex_);
     for (const auto &s : subscriptions_) {
         if (s.topic == topic || s.topic == "*") {
@@ -178,7 +175,7 @@ std::string EventBus::generateId()
         << '-'
         << std::setw(4)  << ((a >> 16) & 0xFFFF)
         << '-'
-        << std::setw(4)  << (0x4000 | ((a) & 0x0FFF))
+        << std::setw(4)  << (0x4000 | (a & 0x0FFF))
         << '-'
         << std::setw(4)  << (0x8000 | ((b >> 48) & 0x3FFF))
         << '-'

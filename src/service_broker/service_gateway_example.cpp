@@ -58,8 +58,7 @@ int main()
             if (!serviceIds.empty()) {
                 std::cout << "\nRegistered Services:" << '\n';
                 for (const auto& serviceId : serviceIds) {
-                    const auto* identity = registry.findServiceById(serviceId);
-                    if (identity) {
+                    if (const auto* identity = registry.findServiceById(serviceId)) {
                         std::cout << "  " << serviceId << " (" << identity->serviceName 
                                   << ") on " << identity->machineName 
                                   << " - Load: " << identity->getLoadPercentage() << "%"

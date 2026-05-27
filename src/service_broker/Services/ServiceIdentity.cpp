@@ -7,7 +7,7 @@ rapidjson::Document ServiceIdentity::toJson() const {
     rapidjson::Document json;
     json.SetObject();
     auto &allocator = json.GetAllocator();
-    rapidjson::Value value = toJsonValue(allocator);
+    const rapidjson::Value value = toJsonValue(allocator);
     json.CopyFrom(value, allocator);
     return json;
 }

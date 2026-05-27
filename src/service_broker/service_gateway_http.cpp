@@ -18,7 +18,7 @@ namespace {
 std::string getenv_str(const char *name)
 {
     const char *val = std::getenv(name); // NOLINT(concurrency-mt-unsafe)
-    return val ? val : "";
+    return (val != nullptr) ? val : "";
 }
 
 /// Build an AuthConfig from the standard RDWS_AUTH_* environment variables.
@@ -32,17 +32,17 @@ AuthConfig buildAuthConfig()
 {
     AuthConfig cfg;
 
-    const std::string mode = getenv_str("RDWS_AUTH_MODE");
-    if (mode == "apikey") {
+    if (const std::string mode = getenv_str("RDWS_AUTH_MODE"); mode == "apikey") {
         cfg.mode = AuthMode::API_KEY;
 
         // Parse RDWS_API_KEYS="key1=label1,key2,key3=admin"
-        const std::string raw = getenv_str("RDWS_API_KEYS");
-        if (!raw.empty()) {
+        if (const std::string raw = getenv_str("RDWS_API_KEYS"); !raw.empty()) {
             std::istringstream ss(raw);
             std::string token;
             while (std::getline(ss, token, ',')) {
-                if (token.empty()) continue;
+                if (token.empty()) {
+                    continue;
+                }
                 const auto eq = token.find('=');
                 if (eq == std::string::npos) {
                     cfg.apiKeys[token] = token; // label = key itself
@@ -120,8 +120,12 @@ int main(const int argc, char *argv[])
 
     const auto modeLabel = [&]() -> std::string {
         const std::string mode = getenv_str("RDWS_AUTH_MODE");
-        if (mode == "apikey") return "apikey";
-        if (mode == "jwt")    return "jwt";
+        if (mode == "apikey") {
+            return "apikey";
+        }
+        if (mode == "jwt") {
+            return "jwt";
+        }
         return "none";
     }();
     std::cout << "Auth mode:   " << modeLabel << '\n';

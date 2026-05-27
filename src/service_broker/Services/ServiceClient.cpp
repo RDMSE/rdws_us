@@ -78,8 +78,8 @@ void ServiceClient::setRequestHandler(const RequestHandler &handler) {
     requestHandler = handler;
 }
 
-bool ServiceClient::sendPing() {
-    rapidjson::Document empty;
+bool ServiceClient::sendPing() const {
+    const rapidjson::Document empty;
     return sendPing(empty);
 }
 
@@ -252,11 +252,12 @@ void ServiceClient::messageLoop() {
     }
 }
 
-void ServiceClient::pingLoop() {
+void ServiceClient::pingLoop() const {
     while (connected.load()) {
         // Sleep in 1-second increments so stop()/disconnect() can exit quickly.
-        for (int i = 0; i < 30 && connected.load(); ++i)
+        for (int i = 0; i < 30 && connected.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
 
         if (connected.load() && registered.load()) {
             // Send ping with current stats
@@ -267,7 +268,7 @@ void ServiceClient::pingLoop() {
             stats.AddMember("totalRequests", identity.totalRequests, allocator);
             stats.AddMember("errorCount", identity.errorCount, allocator);
 
-            sendPing(stats);
+            (void)sendPing(stats);
         }
     }
 }

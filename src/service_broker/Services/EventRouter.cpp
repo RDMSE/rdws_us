@@ -11,7 +11,6 @@
 #include <rapidjson/istreamwrapper.h>
 #include <rapidjson/ostreamwrapper.h>
 #include <rapidjson/prettywriter.h>
-#include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
 namespace servicegateway {
@@ -163,7 +162,7 @@ bool EventRouter::saveToFile(const std::string &path) const
 
 // ─── Serialisation ────────────────────────────────────────────────────────────
 
-rapidjson::Document EventRouter::ruleToJson(const RoutingRule &rule) const
+rapidjson::Document EventRouter::ruleToJson(const RoutingRule &rule)
 {
     rapidjson::Document doc;
     doc.SetObject();
@@ -198,7 +197,7 @@ rapidjson::Document EventRouter::ruleToJson(const RoutingRule &rule) const
     return doc;
 }
 
-RoutingRule EventRouter::ruleFromJson(const rapidjson::Value &obj) const
+RoutingRule EventRouter::ruleFromJson(const rapidjson::Value &obj)
 {
     RoutingRule rule;
 
@@ -270,11 +269,11 @@ std::string EventRouter::generateId()
     std::ostringstream oss;
     oss << std::hex << std::setfill('0')
         << std::setw(8) << dist(rng) << '-'
-        << std::setw(4) << (dist(rng) & 0xFFFFu) << '-'
-        << std::setw(4) << ((dist(rng) & 0x0FFFu) | 0x4000u) << '-'
-        << std::setw(4) << ((dist(rng) & 0x3FFFu) | 0x8000u) << '-'
+        << std::setw(4) << (dist(rng) & 0xFFFFU) << '-'
+        << std::setw(4) << ((dist(rng) & 0x0FFFU) | 0x4000U) << '-'
+        << std::setw(4) << ((dist(rng) & 0x3FFFU) | 0x8000U) << '-'
         << std::setw(8) << dist(rng)
-        << std::setw(4) << (dist(rng) & 0xFFFFu);
+        << std::setw(4) << (dist(rng) & 0xFFFFU);
     return oss.str();
 }
 

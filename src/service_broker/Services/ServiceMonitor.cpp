@@ -140,25 +140,25 @@ namespace servicegateway
     void ServiceMonitor::printHeader() {
         const auto time_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
-        std::cout << "╔══════════════════════════════════════════════════════════════════════════════╗" << std::endl;
-        std::cout << "║                           SERVICE GATEWAY MONITOR                            ║" << std::endl;
-        std::cout << "╠══════════════════════════════════════════════════════════════════════════════╣" << std::endl;
-        std::cout << "║ Time: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << std::string(50, ' ') << " ║" << std::endl;
-        std::cout << "╚══════════════════════════════════════════════════════════════════════════════╝" << std::endl;
+        std::cout << "╔══════════════════════════════════════════════════════════════════════════════╗" << '\n';
+        std::cout << "║                           SERVICE GATEWAY MONITOR                            ║" << '\n';
+        std::cout << "╠══════════════════════════════════════════════════════════════════════════════╣" << '\n';
+        std::cout << "║ Time: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << std::string(50, ' ') << " ║" << '\n';
+        std::cout << "╚══════════════════════════════════════════════════════════════════════════════╝" << '\n';
     }
 
     void ServiceMonitor::printGatewayStatus() const {
         auto status = gateway.getGatewayStatus();
 
-        std::cout << "\n📡 GATEWAY STATUS" << std::endl;
-        std::cout << "┌─────────────────────────────────────────────────────────────────────────┐" << std::endl;
-        std::cout << "│ Running: " << (status["running"].GetBool() ? "✅ Yes" : "❌ No") << std::string(55, ' ') << "│" << std::endl;
-        std::cout << "│ TCP Port: " << status["tcpPort"].GetInt() << std::string(60, ' ') << "│" << std::endl;
-        std::cout << "│ UNIX Socket: " << status["unixSocket"].GetString() << std::string(45, ' ') << "│" << std::endl;
-        std::cout << "│ Active Connections: " << status["activeConnections"].GetInt() << std::string(50, ' ') << "│" << std::endl;
-        std::cout << "│ Registered Services: " << status["registryStatus"]["totalServices"].GetInt() << std::string(49, ' ') << "│" << std::endl;
-        std::cout << "│ Healthy Services: " << status["registryStatus"]["healthyServices"].GetInt() << std::string(52, ' ') << "│" << std::endl;
-        std::cout << "└─────────────────────────────────────────────────────────────────────────┘" << std::endl;
+        std::cout << "\n📡 GATEWAY STATUS" << '\n';
+        std::cout << "┌─────────────────────────────────────────────────────────────────────────┐" << '\n';
+        std::cout << "│ Running: " << (status["running"].GetBool() ? "✅ Yes" : "❌ No") << std::string(55, ' ') << "│" << '\n';
+        std::cout << "│ TCP Port: " << status["tcpPort"].GetInt() << std::string(60, ' ') << "│" << '\n';
+        std::cout << "│ UNIX Socket: " << status["unixSocket"].GetString() << std::string(45, ' ') << "│" << '\n';
+        std::cout << "│ Active Connections: " << status["activeConnections"].GetInt() << std::string(50, ' ') << "│" << '\n';
+        std::cout << "│ Registered Services: " << status["registryStatus"]["totalServices"].GetInt() << std::string(49, ' ') << "│" << '\n';
+        std::cout << "│ Healthy Services: " << status["registryStatus"]["healthyServices"].GetInt() << std::string(52, ' ') << "│" << '\n';
+        std::cout << "└─────────────────────────────────────────────────────────────────────────┘" << '\n';
     }
 
     void ServiceMonitor::printConnectionTable() const {
@@ -171,9 +171,9 @@ namespace servicegateway
             return;
         }
 
-        std::cout << "┌─────┬──────┬─────────────────────────────┬─────────────────┬──────────┬──────────┐" << std::endl;
-        std::cout << "│ FD  │ Type │ Address                     │ Service ID      │ Status   │ Uptime   │" << std::endl;
-        std::cout << "├─────┼──────┼─────────────────────────────┼─────────────────┼──────────┼──────────┤" << std::endl;
+        std::cout << "┌─────┬──────┬─────────────────────────────┬─────────────────┬──────────┬──────────┐" << '\n';
+        std::cout << "│ FD  │ Type │ Address                     │ Service ID      │ Status   │ Uptime   │" << '\n';
+        std::cout << "├─────┼──────┼─────────────────────────────┼─────────────────┼──────────┼──────────┤" << '\n';
 
         for (const auto &conn : connections.GetArray()) {
             std::string address = conn["address"].GetString();
@@ -207,10 +207,10 @@ namespace servicegateway
                       << " │ " << std::setw(27) << address
                       << " │ " << std::setw(15) << serviceId
                       << " │ " << std::setw(8) << status
-                      << " │ " << std::setw(8) << uptime << " │" << std::endl;
+                      << " │ " << std::setw(8) << uptime << " │" << '\n';
         }
 
-        std::cout << "└─────┴──────┴─────────────────────────────┴─────────────────┴──────────┴──────────┘" << std::endl;
+        std::cout << "└─────┴──────┴─────────────────────────────┴─────────────────┴──────────┴──────────┘" << '\n';
     }
 
     void ServiceMonitor::printServiceTable() const {
@@ -224,23 +224,24 @@ namespace servicegateway
             return;
         }
 
-        std::cout << "┌─────────────────┬─────────────────┬─────────────────┬────────┬─────────┬─────────┬─────────┐" << std::endl;
-        std::cout << "│ Service ID      │ Name            │ Machine         │ Load % │ Reqs    │ Errors  │ Health  │" << std::endl;
-        std::cout << "├─────────────────┼─────────────────┼─────────────────┼────────┼─────────┼─────────┼─────────┤" << std::endl;
+        std::cout << "┌─────────────────┬─────────────────┬─────────────────┬────────┬─────────┬─────────┬─────────┐" << '\n';
+        std::cout << "│ Service ID      │ Name            │ Machine         │ Load % │ Reqs    │ Errors  │ Health  │" << '\n';
+        std::cout << "├─────────────────┼─────────────────┼─────────────────┼────────┼─────────┼─────────┼─────────┤" << '\n';
 
         for (const auto &service : services) {
             std::string serviceId = service.serviceId;
-            if (serviceId.length() > 15)
+            if (serviceId.length() > 15) {
                 serviceId = serviceId.substr(0, 12) + "...";
-
+            }
+            
             std::string serviceName = service.serviceName;
-            if (serviceName.length() > 15)
+            if (serviceName.length() > 15) {
                 serviceName = serviceName.substr(0, 12) + "...";
-
+            }
             std::string machineName = service.machineName;
-            if (machineName.length() > 15)
+            if (machineName.length() > 15) {
                 machineName = machineName.substr(0, 12) + "...";
-
+            }
             std::string healthStatus = service.isHealthy() ? "✅ OK" : "❌ BAD";
 
             std::cout << "│ " << std::left << std::setw(15) << serviceId
@@ -249,25 +250,27 @@ namespace servicegateway
                       << " │ " << std::right << std::setw(6) << std::fixed << std::setprecision(1) << service.getLoadPercentage()
                       << " │ " << std::setw(7) << service.totalRequests
                       << " │ " << std::setw(7) << service.errorCount
-                      << " │ " << std::left << std::setw(7) << healthStatus << " │" << std::endl;
+                      << " │ " << std::left << std::setw(7) << healthStatus << " │" << '\n';
 
             // Show capabilities on next line
             if (!service.capabilities.empty()) {
                 std::string caps = "Capabilities: ";
                 for (size_t i = 0; i < service.capabilities.size(); ++i) {
                     caps += service.capabilities[i];
-                    if (i < service.capabilities.size() - 1)
+                    if (i < service.capabilities.size() - 1) {
                         caps += ", ";
+                    }
                 }
-                if (caps.length() > 75)
+                if (caps.length() > 75) {
                     caps = caps.substr(0, 72) + "...";
+                }
 
-                std::cout << "│ " << std::left << std::setw(87) << caps << " │" << std::endl;
-                std::cout << "├─────────────────┼─────────────────┼─────────────────┼────────┼─────────┼─────────┼─────────┤" << std::endl;
+                std::cout << "│ " << std::left << std::setw(87) << caps << " │" << '\n';
+                std::cout << "├─────────────────┼─────────────────┼─────────────────┼────────┼─────────┼─────────┼─────────┤" << '\n';
             }
         }
 
-        std::cout << "└─────────────────┴─────────────────┴─────────────────┴────────┴─────────┴─────────┴─────────┘" << std::endl;
+        std::cout << "└─────────────────┴─────────────────┴─────────────────┴────────┴─────────┴─────────┴─────────┘" << '\n';
     }
 
     void ServiceMonitor::printCapabilityIndex() const {
@@ -282,38 +285,41 @@ namespace servicegateway
             }
         }
 
-        std::cout << "\n🔍 CAPABILITY INDEX" << std::endl;
+        std::cout << "\n🔍 CAPABILITY INDEX" << '\n';
 
         if (capabilityMap.empty()) {
             std::cout << "   No capabilities registered" << '\n';
             return;
         }
 
-        std::cout << "┌──────────────────────┬─────────┬─────────────────────────────────────────────┐" << std::endl;
-        std::cout << "│ Capability           │ Count   │ Service IDs                                 │" << std::endl;
-        std::cout << "├──────────────────────┼─────────┼─────────────────────────────────────────────┤" << std::endl;
+        std::cout << "┌──────────────────────┬─────────┬─────────────────────────────────────────────┐" << '\n';
+        std::cout << "│ Capability           │ Count   │ Service IDs                                 │" << '\n';
+        std::cout << "├──────────────────────┼─────────┼─────────────────────────────────────────────┤" << '\n';
 
         for (const auto &[capability, serviceIds] : capabilityMap)
         {
             std::string cap = capability;
-            if (cap.length() > 20)
+            if (cap.length() > 20) {
                 cap = cap.substr(0, 17) + "...";
+            }
 
             std::string ids;
             for (size_t i = 0; i < serviceIds.size(); ++i) {
                 ids += serviceIds[i];
-                if (i < serviceIds.size() - 1)
+                if (i < serviceIds.size() - 1) {
                     ids += ", ";
+                }
             }
-            if (ids.length() > 43)
+            if (ids.length() > 43) {
                 ids = ids.substr(0, 40) + "...";
+            }
 
             std::cout << "│ " << std::left << std::setw(20) << cap
                       << " │ " << std::right << std::setw(7) << serviceIds.size()
-                      << " │ " << std::left << std::setw(43) << ids << " │" << std::endl;
+                      << " │ " << std::left << std::setw(43) << ids << " │" << '\n';
         }
 
-        std::cout << "└──────────────────────┴─────────┴─────────────────────────────────────────────┘" << std::endl;
+        std::cout << "└──────────────────────┴─────────┴─────────────────────────────────────────────┘" << '\n';
     }
 
 } // namespace servicegateway

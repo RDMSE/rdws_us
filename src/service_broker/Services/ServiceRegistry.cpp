@@ -10,7 +10,7 @@ namespace servicegateway
 
     bool ServiceRegistry::registerService(const ServiceIdentity &identity)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         if (identity.serviceId.empty())
         {
@@ -39,7 +39,7 @@ namespace servicegateway
 
     bool ServiceRegistry::unregisterService(const std::string &serviceId)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         const auto it = identities.find(serviceId);
         if (it == identities.end())
@@ -59,7 +59,7 @@ namespace servicegateway
 
     bool ServiceRegistry::updateService(const ServiceIdentity &identity)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         const auto it = identities.find(identity.serviceId);
         if (it == identities.end())
@@ -81,21 +81,21 @@ namespace servicegateway
 
     ServiceIdentity *ServiceRegistry::findServiceById(const std::string &serviceId)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
         const auto it = identities.find(serviceId);
         return (it != identities.end()) ? &it->second : nullptr;
     }
 
     const ServiceIdentity *ServiceRegistry::findServiceById(const std::string &serviceId) const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
         const auto it = identities.find(serviceId);
         return (it != identities.end()) ? &it->second : nullptr;
     }
 
     std::vector<std::string> ServiceRegistry::findServicesByCapability(const std::string &capability) const
     {
-        std::lock_guard<std::mutex> lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<std::string> result;
         auto [fst, snd] = capabilityIndex.equal_range(capability);
@@ -110,7 +110,7 @@ namespace servicegateway
 
     std::vector<std::string> ServiceRegistry::findServicesByMachine(const std::string &machine) const
     {
-        std::lock_guard<std::mutex> lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         if (const auto it = machineIndex.find(machine); it != machineIndex.end())
         {
@@ -121,7 +121,7 @@ namespace servicegateway
 
     std::vector<std::string> ServiceRegistry::findServicesByEnvironment(const std::string &environment) const
     {
-        std::lock_guard<std::mutex> lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         if (const auto it = environmentIndex.find(environment); it != environmentIndex.end())
         {
@@ -132,7 +132,7 @@ namespace servicegateway
 
     std::vector<std::string> ServiceRegistry::findServicesByName(const std::string &serviceName) const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<std::string> result;
         for (const auto &[serviceId, identity] : identities)
@@ -153,7 +153,7 @@ namespace servicegateway
 
     std::vector<std::string> ServiceRegistry::findAvailableServices(const std::string &capability) const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<std::string> result;
         auto [fst, snd] = capabilityIndex.equal_range(capability);
@@ -180,64 +180,64 @@ namespace servicegateway
             return "";
         }
 
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         switch (strategy)
         {
-        case LoadBalancingStrategy::ROUND_ROBIN:
-        {
-            auto &counter = roundRobinCounters[capability];
-            auto selectedId = availableServices[counter % availableServices.size()];
-            counter++;
-            return selectedId;
-        }
-
-        case LoadBalancingStrategy::LEAST_LOADED:
-        {
-            std::string bestService = availableServices[0];
-            double minLoad = 100.0;
-
-            for (const auto &serviceId : availableServices)
+            case LoadBalancingStrategy::ROUND_ROBIN:
             {
-                if (auto it = identities.find(serviceId); it != identities.end())
+                auto &counter = roundRobinCounters[capability];
+                auto selectedId = availableServices[counter % availableServices.size()];
+                counter++;
+                return selectedId;
+            }
+
+            case LoadBalancingStrategy::LEAST_LOADED:
+            {
+                std::string bestService = availableServices[0];
+                double minLoad = 100.0;
+
+                for (const auto &serviceId : availableServices)
                 {
-                    if (double load = it->second.getLoadPercentage(); load < minLoad)
+                    if (auto it = identities.find(serviceId); it != identities.end())
                     {
-                        minLoad = load;
-                        bestService = serviceId;
+                        if (double load = it->second.getLoadPercentage(); load < minLoad)
+                        {
+                            minLoad = load;
+                            bestService = serviceId;
+                        }
                     }
                 }
+                return bestService;
             }
-            return bestService;
-        }
 
-        case LoadBalancingStrategy::FASTEST_RESPONSE:
-        {
-            std::string fastestService = availableServices[0];
-            auto minResponseTime = std::chrono::milliseconds::max();
-
-            for (const auto &serviceId : availableServices)
+            case LoadBalancingStrategy::FASTEST_RESPONSE:
             {
-                auto it = identities.find(serviceId);
-                if (it != identities.end())
+                std::string fastestService = availableServices[0];
+                auto minResponseTime = std::chrono::milliseconds::max();
+
+                for (const auto &serviceId : availableServices)
                 {
-                    if (it->second.avgResponseTime < minResponseTime)
+                    auto it = identities.find(serviceId);
+                    if (it != identities.end())
                     {
-                        minResponseTime = it->second.avgResponseTime;
-                        fastestService = serviceId;
+                        if (it->second.avgResponseTime < minResponseTime)
+                        {
+                            minResponseTime = it->second.avgResponseTime;
+                            fastestService = serviceId;
+                        }
                     }
                 }
+                return fastestService;
             }
-            return fastestService;
-        }
 
-        case LoadBalancingStrategy::RANDOM:
-        {
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<> dis(0, availableServices.size() - 1);
-            return availableServices[dis(gen)];
-        }
+            case LoadBalancingStrategy::RANDOM:
+            {
+                std::random_device rd;
+                std::mt19937 gen(rd());
+                std::uniform_int_distribution<> dis(0, static_cast<int>(availableServices.size()) - 1);
+                return availableServices[dis(gen)];
+            }
         }
 
         return availableServices[0]; // Fallback
@@ -245,7 +245,7 @@ namespace servicegateway
 
     size_t ServiceRegistry::getServiceCount() const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
         return identities.size();
     }
 
@@ -256,7 +256,7 @@ namespace servicegateway
 
     std::vector<std::string> ServiceRegistry::getAllServiceIds() const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<std::string> result;
         for (const auto& serviceId : identities | std::views::keys)
@@ -268,7 +268,7 @@ namespace servicegateway
 
     rapidjson::Document ServiceRegistry::getRegistryStatus() const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         rapidjson::Document status;
         status.SetObject();
@@ -298,7 +298,7 @@ namespace servicegateway
 
     std::vector<ServiceIdentity> ServiceRegistry::getAllServices() const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<ServiceIdentity> result;
         for (const auto& identity : identities | std::views::values)
@@ -310,7 +310,7 @@ namespace servicegateway
 
     void ServiceRegistry::removeUnhealthyServices(std::chrono::seconds timeout)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<std::string> toRemove;
         for (const auto &[serviceId, identity] : identities)
@@ -330,7 +330,7 @@ namespace servicegateway
 
     void ServiceRegistry::updateCurrentLoad(const std::string &serviceId, uint32_t currentLoad)
     {
-        std::lock_guard<std::mutex> lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         if (const auto it = identities.find(serviceId); it != identities.end())
         {
@@ -341,7 +341,7 @@ namespace servicegateway
     void ServiceRegistry::recordResponseTime(const std::string &serviceId,
                                              std::chrono::milliseconds responseTime)
     {
-        std::lock_guard<std::mutex> lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         if (const auto it = identities.find(serviceId); it != identities.end())
         {
@@ -356,7 +356,7 @@ namespace servicegateway
                 // Exponential weighted moving average (α = 0.1)
                 const auto avgMs = static_cast<double>(it->second.avgResponseTime.count());
                 const auto newMs = static_cast<double>(responseTime.count());
-                const auto newAvg = avgMs * 0.9 + newMs * 0.1;
+                const auto newAvg = (avgMs * 0.9) + (newMs * 0.1);
                 it->second.avgResponseTime = std::chrono::milliseconds(static_cast<long>(newAvg));
             }
         }
@@ -364,7 +364,7 @@ namespace servicegateway
 
     void ServiceRegistry::recordServiceError(const std::string &serviceId)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         auto it = identities.find(serviceId);
         if (it != identities.end())
@@ -375,7 +375,7 @@ namespace servicegateway
 
     void ServiceRegistry::pingService(const std::string &serviceId)
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         auto it = identities.find(serviceId);
         if (it != identities.end())
@@ -386,7 +386,7 @@ namespace servicegateway
 
     std::vector<std::string> ServiceRegistry::findServices(const std::function<bool(const ServiceIdentity &)> &predicate) const
     {
-        std::lock_guard lock(registryMutex);
+        std::scoped_lock lock(registryMutex);
 
         std::vector<std::string> result;
         for (const auto &[serviceId, identity] : identities)
@@ -433,15 +433,11 @@ namespace servicegateway
 
         // Remove from machine index
         auto &machineServices = machineIndex[identity.machineName];
-        machineServices.erase(
-            std::remove(machineServices.begin(), machineServices.end(), identity.serviceId),
-            machineServices.end());
+        std::erase(machineServices, identity.serviceId);
 
         // Remove from environment index
         auto &envServices = environmentIndex[identity.environment];
-        envServices.erase(
-            std::remove(envServices.begin(), envServices.end(), identity.serviceId),
-            envServices.end());
+        std::erase(envServices, identity.serviceId);
     }
 
 } // namespace servicegateway

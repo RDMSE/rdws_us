@@ -11,10 +11,10 @@ using namespace servicegateway;
 ServiceGateway* g_gateway = nullptr;
 bool g_running = true;
 
-void signalHandler(int signal) {
-    std::cout << "\nReceived signal " << signal << ", shutting down..." << std::endl;
+void signalHandler(const int signal) {
+    std::cout << "\nReceived signal " << signal << ", shutting down..." << '\n';
     g_running = false;
-    if (g_gateway) {
+    if (g_gateway != nullptr) {
         g_gateway->stop();
     }
 }
@@ -24,31 +24,31 @@ int main() {
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     
-    std::cout << "=== Service Gateway with Monitoring Interface ===" << std::endl;
+    std::cout << "=== Service Gateway with Monitoring Interface ===" << '\n';
     
     // Create and start gateway
     ServiceGateway gateway(8080, "/tmp/example_service_gateway.sock");
     g_gateway = &gateway;
     
     if (!gateway.start()) {
-        std::cerr << "Failed to start gateway" << std::endl;
+        std::cerr << "Failed to start gateway" << '\n';
         return 1;
     }
     
     // Create monitor
     ServiceMonitor monitor(gateway);
     
-    std::cout << "\nGateway started with monitoring interface!" << std::endl;
-    std::cout << "Services can connect via:" << std::endl;
-    std::cout << "  TCP: localhost:8080" << std::endl;
-    std::cout << "  UNIX: /tmp/example_service_gateway.sock" << std::endl;
-    std::cout << "\nMonitoring interface commands:" << std::endl;
-    std::cout << "  s - Show current status" << std::endl;
-    std::cout << "  c - Start continuous monitoring" << std::endl;
-    std::cout << "  h - Show health status" << std::endl;
-    std::cout << "  f - Save status to file" << std::endl;
-    std::cout << "  q - Quit" << std::endl;
-    std::cout << "  help - Show this help" << std::endl;
+    std::cout << "\nGateway started with monitoring interface!" << '\n';
+    std::cout << "Services can connect via:" << '\n';
+    std::cout << "  TCP: localhost:8080" << '\n';
+    std::cout << "  UNIX: /tmp/example_service_gateway.sock" << '\n';
+    std::cout << "\nMonitoring interface commands:" << '\n';
+    std::cout << "  s - Show current status" << '\n';
+    std::cout << "  c - Start continuous monitoring" << '\n';
+    std::cout << "  h - Show health status" << '\n';
+    std::cout << "  f - Save status to file" << '\n';
+    std::cout << "  q - Quit" << '\n';
+    std::cout << "  help - Show this help" << '\n';
     
     // Interactive command loop
     std::string command;
@@ -59,10 +59,10 @@ int main() {
         if (command == "q" || command == "quit") {
             g_running = false;
             break;
-        } else if (command == "s" || command == "status") {
+        } if (command == "s" || command == "status") {
             monitor.displayStatus();
         } else if (command == "c" || command == "continuous") {
-            std::cout << "Starting continuous monitoring (Press Ctrl+C to stop)..." << std::endl;
+            std::cout << "Starting continuous monitoring (Press Ctrl+C to stop)..." << '\n';
             std::thread monitorThread([&monitor]() {
                 monitor.displayContinuous(5);
             });
@@ -82,31 +82,31 @@ int main() {
             filename << "broker_status_" << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S") << ".txt";
             
             monitor.saveStatusToFile(filename.str());
-        } else if (command.rfind("cap ", 0) == 0) {
+        } else if (command.starts_with("cap ")) {
             std::string capability = command.substr(4);
             monitor.showServicesByCapability(capability);
-        } else if (command.rfind("machine ", 0) == 0) {
+        } else if (command.starts_with("machine ")) {
             std::string machine = command.substr(8);
             monitor.showServicesByMachine(machine);
         } else if (command == "help" || command == "?") {
-            std::cout << "\nCommands:" << std::endl;
-            std::cout << "  s, status      - Show current gateway/service status" << std::endl;
-            std::cout << "  c, continuous  - Start continuous monitoring display" << std::endl;
-            std::cout << "  h, health      - Show service health status" << std::endl;
-            std::cout << "  f, file        - Save status to timestamped file" << std::endl;
-            std::cout << "  cap <name>     - Show services with capability" << std::endl;
-            std::cout << "  machine <name> - Show services on machine" << std::endl;
-            std::cout << "  q, quit        - Quit gateway" << std::endl;
-            std::cout << "  help, ?        - Show this help" << std::endl;
+            std::cout << "\nCommands:" << '\n';
+            std::cout << "  s, status      - Show current gateway/service status" << '\n';
+            std::cout << "  c, continuous  - Start continuous monitoring display" << '\n';
+            std::cout << "  h, health      - Show service health status" << '\n';
+            std::cout << "  f, file        - Save status to timestamped file" << '\n';
+            std::cout << "  cap <name>     - Show services with capability" << '\n';
+            std::cout << "  machine <name> - Show services on machine" << '\n';
+            std::cout << "  q, quit        - Quit gateway" << '\n';
+            std::cout << "  help, ?        - Show this help" << '\n';
         } else if (!command.empty()) {
-            std::cout << "Unknown command: " << command << std::endl;
-            std::cout << "Type 'help' for available commands" << std::endl;
+            std::cout << "Unknown command: " << command << '\n';
+            std::cout << "Type 'help' for available commands" << '\n';
         }
     }
     
-    std::cout << "\nStopping gateway..." << std::endl;
+    std::cout << "\nStopping gateway..." << '\n';
     gateway.stop();
     
-    std::cout << "Gateway stopped." << std::endl;
+    std::cout << "Gateway stopped." << '\n';
     return 0;
 }

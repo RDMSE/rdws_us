@@ -6,11 +6,10 @@
 #include "../../service_broker/Services/ServiceClient.h"
 #include <iostream>
 #include <string>
-#include <signal.h>
+#include <csignal>
 #include <thread>
 #include <chrono>
 #include <random>
-#include <ctime>
 #include <utility>
 
 using namespace servicegateway;
@@ -175,8 +174,9 @@ public:
         for (size_t i = 0; i < identity.capabilities.size(); ++i)
         {
             std::cout << identity.capabilities[i];
-            if (i < identity.capabilities.size() - 1)
+            if (i < identity.capabilities.size() - 1) {
                 std::cout << ", ";
+            }
         }
         std::cout << '\n';
         std::cout << "[" << identity.serviceId << "] Gateway: " << gatewayAddress << '\n';
@@ -292,7 +292,7 @@ private:
 // Global service instance for signal handling
 ExampleService *globalService = nullptr;
 
-void signalHandler(int signal)
+void signalHandler(const int signal)
 {
     if ((globalService != nullptr) && (signal == SIGTERM || signal == SIGINT))
     {

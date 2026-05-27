@@ -42,8 +42,8 @@ public:
     void setRequestHandler(const RequestHandler &handler);
     
     // Communication
-    bool sendPing();
-    bool sendPing(const rapidjson::Document& stats) const;
+    [[nodiscard]] bool sendPing() const;
+    [[nodiscard]] bool sendPing(const rapidjson::Document& stats) const;
     [[nodiscard]] bool sendResponse(const std::string& requestId, const rapidjson::Document& response) const;
     
     // Main event loop
@@ -55,7 +55,7 @@ private:
     [[nodiscard]] int createConnection() const;
     [[nodiscard]] bool sendMessage(const rapidjson::Document& message) const;
     void messageLoop();
-    void pingLoop();
+    void pingLoop() const;
     
     // Message handlers
     void handleMessage(const std::string& message);

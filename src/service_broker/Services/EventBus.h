@@ -38,7 +38,7 @@ public:
     bool           unsubscribe(const SubscriptionId &id);
 
     // Async publish — enqueues the event and returns immediately.
-    void publish(const std::string &topic, rapidjson::Document payload);
+    void publish(const std::string &topic, const rapidjson::Document& payload);
 
     // Observability
     std::vector<std::string> listTopics()                              const;
@@ -68,7 +68,7 @@ private:
 
     static std::string generateId();
     void workerLoop();
-    void dispatch(const std::string &topic, const rapidjson::Document &payload);
+    void dispatch(const std::string &topic, const rapidjson::Document &payload) const;
 };
 
 } // namespace servicegateway

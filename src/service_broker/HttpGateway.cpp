@@ -66,22 +66,24 @@ void HttpGateway::registerRoutes()
         // ── Auth check ────────────────────────────────────────────────────
         AuthHttpRequest authReq;
         authReq.path = request.path;
-        for (const auto &[k, v] : request.headers)
+        for (const auto &[k, v] : request.headers) {
             authReq.headers.emplace(k, v);
+        }
 
-        const AuthResult authResult = auth_.authenticate(authReq);
-        if (!authResult.authorized) {
-            response.status = authResult.statusCode;
+        const auto [authorized, statusCode, message, identity] = auth_.authenticate(authReq);
+        if (!authorized) {
+            response.status = statusCode;
             response.set_header("WWW-Authenticate", R"(Bearer realm="rdws-gateway")");
-            response.set_content(documentToString(buildErrorResponse(authResult.message,
-                                                                     authResult.statusCode)),
+            response.set_content(documentToString(buildErrorResponse(message,
+                                                                     statusCode)),
                                  "application/json");
             return;
         }
 
         rapidjson::Document eventDocument = documentFromRequest(request, capability);
-        if (authResult.identity)
-            AuthMiddleware::injectIdentity(*authResult.identity, eventDocument);
+        if (identity) {
+            AuthMiddleware::injectIdentity(*identity, eventDocument);
+        }
 
         const std::string requestId = gateway_.sendRequest(capability, eventDocument);
 
@@ -354,8 +356,8 @@ rapidjson::Document HttpGateway::documentFromRequest(const httplib::Request &req
                       request.path,
                       request.body);
 
-    for (const auto &header : request.headers) {
-        event.setHeader(header.first, header.second);
+    for (const auto &[fst, snd] : request.headers) {
+        event.setHeader(fst, snd);
     }
 
     if (const auto queryPos = request.path.find('?'); queryPos != std::string::npos) {
@@ -396,25 +398,25 @@ rapidjson::Document HttpGateway::documentFromRequest(const httplib::Request &req
     payload.AddMember("capability", rapidjson::Value(capability.c_str(), allocator), allocator);
 
     rapidjson::Value headers(rapidjson::kObjectType);
-    for (const auto &header : event.getHeaders()) {
-        headers.AddMember(rapidjson::Value(header.first.c_str(), allocator),
-                          rapidjson::Value(header.second.c_str(), allocator),
+    for (const auto &[fst, snd] : event.getHeaders()) {
+        headers.AddMember(rapidjson::Value(fst.c_str(), allocator),
+                          rapidjson::Value(snd.c_str(), allocator),
                           allocator);
     }
     payload.AddMember("headers", headers, allocator);
 
     rapidjson::Value queryParams(rapidjson::kObjectType);
-    for (const auto &param : event.getQueryStringParameters()) {
-        queryParams.AddMember(rapidjson::Value(param.first.c_str(), allocator),
-                              rapidjson::Value(param.second.c_str(), allocator),
+    for (const auto &[fst, snd] : event.getQueryStringParameters()) {
+        queryParams.AddMember(rapidjson::Value(fst.c_str(), allocator),
+                              rapidjson::Value(snd.c_str(), allocator),
                               allocator);
     }
     payload.AddMember("queryStringParameters", queryParams, allocator);
 
     rapidjson::Value pathParams(rapidjson::kObjectType);
-    for (const auto &param : event.getPathParameters()) {
-        pathParams.AddMember(rapidjson::Value(param.first.c_str(), allocator),
-                             rapidjson::Value(param.second.c_str(), allocator),
+    for (const auto &[fst, snd] : event.getPathParameters()) {
+        pathParams.AddMember(rapidjson::Value(fst.c_str(), allocator),
+                             rapidjson::Value(snd.c_str(), allocator),
                              allocator);
     }
     payload.AddMember("pathParameters", pathParams, allocator);
