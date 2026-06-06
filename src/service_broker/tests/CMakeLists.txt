@@ -71,3 +71,14 @@ target_link_libraries(service_gateway_auth_test PRIVATE
     gtest
 )
 gtest_discover_tests(service_gateway_auth_test)
+
+# --- GatewayConfig unit tests ---
+add_executable(service_gateway_config_test
+        test_gateway_config.cpp
+)
+target_link_libraries(service_gateway_config_test PRIVATE
+    service_gateway_core
+    gtest_main
+    gtest
+)
+gtest_discover_tests(service_gateway_config_test)

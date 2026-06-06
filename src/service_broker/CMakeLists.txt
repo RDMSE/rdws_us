@@ -18,6 +18,9 @@ add_library(service_gateway_core
         # Auth middleware
         Auth/AuthMiddleware.h
         Auth/AuthMiddleware.cpp
+        # Config
+        Config/GatewayConfig.h
+        Config/GatewayConfig.cpp
         # Utils
         Utils/Utils.cpp
         Utils/Utils.h

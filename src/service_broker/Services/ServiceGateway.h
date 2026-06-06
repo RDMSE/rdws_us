@@ -4,6 +4,7 @@
 #include "EventRouter.h"
 #include "ServiceRegistry.h"
 #include "../../shared/utils/metrics.h"
+#include "../Config/GatewayConfig.h"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -89,11 +90,15 @@ private:
 
     // Internal pub/sub bus
     EventBus bus_;
-    
+
+    // Runtime configuration
+    GatewayConfig config_;
+
 public:
     explicit ServiceGateway(int port = 8080,
                              std::string unixSocket  = "/tmp/service_gateway.sock",
-                             std::string routesFile  = "");
+                             std::string routesFile  = "",
+                             std::string configFile  = "");
     ServiceGateway() = delete;                        
     ~ServiceGateway();
     
@@ -145,6 +150,10 @@ public:
 
     // EventBus access
     EventBus& getBus() { return bus_; }
+
+    // GatewayConfig access
+    GatewayConfig& getConfig() { return config_; }
+    const GatewayConfig& getConfig() const { return config_; }
 
     const ServiceRegistry& getRegistry() const { return registry; }
     

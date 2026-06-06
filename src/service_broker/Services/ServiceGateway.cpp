@@ -15,9 +15,12 @@
 namespace servicegateway
 {
 
-    ServiceGateway::ServiceGateway(const int port, std::string unixSocket, std::string routesFile)
+    ServiceGateway::ServiceGateway(const int port, std::string unixSocket,
+                                   std::string routesFile, std::string configFile)
         : tcpPort(port), unixSocketPath(std::move(unixSocket)),
-          router_(std::move(routesFile))
+          router_(std::move(routesFile)),
+          config_(configFile.empty() ? GatewayConfig{}
+                                     : GatewayConfig::fromFile(configFile))
     {
 
         // Set up default message handlers
@@ -572,7 +575,15 @@ namespace servicegateway
     {
         // Apply routing rules: may remap the incoming capability to another.
         const std::string resolvedCapability = router_.resolve(capability, requestData);
-        const std::string targetServiceId = registry.selectBestService(resolvedCapability, strategy);
+
+        // Use per-capability LB strategy from config, unless caller passed an explicit one
+        // (caller default is LEAST_LOADED — treat that as "use config").
+        const LoadBalancingStrategy effectiveStrategy =
+            (strategy == LoadBalancingStrategy::LEAST_LOADED)
+                ? config_.lbStrategyFor(resolvedCapability)
+                : strategy;
+
+        const std::string targetServiceId = registry.selectBestService(resolvedCapability, effectiveStrategy);
         if (targetServiceId.empty())
         {
             std::cerr << "No available service for capability: " << resolvedCapability << '\n';

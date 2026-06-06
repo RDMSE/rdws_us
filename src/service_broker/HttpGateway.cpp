@@ -1,4 +1,5 @@
 #include "HttpGateway.h"
+#include "Config/GatewayConfig.h"
 
 #include <chrono>
 #include <iostream>
@@ -109,7 +110,8 @@ void HttpGateway::registerRoutes()
             return;
         }
 
-        const PendingRequest result = gateway_.waitForResponse(requestId);
+        const PendingRequest result = gateway_.waitForResponse(
+            requestId, gateway_.getConfig().timeoutFor(capability));
 
         if (result.state == RequestState::TIMED_OUT) {
             respond(504, documentToString(buildErrorResponse("Service response timed out", 504)));
@@ -299,6 +301,101 @@ void HttpGateway::registerRoutes()
         resp.AddMember("published", true, alloc);
         resp.AddMember("topic", rapidjson::Value(topic.c_str(), alloc), alloc);
         response.status = 202;
+        response.set_content(documentToString(resp), "application/json");
+    });
+
+    // ── GatewayConfig endpoints ───────────────────────────────────────────────────
+
+    // GET /config — full config snapshot
+    server_.Get("/config", [this](const httplib::Request &, httplib::Response &response) {
+        response.status = 200;
+        response.set_content(documentToString(gateway_.getConfig().toJson()), "application/json");
+    });
+
+    // PATCH /config/capabilities/{cap} — update per-capability settings
+    server_.Patch(R"(/config/capabilities/([^/?]+))",
+                  [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string cap = request.matches[1];
+
+        if (request.body.empty()) {
+            response.status = 400;
+            response.set_content(documentToString(buildErrorResponse("Empty body", 400)),
+                                 "application/json");
+            return;
+        }
+
+        rapidjson::Document body;
+        body.Parse(request.body.c_str());
+        if (body.HasParseError() || !body.IsObject()) {
+            response.status = 400;
+            response.set_content(documentToString(buildErrorResponse("Invalid JSON", 400)),
+                                 "application/json");
+            return;
+        }
+
+        // Read existing config for this capability and apply partial updates.
+        CapabilityConfig cfg = gateway_.getConfig().forCapability(cap);
+        if (body.HasMember("timeoutMs") && body["timeoutMs"].IsInt())
+            cfg.timeoutMs = std::chrono::milliseconds(body["timeoutMs"].GetInt());
+        if (body.HasMember("loadBalancing") && body["loadBalancing"].IsString())
+            cfg.loadBalancing = GatewayConfig::lbStrategyFromString(body["loadBalancing"].GetString());
+        if (body.HasMember("maxConcurrentRequests") && body["maxConcurrentRequests"].IsInt())
+            cfg.maxConcurrentRequests = body["maxConcurrentRequests"].GetInt();
+
+        gateway_.getConfig().setCapabilityConfig(cap, cfg);
+
+        response.status = 200;
+        response.set_content(documentToString(gateway_.getConfig().toJson()), "application/json");
+    });
+
+    // DELETE /config/capabilities/{cap} — remove override (revert to defaults)
+    server_.Delete(R"(/config/capabilities/([^/?]+))",
+                   [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string cap = request.matches[1];
+        gateway_.getConfig().removeCapabilityConfig(cap);
+        response.status = 200;
+        response.set_content(documentToString(gateway_.getConfig().toJson()), "application/json");
+    });
+
+    // GET /config/features — list all feature flags
+    server_.Get("/config/features", [this](const httplib::Request &, httplib::Response &response) {
+        const rapidjson::Document full = gateway_.getConfig().toJson();
+        rapidjson::Document resp;
+        resp.SetObject();
+        if (full.HasMember("features")) {
+            rapidjson::Value feats;
+            feats.CopyFrom(full["features"], resp.GetAllocator());
+            resp.AddMember("features", feats, resp.GetAllocator());
+        }
+        response.status = 200;
+        response.set_content(documentToString(resp), "application/json");
+    });
+
+    // PUT /config/features/{name} — set a feature flag
+    // Body: { "enabled": true }
+    server_.Put(R"(/config/features/([^/?]+))",
+                [this](const httplib::Request &request, httplib::Response &response) {
+        const std::string name = request.matches[1];
+
+        rapidjson::Document body;
+        body.Parse(request.body.c_str());
+        if (body.HasParseError() || !body.IsObject() ||
+            !body.HasMember("enabled") || !body["enabled"].IsBool()) {
+            response.status = 400;
+            response.set_content(
+                documentToString(buildErrorResponse(R"(Body must be {"enabled": true|false})", 400)),
+                "application/json");
+            return;
+        }
+
+        gateway_.getConfig().setFeature(name, body["enabled"].GetBool());
+
+        rapidjson::Document resp;
+        resp.SetObject();
+        auto &alloc = resp.GetAllocator();
+        resp.AddMember("feature",  rapidjson::Value(name.c_str(), alloc), alloc);
+        resp.AddMember("enabled",  body["enabled"].GetBool(), alloc);
+        response.status = 200;
         response.set_content(documentToString(resp), "application/json");
     });
 }

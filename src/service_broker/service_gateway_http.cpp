@@ -90,6 +90,8 @@ int main(const int argc, char *argv[])
     std::string unixSocket = "/tmp/service_gateway.sock";
     std::string logFile;    // empty = stdout only
     std::string routesFile;  // empty = no persistence
+    // Config file: argv[6] or RDWS_CONFIG_FILE env var.
+    std::string configFile = getenv_str("RDWS_CONFIG_FILE");
 
     if (argc >= 2) {
         brokerPort = std::stoi(argv[1]);
@@ -106,6 +108,9 @@ int main(const int argc, char *argv[])
     if (argc >= 6) {
         routesFile = argv[5];
     }
+    if (argc >= 7) {
+        configFile = argv[6];
+    }
 
     std::cout << "=== ServiceGateway HTTP Bridge ===\n";
     std::cout << "Broker port: " << brokerPort << '\n';
@@ -116,6 +121,9 @@ int main(const int argc, char *argv[])
     }
     if (!routesFile.empty()) {
         std::cout << "Routes file: " << routesFile << '\n';
+    }
+    if (!configFile.empty()) {
+        std::cout << "Config file: " << configFile << '\n';
     }
 
     const auto modeLabel = [&]() -> std::string {
@@ -135,7 +143,7 @@ int main(const int argc, char *argv[])
     const AuthConfig authCfg = buildAuthConfig();
 
     try {
-        ServiceGateway gateway(brokerPort, unixSocket, routesFile);
+        ServiceGateway gateway(brokerPort, unixSocket, routesFile, configFile);
         HttpGateway httpGateway(gateway, httpPort, "0.0.0.0", authCfg);
 
         g_serviceGateway = &gateway;
@@ -165,6 +173,7 @@ int main(const int argc, char *argv[])
         std::cout << "  http://localhost:" << httpPort << " /connections" << '\n';
         std::cout << "  http://localhost:" << httpPort << " /routes" << '\n';
         std::cout << "  http://localhost:" << httpPort << " /events" << '\n';
+        std::cout << "  http://localhost:" << httpPort << " /config" << '\n';
 
         while (gateway.isRunning() || httpGateway.isRunning()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
