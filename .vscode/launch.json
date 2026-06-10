@@ -52,6 +52,66 @@
             "preLaunchTask": "cmake-build"
         },
         {
+            "name": "Gateway HTTP (API key auth)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock",
+                "${workspaceFolder}/gateway.log",
+                "${workspaceFolder}/routes.json"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "RDWS_AUTH_MODE", "value": "apikey" },
+                { "name": "RDWS_API_KEYS",  "value": "sk_dev=developer,sk_admin=admin" }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
+            "name": "Gateway HTTP (JWT auth)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock",
+                "${workspaceFolder}/gateway.log",
+                "${workspaceFolder}/routes.json"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "RDWS_AUTH_MODE",    "value": "jwt" },
+                { "name": "RDWS_JWT_SECRET",   "value": "meu-segredo-dev" },
+                { "name": "RDWS_JWT_ISSUER",   "value": "rdws-dev" },
+                { "name": "RDWS_JWT_AUDIENCE", "value": "rdws-gateway" }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
             "name": "Example Service (inst_001)",
             "type": "cppdbg",
             "request": "launch",
@@ -131,6 +191,24 @@
             "name": "Gateway + 2 Services (with persistence)",
             "configurations": [
                 "Gateway HTTP (with persistence)",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services (API key auth)",
+            "configurations": [
+                "Gateway HTTP (API key auth)",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services (JWT auth)",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
                 "Example Service (inst_001)",
                 "Example Service (inst_002)"
             ],
