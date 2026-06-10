@@ -82,3 +82,20 @@ target_link_libraries(service_gateway_config_test PRIVATE
     gtest
 )
 gtest_discover_tests(service_gateway_config_test)
+
+# --- HTTP end-to-end tests (real HTTP client + gateway + mock service) ---
+add_executable(service_gateway_http_e2e_test
+        test_http_e2e.cpp
+        ../HttpGateway.cpp
+)
+target_link_libraries(service_gateway_http_e2e_test PRIVATE
+    service_gateway_core
+    rdws_shared_types
+    rdws_shared_logger
+    httplib_wrapper
+    gtest_main
+    gtest
+)
+gtest_discover_tests(service_gateway_http_e2e_test
+    PROPERTIES TIMEOUT 60
+)
