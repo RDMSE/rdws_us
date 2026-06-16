@@ -43,6 +43,8 @@ if(BUILD_TESTING)
 endif()
 
 
+find_package(libpqxx REQUIRED)
+
 # --- Third-party ---
 # NOTE: src/third_party forces BUILD_TESTING OFF (to suppress third-party tests).
 # Restore it so our own test subdirectories are included.

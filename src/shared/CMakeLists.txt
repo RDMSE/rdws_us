@@ -19,7 +19,7 @@ target_link_libraries(rdws_shared_validation PUBLIC
 # jsoncpp is provided via valijson_wrapper (bundled)
 
 
-add_library(rdws_shared_config 
+add_library(rdws_shared_config
     config/config.cpp
     config/config.h
 )
@@ -54,6 +54,8 @@ add_library(rdws_shared_utils
     utils/lambda_params_helper.h
     utils/metrics.cpp
     utils/metrics.h
+    utils/response_helper.cpp
+    utils/response_helper.h
 )
 
 target_include_directories(rdws_shared_utils PUBLIC
@@ -78,6 +80,22 @@ target_include_directories(rdws_shared_logger PUBLIC
 
 target_link_libraries(rdws_shared_logger PUBLIC
     spdlog_wrapper
+)
+
+add_library(rdws_shared_database
+    database/postgresql_database.cpp
+    database/postgresql_database.h
+    database/idatabase.h
+)
+
+target_include_directories(rdws_shared_database PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/database
+)
+
+target_link_libraries(rdws_shared_database PUBLIC
+    rdws_shared_config
+    libpqxx::pqxx
 )
 
 # --- Testes para shared components ---

@@ -44,7 +44,6 @@ private:
     static rapidjson::Document buildAcceptedResponse(const std::string &capability,
                                                      const std::string &requestId,
                                                      const rapidjson::Document &event);
-    static rapidjson::Document buildErrorResponse(const std::string &message, int statusCode);
     static std::string responseDocumentToBody(const rapidjson::Document &document);
 };
 
