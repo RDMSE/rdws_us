@@ -68,7 +68,16 @@ target_include_directories(httplib_wrapper INTERFACE
     ${httplib_SOURCE_DIR}
 )
 
-# spdlog (structured logging)
+# fmt (string formatting — used directly and by spdlog)
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG 11.0.2
+)
+FetchContent_MakeAvailable(fmt)
+
+# spdlog (structured logging) — use external fmt instead of bundled
+set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -77,6 +86,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(spdlog)
 
 add_library(spdlog_wrapper INTERFACE)
+target_link_libraries(spdlog_wrapper INTERFACE fmt::fmt)
 target_include_directories(spdlog_wrapper INTERFACE
     ${spdlog_SOURCE_DIR}/include
 )
