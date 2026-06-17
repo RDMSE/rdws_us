@@ -134,9 +134,122 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 - ✅ Carregamento e persistência de config via arquivo JSON.
 - ⬜ API HTTP para leitura/atualização de config em runtime.
 
+### Fase 9b - AuthService e emissão de JWT
+
+**Decisão de design:** um microserviço dedicado (`AuthService`) é responsável por validar credenciais e emitir tokens JWT. Ele conecta diretamente ao banco de usuários (tabela `users`). O gateway já valida o Bearer token nas requisições subsequentes (fase 8) — a fase 9b adiciona apenas o mecanismo de emissão.
+
+**Fluxo:**
+```
+POST /auth/login → gateway → AuthService → valida credenciais no banco → retorna JWT Bearer
+```
+
+**Endpoint:**
+
+| Método | Path          | Capability   | Descrição                              |
+|--------|---------------|--------------|----------------------------------------|
+| POST   | /auth/login   | auth.login   | Recebe credenciais, retorna JWT Bearer |
+
+**Payload de request:**
+```json
+{
+  "body": {
+    "username": "joao",
+    "password": "senha"
+  }
+}
+```
+
+**Payload de response:**
+```json
+{
+  "token": "<jwt>",
+  "expiresAt": "2026-06-18T00:00:00Z"
+}
+```
+
+**Claims do JWT emitido:**
+- `sub` — id do usuário
+- `username` — nome do usuário
+- `role` — perfil de acesso (ex: `admin`, `operator`, `viewer`)
+- `iat` / `exp` — emitido em / expira em
+
+**Observações:**
+- `/auth/login` é caminho público no gateway (bypass de auth — já suportado na fase 8).
+- Password armazenado com hash (`bcrypt` ou `argon2`) — nunca em texto plano.
+- `role` é incluído no JWT mas o controle de acesso por role será implementado em fase futura.
+- `AuthService` é pré-requisito para a fase 10 (banco), pois o banco de usuários faz parte do mesmo schema.
+
+- ⬜ Criar tabela `users` via migration Flyway (ver `Plano_DB_IOT_Sensors.md`).
+- ⬜ Implementar `AuthService` com validação de credenciais e emissão de JWT HS256.
+- ⬜ Registrar `/auth/login` como caminho público no gateway.
+- ⬜ Adicionar capability `auth.login` no EventRouter.
+- Critério de aceite: POST /auth/login com credenciais válidas retorna JWT aceito pelo gateway nas requisições seguintes; credenciais inválidas retornam 401.
+
+---
+
 ### Fase 10 - DB/Flyway e CI/CD
-- Persistência de request history e métricas em banco de dados.
-- Pipeline de CI/CD com build, testes e deploy automatizados.
+
+#### 10a — Persistência via PersistenceService
+
+**Decisão de design:** o gateway não escreve direto no banco. Um microserviço dedicado (`PersistenceService`) se conecta ao gateway pelo socket existente (mesmo protocolo dos demais microserviços) e subscreve eventos do EventBus interno. Se o PersistenceService cair, o gateway continua operando sem degradação.
+
+**Fluxo:**
+```
+Gateway (EventBus) ──publica──> request.completed / metrics.snapshot
+PersistenceService ──subscreve──> acumula em buffer interno ──batch upsert──> PostgreSQL
+```
+
+**Eventos publicados pelo gateway:**
+- `request.completed` — requestId, capability, latencyMs, status (completed/failed/timeout), timestamp
+- `metrics.snapshot` — emitido por capability a cada N requests ou intervalo T (a definir)
+
+**Tabelas no PostgreSQL:**
+- `request_history` — histórico de requests com status e latência
+- `capability_metrics` — métricas agregadas por capability e janela de tempo
+
+**Migrações:** gerenciadas via **Flyway** com versionamento em `db/migrations/`.
+
+**Política de limpeza (cleanup):**
+- `request_history`: retenção de 90 dias; job periódico (`pg_cron` ou processo externo) remove registros antigos.
+- `capability_metrics`: registros brutos retidos 30 dias; agregações diárias/semanais mantidas por 1 ano.
+
+- ⬜ Definir e publicar eventos `request.completed` e `metrics.snapshot` no EventBus do gateway.
+- ⬜ Implementar `PersistenceService` com buffer interno e batch upsert no PostgreSQL.
+- ⬜ Criar migrations Flyway para `request_history` e `capability_metrics`.
+- ⬜ Implementar job de cleanup de registros antigos.
+- ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11).
+- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão.
+
+---
+
+#### 10b — CI/CD (GitHub Actions + self-hosted runner + Docker)
+
+**Decisão de design:** GitHub Actions com self-hosted runner no servidor Fedora doméstico. Build e testes rodam dentro de container Docker para ambiente reproduzível (GCC, CMake, dependências). Deploy é substituição do container em execução no mesmo servidor.
+
+**Pipeline:**
+```
+push/PR → build Docker → testes unitários + e2e → (merge main) → deploy container
+```
+
+- ⬜ Criar `Dockerfile` de build multi-stage (builder com GCC/CMake → imagem final mínima).
+- ⬜ Instalar e registrar self-hosted runner no servidor Fedora.
+- ⬜ Criar workflow `ci.yml`: build + testes em todo PR.
+- ⬜ Criar workflow `deploy.yml`: triggered em merge na main; para container anterior, sobe novo.
+- ⬜ Configurar secrets no GitHub (credenciais do banco, API keys de teste).
+- Critério de aceite: PR abre → CI roda automaticamente; merge na main → novo container em produção sem intervenção manual.
+
+### Fase 11 - Observabilidade de Logs (Loki + Grafana)
+
+**Decisão de design:** logs não vão para o banco. O gateway já emite logs estruturados JSON via spdlog com arquivo rotativo. O Promtail lê esse arquivo e envia para o Loki; o Grafana consome ambos (PostgreSQL para métricas/requests, Loki para logs).
+
+- ⬜ Configurar **Loki** como datasource de logs (retenção configurável, ex: 30 dias).
+- ⬜ Configurar **Promtail** apontando para o log file rotativo do gateway (zero mudança no código C++).
+- ⬜ Adicionar datasource Loki no Grafana.
+- ⬜ Criar dashboard no Grafana unificando:
+    - Métricas por capability (latência, errorRate, throughput) — fonte: PostgreSQL.
+    - Exploração de logs por `requestId`, `capability`, `level` — fonte: Loki via LogQL.
+- ⬜ Definir política de retenção no Loki (período e compressão).
+- Critério de aceite: dado um `requestId`, conseguir navegar do painel de métricas até os logs daquele request no Grafana.
 
 ---
 
