@@ -34,8 +34,14 @@ struct AuthConfig {
     // ── Path policy ─────────────────────────────────────────────────────────
     /// Path prefixes that bypass auth even when a mode is active.
     std::vector<std::string> publicPaths = {
-        "/health", "/status", "/metrics", "/connections",
-        "/events",  "/routes", "/requests"
+        "/health",
+        "/status",
+        "/metrics",
+        "/connections",
+        "/events",
+        "/routes",
+        "/requests",
+        "/invoke/auth.login"
     };
 };
 

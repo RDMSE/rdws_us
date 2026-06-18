@@ -390,6 +390,105 @@ void HttpGateway::registerRoutes()
         response.status = 200;
         response.set_content(documentToString(resp), "application/json");
     });
+
+    // ── REST path routing (EventRouter method+path rules) ────────────────────
+    // Catch-all handlers registered last so specific routes above take priority.
+    // Each handler resolves the capability via EventRouter.resolveFromPath(),
+    // injects extracted {param} values into pathParameters, and dispatches.
+
+    auto restHandler = [this](const httplib::Request &request, httplib::Response &response) {
+        const auto t0 = std::chrono::steady_clock::now();
+
+        // Auth check
+        AuthHttpRequest authReq;
+        authReq.path = request.path;
+        for (const auto &[k, v] : request.headers) authReq.headers.emplace(k, v);
+        const auto [authorized, statusCode, message, identity] = auth_.authenticate(authReq);
+        if (!authorized) {
+            response.status = statusCode;
+            response.set_header("WWW-Authenticate", R"(Bearer realm="rdws-gateway")");
+            response.set_content(ResponseHelper::returnError(message, statusCode), "application/json");
+            return;
+        }
+
+        // Resolve capability from HTTP method + path
+        const auto match = gateway_.getEventRouter().resolveFromPath(request.method, request.path);
+        if (!match) {
+            response.status = 404;
+            response.set_content(ResponseHelper::returnError("No route found for " +
+                request.method + " " + request.path, 404), "application/json");
+            return;
+        }
+
+        const std::string capability = match->capability;
+
+        // Build event document with path params injected
+        rapidjson::Document eventDocument = documentFromRequest(request, capability);
+        auto &alloc = eventDocument.GetAllocator();
+
+        // Merge extracted path params into pathParameters
+        if (!match->pathParams.empty()) {
+            if (!eventDocument.HasMember("pathParameters") ||
+                !eventDocument["pathParameters"].IsObject()) {
+                eventDocument.AddMember("pathParameters",
+                                        rapidjson::Value(rapidjson::kObjectType), alloc);
+            }
+            auto &pp = eventDocument["pathParameters"];
+            for (const auto &[k, v] : match->pathParams) {
+                if (!pp.HasMember(k.c_str())) {
+                    pp.AddMember(rapidjson::Value(k.c_str(), alloc),
+                                 rapidjson::Value(v.c_str(), alloc), alloc);
+                }
+            }
+        }
+
+        if (identity) AuthMiddleware::injectIdentity(*identity, eventDocument);
+
+        const std::string requestId = gateway_.sendRequest(capability, eventDocument);
+        rdws::logger::httpRequest(requestId.empty() ? "-" : requestId,
+                                  capability, request.method, request.path);
+
+        auto respond = [&](int status, const std::string &body) {
+            const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            rdws::logger::httpResponse(requestId.empty() ? "-" : requestId,
+                                       capability, status, latencyMs);
+            gateway_.recordMetric(capability, static_cast<double>(latencyMs),
+                                  status < 400, status == 504);
+            response.status = status;
+            response.set_content(body, "application/json");
+        };
+
+        if (requestId.empty()) {
+            respond(503, ResponseHelper::returnError(
+                "No backend service available for capability: " + capability, 503));
+            return;
+        }
+
+        const PendingRequest result = gateway_.waitForResponse(
+            requestId, gateway_.getConfig().timeoutFor(capability));
+
+        if (result.state == RequestState::TIMED_OUT) {
+            respond(504, ResponseHelper::returnError("Service response timed out", 504));
+            return;
+        }
+        if (result.state == RequestState::FAILED) {
+            const auto msg = result.errorMessage.empty()
+                ? "Service returned an error" : result.errorMessage;
+            respond(500, ResponseHelper::returnError(msg, 500));
+            return;
+        }
+        respond(200, result.responsePayload);
+    };
+
+    server_.Get(   R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
+                   restHandler);
+    server_.Post(  R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
+                   restHandler);
+    server_.Put(   R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
+                   restHandler);
+    server_.Delete(R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
+                   restHandler);
 }
 
 std::optional<std::string> HttpGateway::extractCapability(const std::string &path)

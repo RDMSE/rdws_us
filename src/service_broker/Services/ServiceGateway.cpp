@@ -59,6 +59,42 @@ namespace servicegateway
         unixListener = std::thread(&ServiceGateway::startUnixListener, this);
         healthCheckThread = std::thread(&ServiceGateway::startHealthChecker, this);
 
+        // Bridge request.completed → persistence.save.request (fire-and-forget)
+        bus_.subscribe("request.completed", [this](const std::string &, const rapidjson::Document &ev) {
+            // Skip forwarding persistence-internal requests to avoid loops
+            if (ev.HasMember("capability") && ev["capability"].IsString()) {
+                const std::string cap = ev["capability"].GetString();
+                if (cap.rfind("persistence.", 0) == 0) return;
+            }
+            rapidjson::Document payload;
+            payload.CopyFrom(ev, payload.GetAllocator());
+            sendRequest("persistence.save.request", payload, LoadBalancingStrategy::ROUND_ROBIN);
+        });
+
+        // Bridge metrics.snapshot → persistence.save.metrics
+        bus_.subscribe("metrics.snapshot", [this](const std::string &, const rapidjson::Document &ev) {
+            rapidjson::Document payload;
+            payload.CopyFrom(ev, payload.GetAllocator());
+            sendRequest("persistence.save.metrics", payload, LoadBalancingStrategy::ROUND_ROBIN);
+        });
+
+        // Publish metrics.snapshot every 60 seconds
+        metricsSnapshotThread_ = std::thread([this]() {
+            while (running.load()) {
+                for (int i = 0; i < 60 && running.load(); ++i)
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                if (!running.load()) break;
+                rapidjson::Document snap = metrics_.toJson();
+                snap.AddMember("snapshotAt",
+                               rapidjson::Value(
+                                   std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
+                                       std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
+                                   snap.GetAllocator()),
+                               snap.GetAllocator());
+                bus_.publish("metrics.snapshot", snap);
+            }
+        });
+
         std::cout << "ServiceGateway started successfully" << '\n';
         return true;
     }
@@ -86,9 +122,10 @@ namespace servicegateway
         }
 
         // Wait for threads to finish (mutex NOT held here).
-        if (tcpListener.joinable())      tcpListener.join();
-        if (unixListener.joinable())     unixListener.join();
-        if (healthCheckThread.joinable()) healthCheckThread.join();
+        if (tcpListener.joinable())           tcpListener.join();
+        if (unixListener.joinable())          unixListener.join();
+        if (healthCheckThread.joinable())     healthCheckThread.join();
+        if (metricsSnapshotThread_.joinable()) metricsSnapshotThread_.join();
 
         bus_.stop();
 

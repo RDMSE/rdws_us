@@ -82,6 +82,9 @@ private:
     // Health check thread
     std::thread healthCheckThread;
 
+    // Periodic metrics snapshot thread (publishes metrics.snapshot to EventBus)
+    std::thread metricsSnapshotThread_;
+
     // Per-capability metrics
     rdws::metrics::MetricsTracker metrics_;
 

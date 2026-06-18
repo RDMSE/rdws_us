@@ -112,6 +112,346 @@
             "preLaunchTask": "cmake-build"
         },
         {
+            "name": "Auth Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/auth_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "JWT_SECRET", "value": "meu-segredo-dev" }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Auth Service (auth_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/auth_service",
+            "args": [
+                "auth_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "JWT_SECRET", "value": "meu-segredo-dev" }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Farm Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/farm_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Farm Service (farm_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/farm_service",
+            "args": [
+                "farm_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Field Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/field_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Field Service (field_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/field_service",
+            "args": [
+                "field_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/device_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Service (device_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/device_service",
+            "args": [
+                "device_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Config Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/device_config_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Config Service (device_config_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/device_config_service",
+            "args": [
+                "device_config_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/sensor_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Service (sensor_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/sensor_service",
+            "args": [
+                "sensor_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Reading Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/sensor_reading_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Reading Service (sensor_reading_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/sensor_reading_service",
+            "args": [
+                "sensor_reading_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Persistence Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/persistence_service",
+            "args": ["--dev"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Persistence Service (persistence_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/persistence_service",
+            "args": [
+                "persistence_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "Example Service (inst_001)",
             "type": "cppdbg",
             "request": "launch",
@@ -178,6 +518,57 @@
         }
     ],
     "compounds": [
+        {
+            "name": "Gateway + All IoT Services (JWT)",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Auth Service (auth_001)",
+                "Farm Service (farm_001)",
+                "Field Service (field_001)",
+                "Device Service (device_001)",
+                "Device Config Service (device_config_001)",
+                "Sensor Service (sensor_001)",
+                "Sensor Reading Service (sensor_reading_001)",
+                "Persistence Service (persistence_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + All IoT Services",
+            "configurations": [
+                "Gateway HTTP",
+                "Auth Service (auth_001)",
+                "Farm Service (farm_001)",
+                "Field Service (field_001)",
+                "Device Service (device_001)",
+                "Device Config Service (device_config_001)",
+                "Sensor Service (sensor_001)",
+                "Sensor Reading Service (sensor_reading_001)",
+                "Persistence Service (persistence_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + Auth + Farm + Field",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Auth Service (auth_001)",
+                "Farm Service (farm_001)",
+                "Field Service (field_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + Device + Sensor Stack",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Device Service (device_001)",
+                "Device Config Service (device_config_001)",
+                "Sensor Service (sensor_001)",
+                "Sensor Reading Service (sensor_reading_001)"
+            ],
+            "stopAll": true
+        },
         {
             "name": "Gateway + 2 Services",
             "configurations": [

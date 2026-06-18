@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -30,6 +31,13 @@ struct RoutingRule {
     bool enabled  = true;
     std::string createdAt;
     std::string updatedAt;
+
+    // ── REST path routing (optional) ─────────────────────────────────────────
+    // When both fields are set the rule matches on HTTP method + path pattern
+    // instead of (or in addition to) inputCapability.
+    // Patterns support {param} placeholders, e.g. "/farms/{id}".
+    std::optional<std::string> httpMethod;  // "GET" | "POST" | "PUT" | "DELETE" | …
+    std::optional<std::string> httpPath;    // "/farms/{id}"
 };
 
 // ─── EventRouter ─────────────────────────────────────────────────────────────
@@ -46,6 +54,16 @@ public:
     // descending).  Returns inputCapability unchanged when no rule matches.
     std::string resolve(const std::string &inputCapability,
                         const rapidjson::Document &payload) const;
+
+    // Resolve by HTTP method + path pattern.
+    // On match, fills pathParams with captured {param} values and returns the
+    // outputCapability.  Returns empty string when no rule matches.
+    struct PathMatch {
+        std::string capability;
+        std::map<std::string, std::string> pathParams;
+    };
+    std::optional<PathMatch> resolveFromPath(const std::string &method,
+                                             const std::string &path) const;
 
     // ── CRUD ─────────────────────────────────────────────────────────────────
     std::string              addRule(RoutingRule rule);

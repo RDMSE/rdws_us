@@ -1,0 +1,336 @@
+//
+// PersistenceService — capabilities: persistence.save.request, persistence.save.metrics
+//
+// Receives gateway lifecycle events forwarded by the ServiceGateway EventBus bridge
+// and batch-upserts them into PostgreSQL (request_history, capability_metrics).
+//
+
+#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/database/postgresql_database.h"
+
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <deque>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+using namespace servicegateway;
+using namespace rdws::database;
+
+namespace {
+
+rapidjson::Document makeError(const std::string& msg, int code = 400)
+{
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& a = doc.GetAllocator();
+    doc.AddMember("status",     "error", a);
+    doc.AddMember("statusCode", code,    a);
+    doc.AddMember("message", rapidjson::Value(msg.c_str(), a), a);
+    return doc;
+}
+
+rapidjson::Document makeOk()
+{
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& a = doc.GetAllocator();
+    doc.AddMember("status",     "success", a);
+    doc.AddMember("statusCode", 200,       a);
+    return doc;
+}
+
+std::string getStr(const rapidjson::Document& doc, const char* key, const std::string& def = "")
+{
+    if (doc.HasMember(key) && doc[key].IsString()) return doc[key].GetString();
+    return def;
+}
+
+std::string docToString(const rapidjson::Value& v)
+{
+    rapidjson::StringBuffer buf;
+    rapidjson::Writer<rapidjson::StringBuffer> w(buf);
+    v.Accept(w);
+    return buf.GetString();
+}
+
+} // namespace
+
+// ─── Buffer types ─────────────────────────────────────────────────────────────
+
+struct RequestRecord {
+    std::string requestId;
+    std::string capability;
+    std::string serviceId;
+    bool        success;
+    int         latencyMs;
+};
+
+struct MetricsRecord {
+    std::string metricsJson;    // full metrics.toJson() serialized
+    std::string snapshotAt;
+};
+
+// ─── PersistenceService ───────────────────────────────────────────────────────
+
+class PersistenceService
+{
+private:
+    ServiceIdentity identity;
+    std::unique_ptr<ServiceClient> client;
+    std::string gatewayAddress;
+    std::atomic<bool> running{false};
+
+    // Incoming request buffer (flushed every N items or T seconds)
+    std::deque<RequestRecord>  requestBuffer_;
+    std::deque<MetricsRecord>  metricsBuffer_;
+    std::mutex                 bufferMutex_;
+    std::thread                flushThread_;
+
+    static constexpr size_t kFlushBatchSize = 50;
+    static constexpr int    kFlushIntervalSec = 10;
+
+public:
+    PersistenceService(const std::string& serviceId, const std::string& machineName, std::string broker)
+        : gatewayAddress(std::move(broker))
+    {
+        identity.machineName   = machineName;
+        identity.serviceName   = "persistence_service";
+        identity.serviceId     = serviceId;
+        identity.version       = "v1.0.0";
+        identity.environment   = "prod";
+        identity.maxConcurrent = 20;
+        identity.capabilities  = {"persistence.save.request", "persistence.save.metrics"};
+    }
+
+    bool initialize()
+    {
+        client = std::make_unique<ServiceClient>(identity, gatewayAddress);
+        client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
+            return processRequest(req);
+        });
+        return true;
+    }
+
+    void run()
+    {
+        running.store(true);
+        std::cout << "[" << identity.serviceId << "] PersistenceService starting\n";
+
+        flushThread_ = std::thread([this]() {
+            while (running.load()) {
+                for (int i = 0; i < kFlushIntervalSec && running.load(); ++i)
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                flushBuffers();
+            }
+            flushBuffers(); // drain on shutdown
+        });
+
+        client->run();
+
+        std::cout << "[" << identity.serviceId << "] PersistenceService stopped\n";
+    }
+
+    void shutdown()
+    {
+        running.store(false);
+        if (client) client->stop();
+        if (flushThread_.joinable()) flushThread_.join();
+    }
+
+private:
+    [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request)
+    {
+        const std::string cap = request.HasMember("capability") && request["capability"].IsString()
+                                    ? request["capability"].GetString() : "";
+
+        try {
+            if (cap == "persistence.save.request")  return handleSaveRequest(request);
+            if (cap == "persistence.save.metrics")  return handleSaveMetrics(request);
+            return makeError("Unknown capability: " + cap, 404);
+        } catch (const std::exception& e) {
+            std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
+            return makeError(std::string("Internal error: ") + e.what(), 500);
+        }
+    }
+
+    // Enqueue a single request.completed event
+    rapidjson::Document handleSaveRequest(const rapidjson::Document& req)
+    {
+        RequestRecord r;
+        r.requestId  = getStr(req, "requestId");
+        r.capability = getStr(req, "capability");
+        r.serviceId  = getStr(req, "serviceId");
+        r.success    = req.HasMember("success") && req["success"].IsBool()
+                           ? req["success"].GetBool() : false;
+        r.latencyMs  = req.HasMember("latencyMs") && req["latencyMs"].IsInt()
+                           ? req["latencyMs"].GetInt() : 0;
+
+        if (r.requestId.empty()) return makeError("Missing requestId");
+
+        {
+            std::lock_guard lock(bufferMutex_);
+            requestBuffer_.push_back(std::move(r));
+            if (requestBuffer_.size() >= kFlushBatchSize)
+                flushRequestBuffer();
+        }
+        return makeOk();
+    }
+
+    // Enqueue a metrics.snapshot event
+    rapidjson::Document handleSaveMetrics(const rapidjson::Document& req)
+    {
+        MetricsRecord m;
+        m.snapshotAt  = getStr(req, "snapshotAt");
+        m.metricsJson = docToString(req);
+
+        {
+            std::lock_guard lock(bufferMutex_);
+            metricsBuffer_.push_back(std::move(m));
+            if (metricsBuffer_.size() >= kFlushBatchSize)
+                flushMetricsBuffer();
+        }
+        return makeOk();
+    }
+
+    // Called by flush thread (already holds bufferMutex_ when called from handlers,
+    // or acquires it in the periodic path)
+    void flushBuffers()
+    {
+        std::lock_guard lock(bufferMutex_);
+        flushRequestBuffer();
+        flushMetricsBuffer();
+    }
+
+    // Must be called with bufferMutex_ held
+    void flushRequestBuffer()
+    {
+        if (requestBuffer_.empty()) return;
+
+        std::vector<RequestRecord> batch;
+        batch.reserve(requestBuffer_.size());
+        while (!requestBuffer_.empty()) {
+            batch.push_back(std::move(requestBuffer_.front()));
+            requestBuffer_.pop_front();
+        }
+
+        try {
+            PostgreSQLDatabase db;
+            db.connect();
+            for (const auto& r : batch) {
+                db.execCommand(
+                    "INSERT INTO request_history "
+                    "(request_id, capability, service_id, success, latency_ms) "
+                    "VALUES ($1, $2, $3, $4, $5) "
+                    "ON CONFLICT (request_id) DO NOTHING",
+                    {r.requestId, r.capability, r.serviceId,
+                     r.success ? "true" : "false",
+                     std::to_string(r.latencyMs)});
+            }
+            std::cout << "[" << identity.serviceId << "] flushed " << batch.size() << " request records\n";
+        } catch (const std::exception& e) {
+            std::cerr << "[" << identity.serviceId << "] flush error: " << e.what() << '\n';
+        }
+    }
+
+    // Must be called with bufferMutex_ held
+    void flushMetricsBuffer()
+    {
+        if (metricsBuffer_.empty()) return;
+
+        std::vector<MetricsRecord> batch;
+        batch.reserve(metricsBuffer_.size());
+        while (!metricsBuffer_.empty()) {
+            batch.push_back(std::move(metricsBuffer_.front()));
+            metricsBuffer_.pop_front();
+        }
+
+        try {
+            PostgreSQLDatabase db;
+            db.connect();
+            for (const auto& m : batch) {
+                // Parse the metrics JSON and insert per-capability rows
+                rapidjson::Document doc;
+                doc.Parse(m.metricsJson.c_str());
+                if (doc.HasParseError() || !doc.IsObject()) continue;
+
+                const std::string windowStart = m.snapshotAt.empty()
+                    ? "now()" : ("to_timestamp(" + m.snapshotAt + ")");
+
+                for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {
+                    const std::string key = it->name.GetString();
+                    if (key == "snapshotAt") continue;
+                    if (!it->value.IsObject()) continue;
+
+                    const auto& stats = it->value;
+                    auto getNum = [&](const char* k) -> std::string {
+                        if (stats.HasMember(k)) {
+                            if (stats[k].IsInt())    return std::to_string(stats[k].GetInt());
+                            if (stats[k].IsInt64())  return std::to_string(stats[k].GetInt64());
+                            if (stats[k].IsDouble()) return std::to_string(stats[k].GetDouble());
+                        }
+                        return "0";
+                    };
+
+                    db.execCommand(
+                        "INSERT INTO capability_metrics "
+                        "(capability, window_start, request_count, error_count, timeout_count, "
+                        " avg_latency_ms, p99_latency_ms, min_latency_ms, max_latency_ms) "
+                        "VALUES ($1, to_timestamp($2::bigint), $3, $4, $5, $6, $7, $8, $9)",
+                        {key, m.snapshotAt.empty() ? "0" : m.snapshotAt,
+                         getNum("requestCount"), getNum("errorCount"), getNum("timeoutCount"),
+                         getNum("avgLatencyMs"), getNum("p99LatencyMs"),
+                         getNum("minLatencyMs"), getNum("maxLatencyMs")});
+                }
+            }
+            std::cout << "[" << identity.serviceId << "] flushed " << batch.size() << " metrics snapshots\n";
+        } catch (const std::exception& e) {
+            std::cerr << "[" << identity.serviceId << "] metrics flush error: " << e.what() << '\n';
+        }
+    }
+};
+
+static PersistenceService* gService = nullptr;
+
+void signalHandler(int sig)
+{
+    if (gService && (sig == SIGTERM || sig == SIGINT))
+        gService->shutdown();
+}
+
+int main(int argc, char* argv[])
+{
+    std::string serviceId      = "persistence_001";
+    std::string machineName    = "localhost";
+    std::string gatewayAddress = "unix:///tmp/service_gateway.sock";
+
+    if (argc >= 4) {
+        serviceId      = argv[1];
+        machineName    = argv[2];
+        gatewayAddress = argv[3];
+    } else if (argc >= 2 && std::string(argv[1]) == "--dev") {
+        serviceId   = "persistence_dev";
+        machineName = "dev-machine";
+    }
+
+    PersistenceService service(serviceId, machineName, gatewayAddress);
+    gService = &service;
+    signal(SIGTERM, signalHandler);
+    signal(SIGINT,  signalHandler);
+
+    if (!service.initialize()) {
+        std::cerr << "Failed to initialize PersistenceService\n";
+        return 1;
+    }
+    service.run();
+    return 0;
+}

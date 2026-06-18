@@ -4,6 +4,7 @@
 #include <chrono>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <mutex>
 #include <random>
 #include <sstream>
@@ -160,6 +161,71 @@ bool EventRouter::saveToFile(const std::string &path) const
     return true;
 }
 
+// ─── Path-based resolve ───────────────────────────────────────────────────────
+
+namespace {
+
+// Split a string by '/' — returns segments, skipping empty ones from leading slash.
+std::vector<std::string> splitPath(const std::string &path)
+{
+    std::vector<std::string> parts;
+    std::istringstream ss(path);
+    std::string seg;
+    while (std::getline(ss, seg, '/')) {
+        if (!seg.empty()) parts.push_back(seg);
+    }
+    return parts;
+}
+
+// Match a concrete path against a pattern with {param} placeholders.
+// Returns true and fills params on success.
+bool matchPathPattern(const std::string &pattern,
+                      const std::string &path,
+                      std::map<std::string, std::string> &params)
+{
+    const auto patParts  = splitPath(pattern);
+    const auto pathParts = splitPath(path);
+    if (patParts.size() != pathParts.size()) return false;
+    for (size_t i = 0; i < patParts.size(); ++i) {
+        const auto &pp = patParts[i];
+        if (pp.size() >= 2 && pp.front() == '{' && pp.back() == '}') {
+            params[pp.substr(1, pp.size() - 2)] = pathParts[i];
+        } else if (pp != pathParts[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // anonymous namespace
+
+std::optional<EventRouter::PathMatch>
+EventRouter::resolveFromPath(const std::string &method, const std::string &path) const
+{
+    // Strip query string if present
+    const std::string cleanPath = [&]() -> std::string {
+        const auto q = path.find('?');
+        return q == std::string::npos ? path : path.substr(0, q);
+    }();
+
+    std::shared_lock lock(mutex_);
+    for (const auto &rule : rules_) {
+        if (!rule.enabled)    continue;
+        if (!rule.httpMethod) continue;
+        if (!rule.httpPath)   continue;
+        if (rule.httpMethod.value() != method) continue;
+
+        std::map<std::string, std::string> params;
+        if (matchPathPattern(rule.httpPath.value(), cleanPath, params)) {
+            PathMatch m;
+            m.capability  = rule.outputCapability;
+            m.pathParams  = std::move(params);
+            return m;
+        }
+    }
+    return std::nullopt;
+}
+
 // ─── Serialisation ────────────────────────────────────────────────────────────
 
 rapidjson::Document EventRouter::ruleToJson(const RoutingRule &rule)
@@ -192,6 +258,18 @@ rapidjson::Document EventRouter::ruleToJson(const RoutingRule &rule)
                       rapidjson::Value(rule.fallbackCapability->c_str(), a), a);
     } else {
         doc.AddMember("fallbackCapability", rapidjson::Value(rapidjson::kNullType), a);
+    }
+
+    if (rule.httpMethod) {
+        doc.AddMember("httpMethod", rapidjson::Value(rule.httpMethod->c_str(), a), a);
+    } else {
+        doc.AddMember("httpMethod", rapidjson::Value(rapidjson::kNullType), a);
+    }
+
+    if (rule.httpPath) {
+        doc.AddMember("httpPath", rapidjson::Value(rule.httpPath->c_str(), a), a);
+    } else {
+        doc.AddMember("httpPath", rapidjson::Value(rapidjson::kNullType), a);
     }
 
     return doc;
@@ -228,6 +306,13 @@ RoutingRule EventRouter::ruleFromJson(const rapidjson::Value &obj)
 
     if (obj.HasMember("fallbackCapability") && obj["fallbackCapability"].IsString()) {
         rule.fallbackCapability = obj["fallbackCapability"].GetString();
+    }
+
+    if (obj.HasMember("httpMethod") && obj["httpMethod"].IsString()) {
+        rule.httpMethod = obj["httpMethod"].GetString();
+    }
+    if (obj.HasMember("httpPath") && obj["httpPath"].IsString()) {
+        rule.httpPath = obj["httpPath"].GetString();
     }
 
     return rule;

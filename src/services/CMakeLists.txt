@@ -1,25 +1,41 @@
 # Services CMakeLists.txt
 # This file manages all services in the project
 
-# Add all service subdirectories
 add_subdirectory(example_service)
+add_subdirectory(auth_service)
+add_subdirectory(farm_service)
+add_subdirectory(field_service)
+add_subdirectory(device_service)
+add_subdirectory(device_config_service)
+add_subdirectory(sensor_service)
+add_subdirectory(sensor_reading_service)
+add_subdirectory(persistence_service)
 
 # Create services output directory
 set(SERVICES_OUTPUT_DIR ${CMAKE_BINARY_DIR}/services)
 file(MAKE_DIRECTORY ${SERVICES_OUTPUT_DIR})
 
-# Custom target to copy all service binaries to a common location
+# Copy all service binaries to a common location
 add_custom_target(copy_services_binaries ALL
     COMMENT "Copying service binaries to services directory"
 )
 
-# Copy example_service binary to services directory as example_service
-add_custom_command(TARGET copy_services_binaries POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:example_service>
-        ${SERVICES_OUTPUT_DIR}/example_service
-    COMMENT "Copying example_service to services directory as example_service"
+foreach(SVC
+    example_service
+    auth_service
+    farm_service
+    field_service
+    device_service
+    device_config_service
+    sensor_service
+    sensor_reading_service
+    persistence_service
 )
-
-# Set dependency to ensure example_service is built before copying
-add_dependencies(copy_services_binaries example_service)
+    add_custom_command(TARGET copy_services_binaries POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:${SVC}>
+            ${SERVICES_OUTPUT_DIR}/${SVC}
+        COMMENT "Copying ${SVC} to services directory"
+    )
+    add_dependencies(copy_services_binaries ${SVC})
+endforeach()
