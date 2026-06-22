@@ -43,7 +43,9 @@ if(BUILD_TESTING)
 endif()
 
 
-find_package(libpqxx REQUIRED)
+# find_package(libpqxx REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PQXX REQUIRED libpqxx)
 
 # --- Third-party ---
 # NOTE: src/third_party forces BUILD_TESTING OFF (to suppress third-party tests).
