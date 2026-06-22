@@ -1,0 +1,24 @@
+meta {
+  name: Create Sensor
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/sensors
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "device_id": "1",
+    "type": "temperature",
+    "unit": "°C",
+    "location": "POINT(-47.9292 -15.7801)"
+  }
+}

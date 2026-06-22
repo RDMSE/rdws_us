@@ -1,0 +1,15 @@
+meta {
+  name: Get Reading
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/sensors/1/readings/42
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

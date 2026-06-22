@@ -1,0 +1,15 @@
+meta {
+  name: Delete Farm
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/farms/1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

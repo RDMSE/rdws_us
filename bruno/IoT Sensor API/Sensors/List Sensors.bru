@@ -1,0 +1,15 @@
+meta {
+  name: List Sensors
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/sensors?device_id=1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

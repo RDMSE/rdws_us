@@ -1,0 +1,22 @@
+meta {
+  name: Create Farm
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/farms
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "name": "Fazenda São João",
+    "location": "POINT(-47.9292 -15.7801)"
+  }
+}
