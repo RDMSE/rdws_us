@@ -281,7 +281,7 @@ int main(int argc, char* argv[])
 {
     std::string serviceId      = "field_001";
     std::string machineName    = "localhost";
-    std::string gatewayAddress = "unix:///tmp/service_gateway.sock";
+    std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
 
     if (argc >= 4) {
         serviceId      = argv[1];

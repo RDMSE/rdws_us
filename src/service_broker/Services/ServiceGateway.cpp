@@ -281,23 +281,31 @@ namespace servicegateway
         // Start listening for messages from this client
         std::thread([this, clientFd]()
                     {
-        std::array<char,4096> buffer;
+        std::array<char, 4096> buffer;
+        std::string accumulator;
         while (running.load()) {
             const ssize_t bytesRead = recv(clientFd, buffer.data(), sizeof(buffer) - 1, 0);
             if (bytesRead <= 0) {
                 closeConnection(clientFd);
                 break;
             }
-            
             buffer[bytesRead] = '\0';
-            std::string message(buffer.data());
-            handleClientMessage(clientFd, message);
+            accumulator.append(buffer.data(), bytesRead);
+
+            // Split on newline — each complete JSON message ends with '\n'
+            std::string::size_type pos;
+            while ((pos = accumulator.find('\n')) != std::string::npos) {
+                std::string message = accumulator.substr(0, pos);
+                accumulator.erase(0, pos + 1);
+                if (!message.empty())
+                    handleClientMessage(clientFd, message);
+            }
         } })
             .detach();
     }
 
     void ServiceGateway::handleClientMessage(const int clientFd, const std::string &message)
-    {
+    { 
         try
         {
             rapidjson::Document jsonMessage;
@@ -305,7 +313,9 @@ namespace servicegateway
 
             if (jsonMessage.HasParseError() || !jsonMessage.IsObject())
             {
-                std::cerr << "Invalid JSON from client fd=" << clientFd << '\n';
+                std::cerr << "Invalid JSON from client fd=" << clientFd
+                          << " raw(" << message.size() << "): ["
+                          << message.substr(0, 120) << "]\n";
                 return;
             }
 
@@ -981,8 +991,9 @@ namespace servicegateway
     // Helper methods
     bool ServiceGateway::sendMessage(const int socketFd, const std::string &message)
     {
-        const ssize_t sent = send(socketFd, message.c_str(), message.length(), MSG_NOSIGNAL);
-        return std::cmp_equal(sent ,message.length());
+        const std::string framed = message + "\n";
+        const ssize_t sent = send(socketFd, framed.c_str(), framed.length(), MSG_NOSIGNAL);
+        return std::cmp_equal(sent, framed.length());
     }
 
     std::string ServiceGateway::requestStateToString(const RequestState state)

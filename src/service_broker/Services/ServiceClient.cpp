@@ -228,15 +228,16 @@ bool ServiceClient::sendMessage(const rapidjson::Document& message) const {
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     message.Accept(writer);
-    const std::string messageStr = buffer.GetString();
+    const std::string messageStr = buffer.GetString() + std::string("\n");
 
     const ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
-    return std::cmp_equal(sent ,messageStr.length());
+    return std::cmp_equal(sent, messageStr.length());
 }
 
 void ServiceClient::messageLoop() {
     char buffer[4096];
-    
+    std::string accumulator;
+
     while (connected.load()) {
         const ssize_t bytesRead = recv(socketFd, buffer, sizeof(buffer) - 1, 0);
         if (bytesRead <= 0) {
@@ -245,10 +246,17 @@ void ServiceClient::messageLoop() {
             }
             break;
         }
-        
+
         buffer[bytesRead] = '\0';
-        std::string message(buffer);
-        handleMessage(message);
+        accumulator.append(buffer, bytesRead);
+
+        std::string::size_type pos;
+        while ((pos = accumulator.find('\n')) != std::string::npos) {
+            std::string message = accumulator.substr(0, pos);
+            accumulator.erase(0, pos + 1);
+            if (!message.empty())
+                handleMessage(message);
+        }
     }
 }
 

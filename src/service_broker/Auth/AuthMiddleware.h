@@ -41,7 +41,8 @@ struct AuthConfig {
         "/events",
         "/routes",
         "/requests",
-        "/invoke/auth.login"
+        "/invoke/auth.login",
+        "/auth/login"
     };
 };
 

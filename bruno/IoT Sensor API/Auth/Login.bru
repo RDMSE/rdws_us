@@ -18,7 +18,7 @@ body:json {
 }
 
 script:post-response {
-  if (res.status === 200 && res.body.token) {
-    bru.setVar("jwtToken", res.body.token);
+  if (res.status === 200 && res.body.data && res.body.data.token) {
+    bru.setVar("jwtToken", res.body.data.token);
   }
 }

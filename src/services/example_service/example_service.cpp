@@ -131,7 +131,7 @@ private:
 
 public:
     ExampleService(const std::string &serviceId, const std::string &machineName,
-                   const bool devMode = false, std::string broker = "unix:///tmp/service_gateway.sock")
+                   const bool devMode = false, std::string broker = "unix:///tmp/rdws_gateway.sock")
         : gatewayAddress(std::move(broker)), developmentMode(devMode)
     {
 
@@ -303,7 +303,7 @@ void signalHandler(const int signal)
 int main(const int argc, char *argv[])
 {
     bool developmentMode = false;
-    std::string gatewayAddress = "unix:///tmp/service_gateway.sock";
+    std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
     std::string serviceId = "example_001";
     std::string machineName = "localhost";
 

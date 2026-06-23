@@ -5,7 +5,7 @@
             "name": "Gateway HTTP",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8085",
                 "3001",
@@ -29,7 +29,7 @@
             "name": "Gateway HTTP (with persistence)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8085",
                 "3001",
@@ -55,7 +55,7 @@
             "name": "Gateway HTTP (API key auth)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8085",
                 "3001",
@@ -66,8 +66,14 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [
-                { "name": "RDWS_AUTH_MODE", "value": "apikey" },
-                { "name": "RDWS_API_KEYS",  "value": "sk_dev=developer,sk_admin=admin" }
+                {
+                    "name": "RDWS_AUTH_MODE",
+                    "value": "apikey"
+                },
+                {
+                    "name": "RDWS_API_KEYS",
+                    "value": "sk_dev=developer,sk_admin=admin"
+                }
             ],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -84,7 +90,7 @@
             "name": "Gateway HTTP (JWT auth)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8085",
                 "3001",
@@ -95,10 +101,22 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [
-                { "name": "RDWS_AUTH_MODE",    "value": "jwt" },
-                { "name": "RDWS_JWT_SECRET",   "value": "meu-segredo-dev" },
-                { "name": "RDWS_JWT_ISSUER",   "value": "rdws-dev" },
-                { "name": "RDWS_JWT_AUDIENCE", "value": "rdws-gateway" }
+                {
+                    "name": "RDWS_AUTH_MODE",
+                    "value": "jwt"
+                },
+                {
+                    "name": "RDWS_JWT_SECRET",
+                    "value": "meu-segredo-dev"
+                },
+                {
+                    "name": "RDWS_JWT_ISSUER",
+                    "value": "rdws-dev"
+                },
+                {
+                    "name": "RDWS_JWT_AUDIENCE",
+                    "value": "rdws-gateway"
+                }
             ],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -115,12 +133,37 @@
             "name": "Auth Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/auth_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/auth_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [
-                { "name": "JWT_SECRET", "value": "meu-segredo-dev" }
+                {
+                    "name": "JWT_SECRET",
+                    "value": "meu-segredo-dev"
+                },
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
             ],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -136,7 +179,7 @@
             "name": "Auth Service (auth_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/auth_service",
+            "program": "${workspaceFolder}/build-debug/bin/auth_service",
             "args": [
                 "auth_001",
                 "localhost",
@@ -145,7 +188,30 @@
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [
-                { "name": "JWT_SECRET", "value": "meu-segredo-dev" }
+                {
+                    "name": "JWT_SECRET",
+                    "value": "meu-segredo-dev"
+                },
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
             ],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -161,11 +227,34 @@
             "name": "Farm Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/farm_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/farm_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -180,7 +269,7 @@
             "name": "Farm Service (farm_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/farm_service",
+            "program": "${workspaceFolder}/build-debug/bin/farm_service",
             "args": [
                 "farm_001",
                 "localhost",
@@ -188,7 +277,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -203,11 +313,34 @@
             "name": "Field Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/field_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/field_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -222,7 +355,7 @@
             "name": "Field Service (field_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/field_service",
+            "program": "${workspaceFolder}/build-debug/bin/field_service",
             "args": [
                 "field_001",
                 "localhost",
@@ -230,7 +363,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -245,11 +399,34 @@
             "name": "Device Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/device_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/device_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -264,7 +441,7 @@
             "name": "Device Service (device_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/device_service",
+            "program": "${workspaceFolder}/build-debug/bin/device_service",
             "args": [
                 "device_001",
                 "localhost",
@@ -272,7 +449,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -287,11 +485,34 @@
             "name": "Device Config Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/device_config_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/device_config_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -306,7 +527,7 @@
             "name": "Device Config Service (device_config_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/device_config_service",
+            "program": "${workspaceFolder}/build-debug/bin/device_config_service",
             "args": [
                 "device_config_001",
                 "localhost",
@@ -314,7 +535,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -329,11 +571,34 @@
             "name": "Sensor Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/sensor_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/sensor_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -348,7 +613,7 @@
             "name": "Sensor Service (sensor_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/sensor_service",
+            "program": "${workspaceFolder}/build-debug/bin/sensor_service",
             "args": [
                 "sensor_001",
                 "localhost",
@@ -356,7 +621,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -371,11 +657,34 @@
             "name": "Sensor Reading Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/sensor_reading_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/sensor_reading_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -390,7 +699,7 @@
             "name": "Sensor Reading Service (sensor_reading_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/sensor_reading_service",
+            "program": "${workspaceFolder}/build-debug/bin/sensor_reading_service",
             "args": [
                 "sensor_reading_001",
                 "localhost",
@@ -398,7 +707,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -413,11 +743,34 @@
             "name": "Persistence Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/persistence_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/persistence_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -432,7 +785,7 @@
             "name": "Persistence Service (persistence_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/persistence_service",
+            "program": "${workspaceFolder}/build-debug/bin/persistence_service",
             "args": [
                 "persistence_001",
                 "localhost",
@@ -440,7 +793,28 @@
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "setupCommands": [
@@ -455,7 +829,7 @@
             "name": "Example Service (inst_001)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/example_service",
+            "program": "${workspaceFolder}/build-debug/bin/example_service",
             "args": [
                 "inst_001",
                 "localhost",
@@ -478,7 +852,7 @@
             "name": "Example Service (inst_002)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/example_service",
+            "program": "${workspaceFolder}/build-debug/bin/example_service",
             "args": [
                 "inst_002",
                 "localhost",
@@ -501,8 +875,10 @@
             "name": "Example Service (--dev)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/example_service",
-            "args": ["--dev"],
+            "program": "${workspaceFolder}/build-debug/bin/example_service",
+            "args": [
+                "--dev"
+            ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -545,6 +921,14 @@
                 "Sensor Service (sensor_001)",
                 "Sensor Reading Service (sensor_reading_001)",
                 "Persistence Service (persistence_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + Auth",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Auth Service (auth_001)"
             ],
             "stopAll": true
         },

@@ -15,8 +15,11 @@ pqxx::result exec_prepared_helper(Transaction& txn, const std::string& stmt_name
     if (params.empty()) {
         return txn.exec(query);
     }
-    const std::vector<std::string_view> svparams(params.begin(), params.end());
-    return txn.exec(stmt_name, svparams);
+    pqxx::params p;
+    for (const auto& param : params) {
+        p.append(param);
+    }
+    return txn.exec(pqxx::prepped{stmt_name}, p);
 }
 
 } // namespace

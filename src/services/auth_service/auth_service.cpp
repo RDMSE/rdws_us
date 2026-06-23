@@ -18,6 +18,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <string>
 #include <utility>
+#include <fmt/core.h>
 
 using namespace servicegateway;
 using namespace rdws::database;
@@ -154,7 +155,6 @@ private:
 
         try {
             PostgreSQLDatabase db;
-            db.connect();
 
             // pgcrypto: crypt($2, password_hash) = password_hash
             auto rs = db.execQuery(
@@ -193,7 +193,7 @@ private:
             return doc;
 
         } catch (const std::exception& e) {
-            std::cerr << "[" << identity.serviceId << "] DB error: " << e.what() << '\n';
+            std::cerr << "[" << identity.serviceId << "] DB error: " << e.what() << std::endl;
             return makeError(std::string("Internal error: ") + e.what(), 500);
         }
     }
@@ -211,7 +211,7 @@ int main(int argc, char* argv[])
 {
     std::string serviceId     = "auth_001";
     std::string machineName   = "localhost";
-    std::string gatewayAddress = "unix:///tmp/service_gateway.sock";
+    std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
 
     if (argc >= 4) {
         serviceId      = argv[1];

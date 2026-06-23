@@ -7,7 +7,7 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build",
+                "${workspaceFolder}/build-debug",
                 "--parallel"
             ],
             "options": {
@@ -98,7 +98,7 @@
             "args": [
                 "auth_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
@@ -121,7 +121,7 @@
             "args": [
                 "farm_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -141,7 +141,7 @@
             "args": [
                 "field_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -161,7 +161,7 @@
             "args": [
                 "device_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -181,7 +181,7 @@
             "args": [
                 "device_config_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -201,7 +201,7 @@
             "args": [
                 "sensor_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -221,7 +221,7 @@
             "args": [
                 "sensor_reading_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -241,7 +241,7 @@
             "args": [
                 "persistence_001",
                 "localhost",
-                "unix:///tmp/service_gateway.sock"
+                "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
