@@ -31,7 +31,7 @@ class PostgreSQLResultSet : public IResultSet {
 
     // Metadata
     size_t getColumnCount() override;
-    std::vector<std::string> getColumnNames() const override;
+    [[nodiscard]] std::vector<std::string> getColumnNames() const override;
     size_t getRowCount() override;
 };
 
@@ -45,7 +45,7 @@ class PostgreSQLDatabase : public IDatabase {
 
   public:
     PostgreSQLDatabase(); // Default constructor
-    explicit PostgreSQLDatabase(const rdws::Config& dbConfig);
+    explicit PostgreSQLDatabase(rdws::Config  dbConfig);
     ~PostgreSQLDatabase() override;
 
     // Query execution

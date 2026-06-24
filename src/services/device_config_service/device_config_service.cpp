@@ -22,7 +22,7 @@ using namespace rdws::database;
 
 namespace {
 
-rapidjson::Document makeError(const std::string& msg, int code = 400)
+rapidjson::Document makeError(const std::string& msg, const int code = 400)
 {
     rapidjson::Document doc;
     doc.SetObject();
@@ -37,8 +37,9 @@ std::string getPathParam(const rapidjson::Document& req, const std::string& key)
 {
     if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
         const auto& pp = req["pathParameters"];
-        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString())
+        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
             return pp[key.c_str()].GetString();
+        }
     }
     return {};
 }
@@ -89,7 +90,9 @@ public:
     void shutdown()
     {
         running.store(false);
-        if (client) client->stop();
+        if (client) {
+          client->stop();
+        }
     }
 
 private:
@@ -103,11 +106,18 @@ private:
             PostgreSQLDatabase db;
             db.connect();
 
-            if (cap == "device_config.get")    return handleGet(request, db);
-            if (cap == "device_config.create") return handleCreate(request, db);
-            if (cap == "device_config.update") return handleUpdate(request, db);
-            if (cap == "device_config.delete") return handleDelete(request, db);
-
+            if (cap == "device_config.get") {
+              return handleGet(request, db);
+            }
+            if (cap == "device_config.create") {
+              return handleCreate(request, db);
+            }
+            if (cap == "device_config.update") {
+              return handleUpdate(request, db);
+            }
+            if (cap == "device_config.delete") {
+              return handleDelete(request, db);
+            }
             return makeError("Unknown capability: " + cap, 404);
         } catch (const std::exception& e) {
             std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
@@ -119,14 +129,17 @@ private:
     {
         // {id} = device_id
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) return makeError("Missing path parameter: id");
-
+        if (deviceId.empty()) {
+          return makeError("Missing path parameter: id");
+        }
         auto rs = db.execQuery(
             "SELECT id, device_id, config::text AS config, created_at, updated_at, updated_by "
             "FROM device_configurations WHERE device_id = $1 ORDER BY id DESC LIMIT 1",
             {deviceId});
 
-        if (!rs->next()) return makeError("Configuration not found", 404);
+        if (!rs->next()) {
+          return makeError("Configuration not found", 404);
+        }
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -148,9 +161,9 @@ private:
         }
 
         data.AddMember("created_at", rapidjson::Value(rs->getString("created_at").c_str(), alloc), alloc);
-        if (!rs->isNull("updated_at"))
-            data.AddMember("updated_at", rapidjson::Value(rs->getString("updated_at").c_str(), alloc), alloc);
-
+        if (!rs->isNull("updated_at")) {
+          data.AddMember("updated_at", rapidjson::Value(rs->getString("updated_at").c_str(), alloc), alloc);
+        }
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
         doc.AddMember("data", data, alloc);
@@ -160,8 +173,9 @@ private:
     static rapidjson::Document handleCreate(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) return makeError("Missing path parameter: id");
-
+        if (deviceId.empty()) {
+          return makeError("Missing path parameter: id");
+        }
         // Serialize the 'config' body field back to JSON string for JSONB
         std::string configJson;
         if (req.HasMember("config")) {
@@ -170,8 +184,9 @@ private:
             req["config"].Accept(writer);
             configJson = buf.GetString();
         }
-        if (configJson.empty()) return makeError("Missing field: config");
-
+        if (configJson.empty()) {
+          return makeError("Missing field: config");
+        }
         auto rs = db.execQuery(
             "INSERT INTO device_configurations (device_id, config) VALUES ($1, $2::jsonb) RETURNING id",
             {deviceId, configJson});
@@ -179,8 +194,9 @@ private:
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
-        if (!rs->next()) return makeError("Failed to create configuration", 500);
-
+        if (!rs->next()) {
+          return makeError("Failed to create configuration", 500);
+        }
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 201, alloc);
         rapidjson::Value data(rapidjson::kObjectType);
@@ -192,7 +208,9 @@ private:
     static rapidjson::Document handleUpdate(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) return makeError("Missing path parameter: id");
+        if (deviceId.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
         std::string configJson;
         if (req.HasMember("config")) {
@@ -201,7 +219,9 @@ private:
             req["config"].Accept(writer);
             configJson = buf.GetString();
         }
-        if (configJson.empty()) return makeError("Missing field: config");
+        if (configJson.empty()) {
+          return makeError("Missing field: config");
+        }
 
         const bool ok = db.execCommand(
             "UPDATE device_configurations SET config=$1::jsonb, updated_at=now() WHERE device_id=$2",
@@ -218,7 +238,9 @@ private:
     static rapidjson::Document handleDelete(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) return makeError("Missing path parameter: id");
+        if (deviceId.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
         const bool ok = db.execCommand(
             "DELETE FROM device_configurations WHERE device_id = $1", {deviceId});

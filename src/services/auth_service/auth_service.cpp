@@ -25,7 +25,7 @@ using namespace rdws::database;
 
 namespace {
 
-rapidjson::Document makeError(const std::string& msg, int code = 400)
+rapidjson::Document makeError(const std::string& msg, const int code = 400)
 {
     rapidjson::Document doc;
     doc.SetObject();
@@ -67,7 +67,7 @@ std::string buildJwt(const std::string& userId, const std::string& username,
     payload.AddMember("exp", exp, alloc);
 
     rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+    rapidjson::Writer writer(buf);
     payload.Accept(writer);
     const std::string payloadJson = buf.GetString();
 
@@ -125,7 +125,9 @@ public:
     void shutdown()
     {
         running.store(false);
-        if (client) client->stop();
+        if (client) {
+          client->stop();
+        }
     }
 
 private:
@@ -136,7 +138,9 @@ private:
                                     : "";
         std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
-        if (cap == "auth.login") return handleLogin(request);
+        if (cap == "auth.login") {
+          return handleLogin(request);
+        }
 
         return makeError("Unknown capability: " + cap, 404);
     }
@@ -144,14 +148,18 @@ private:
     [[nodiscard]] rapidjson::Document handleLogin(const rapidjson::Document& request) const
     {
         // Extract credentials from top-level body fields (spread by HttpGateway)
-        std::string username, password;
-        if (request.HasMember("username") && request["username"].IsString())
+        std::string username;
+        std::string password;
+        if (request.HasMember("username") && request["username"].IsString()) {
             username = request["username"].GetString();
-        if (request.HasMember("password") && request["password"].IsString())
+        }
+        if (request.HasMember("password") && request["password"].IsString()) {
             password = request["password"].GetString();
+        }
 
-        if (username.empty() || password.empty())
+        if (username.empty() || password.empty()) {
             return makeError("username and password are required", 400);
+        }
 
         try {
             PostgreSQLDatabase db;
@@ -162,15 +170,16 @@ private:
                 "WHERE username = $1 AND crypt($2, password_hash) = password_hash AND active = true",
                 {username, password});
 
-            if (!rs->next())
+            if (!rs->next()) {
                 return makeError("Invalid credentials", 401);
+            }
 
             const std::string userId   = rs->getString("id");
             const std::string uname    = rs->getString("username");
             const std::string role     = rs->getString("role");
 
             const char* secretEnv = std::getenv("JWT_SECRET");
-            const std::string secret  = secretEnv ? secretEnv : "rdws-default-secret-change-me";
+            const std::string secret  = (secretEnv != nullptr) ? secretEnv : "rdws-default-secret-change-me";
             const std::string token   = buildJwt(userId, uname, role, secret);
 
             rapidjson::Document doc;
@@ -203,11 +212,12 @@ static AuthService* gService = nullptr;
 
 void signalHandler(int sig)
 {
-    if (gService && (sig == SIGTERM || sig == SIGINT))
+    if ((gService != nullptr) && (sig == SIGTERM || sig == SIGINT)) {
         gService->shutdown();
+    }
 }
 
-int main(int argc, char* argv[])
+int main(const int argc, char* argv[])
 {
     std::string serviceId     = "auth_001";
     std::string machineName   = "localhost";

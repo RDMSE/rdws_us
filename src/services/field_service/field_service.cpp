@@ -32,9 +32,10 @@ rapidjson::Document makeError(const std::string& msg, int code = 400)
 std::string getPathParam(const rapidjson::Document& req, const std::string& key)
 {
     if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-        const auto& pp = req["pathParameters"];
-        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString())
-            return pp[key.c_str()].GetString();
+      if (const auto& pp = req["pathParameters"];
+          pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
+        return pp[key.c_str()].GetString();
+      }
     }
     return {};
 }
@@ -42,9 +43,10 @@ std::string getPathParam(const rapidjson::Document& req, const std::string& key)
 std::string getQueryParam(const rapidjson::Document& req, const std::string& key)
 {
     if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
-        const auto& qp = req["queryStringParameters"];
-        if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString())
-            return qp[key.c_str()].GetString();
+    if (const auto& qp = req["queryStringParameters"];
+          qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
+        return qp[key.c_str()].GetString();
+      }
     }
     return {};
 }
@@ -55,15 +57,19 @@ rapidjson::Value fieldFromRow(IResultSet& rs, rapidjson::Document::AllocatorType
     obj.AddMember("id",       rapidjson::Value(rs.getString("id").c_str(), alloc),       alloc);
     obj.AddMember("farm_id",  rapidjson::Value(rs.getString("farm_id").c_str(), alloc),  alloc);
     obj.AddMember("name",     rapidjson::Value(rs.getString("name").c_str(), alloc),     alloc);
-    if (!rs.isNull("area"))
-        obj.AddMember("area", rapidjson::Value(rs.getString("area").c_str(), alloc), alloc);
-    if (!rs.isNull("geometry"))
-        obj.AddMember("geometry", rapidjson::Value(rs.getString("geometry").c_str(), alloc), alloc);
+    if (!rs.isNull("area")) {
+      obj.AddMember("area", rapidjson::Value(rs.getString("area").c_str(), alloc), alloc);
+    }
+    if (!rs.isNull("geometry")) {
+      obj.AddMember("geometry", rapidjson::Value(rs.getString("geometry").c_str(), alloc), alloc);
+    }
     obj.AddMember("created_at", rapidjson::Value(rs.getString("created_at").c_str(), alloc), alloc);
-    if (!rs.isNull("updated_at"))
-        obj.AddMember("updated_at", rapidjson::Value(rs.getString("updated_at").c_str(), alloc), alloc);
-    if (!rs.isNull("updated_by"))
-        obj.AddMember("updated_by", rapidjson::Value(rs.getString("updated_by").c_str(), alloc), alloc);
+    if (!rs.isNull("updated_at")) {
+      obj.AddMember("updated_at", rapidjson::Value(rs.getString("updated_at").c_str(), alloc), alloc);
+    }
+    if (!rs.isNull("updated_by")) {
+      obj.AddMember("updated_by", rapidjson::Value(rs.getString("updated_by").c_str(), alloc), alloc);
+    }
     return obj;
 }
 
@@ -124,11 +130,21 @@ private:
             PostgreSQLDatabase db;
             db.connect();
 
-            if (cap == "field.list")   return handleList(request, db);
-            if (cap == "field.get")    return handleGet(request, db);
-            if (cap == "field.create") return handleCreate(request, db);
-            if (cap == "field.update") return handleUpdate(request, db);
-            if (cap == "field.delete") return handleDelete(request, db);
+            if (cap == "field.list") {
+              return handleList(request, db);
+            }
+            if (cap == "field.get") {
+              return handleGet(request, db);
+            }
+            if (cap == "field.create") {
+              return handleCreate(request, db);
+            }
+            if (cap == "field.update") {
+              return handleUpdate(request, db);
+            }
+            if (cap == "field.delete") {
+              return handleDelete(request, db);
+            }
 
             return makeError("Unknown capability: " + cap, 404);
         } catch (const std::exception& e) {
@@ -157,9 +173,9 @@ private:
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
         rapidjson::Value arr(rapidjson::kArrayType);
-        while (rs->next())
-            arr.PushBack(fieldFromRow(*rs, alloc), alloc);
-
+        while (rs->next()) {
+          arr.PushBack(fieldFromRow(*rs, alloc), alloc);
+        }
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
         doc.AddMember("data", arr, alloc);
@@ -170,14 +186,18 @@ private:
     static rapidjson::Document handleGet(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+        if (id.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
-        auto rs = db.execQuery(
+        const auto rs = db.execQuery(
             "SELECT id, farm_id, name, area, ST_AsText(geometry) AS geometry, "
             "created_at, updated_at, updated_by FROM fields WHERE id = $1",
             {id});
 
-        if (!rs->next()) return makeError("Field not found", 404);
+        if (!rs->next()) {
+          return makeError("Field not found", 404);
+        }
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -190,60 +210,68 @@ private:
 
     static rapidjson::Document handleCreate(const rapidjson::Document& req, IDatabase& db)
     {
-        std::string farmId, name;
-        if (req.HasMember("farm_id") && req["farm_id"].IsString())
-            farmId = req["farm_id"].GetString();
-        if (req.HasMember("name") && req["name"].IsString())
-            name = req["name"].GetString();
+      std::string farmId;
+      std::string name;
+      if (req.HasMember("farm_id") && req["farm_id"].IsString()) {
+        farmId = req["farm_id"].GetString();
+      }
+      if (req.HasMember("name") && req["name"].IsString()){
+        name = req["name"].GetString();
+      }
 
-        if (farmId.empty()) return makeError("Missing field: farm_id");
-        if (name.empty())   return makeError("Missing field: name");
+      if (farmId.empty()) {
+        return makeError("Missing field: farm_id");
+      }
+      if (name.empty()) {
+        return makeError("Missing field: name");
+      }
 
-        std::string area;
-        if (req.HasMember("area")) {
-            if (req["area"].IsNumber())
-                area = std::to_string(req["area"].GetDouble());
-            else if (req["area"].IsString())
-                area = req["area"].GetString();
-        }
+      std::string area;
+      if (req.HasMember("area")) {
+          if (req["area"].IsNumber()) {
+            area = std::to_string(req["area"].GetDouble());
+          }
+          else if (req["area"].IsString()) {
+            area = req["area"].GetString();
+          }
+      }
 
-        std::unique_ptr<IResultSet> rs;
-        if (area.empty()) {
-            rs = db.execQuery(
-                "INSERT INTO fields (farm_id, name) VALUES ($1, $2) RETURNING id",
-                {farmId, name});
-        } else {
-            rs = db.execQuery(
-                "INSERT INTO fields (farm_id, name, area) VALUES ($1, $2, $3) RETURNING id",
-                {farmId, name, area});
-        }
+      const auto rs = area.empty() ?
+        db.execQuery("INSERT INTO fields (farm_id, name) VALUES ($1, $2) RETURNING id",{farmId, name})
+        : db.execQuery("INSERT INTO fields (farm_id, name, area) VALUES ($1, $2, $3) RETURNING id",{farmId, name, area});
 
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& alloc = doc.GetAllocator();
-        if (!rs->next()) return makeError("Failed to create field", 500);
+      rapidjson::Document doc;
+      doc.SetObject();
+      auto& alloc = doc.GetAllocator();
+      if (!rs->next()) {
+        return makeError("Failed to create field", 500);
+      }
 
-        doc.AddMember("status", "success", alloc);
-        doc.AddMember("statusCode", 201, alloc);
-        rapidjson::Value data(rapidjson::kObjectType);
-        data.AddMember("id", rapidjson::Value(rs->getString("id").c_str(), alloc), alloc);
-        doc.AddMember("data", data, alloc);
-        return doc;
+      doc.AddMember("status", "success", alloc);
+      doc.AddMember("statusCode", 201, alloc);
+      rapidjson::Value data(rapidjson::kObjectType);
+      data.AddMember("id", rapidjson::Value(rs->getString("id").c_str(), alloc), alloc);
+      doc.AddMember("data", data, alloc);
+      return doc;
     }
 
     static rapidjson::Document handleUpdate(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+        if (id.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
         std::string name;
-        if (req.HasMember("name") && req["name"].IsString())
-            name = req["name"].GetString();
-        if (name.empty()) return makeError("Missing field: name");
+        if (req.HasMember("name") && req["name"].IsString()) {
+          name = req["name"].GetString();
+        }
+        if (name.empty()) {
+          return makeError("Missing field: name");
+        }
 
-        const bool ok = db.execCommand(
-            "UPDATE fields SET name=$1, updated_at=now() WHERE id=$2",
-            {name, id});
+        const bool ok =
+          db.execCommand("UPDATE fields SET name=$1, updated_at=now() WHERE id=$2", {name, id});
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -256,7 +284,9 @@ private:
     static rapidjson::Document handleDelete(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+        if (id.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
         const bool ok = db.execCommand("DELETE FROM fields WHERE id = $1", {id});
 
@@ -271,13 +301,13 @@ private:
 
 static FieldService* gService = nullptr;
 
-void signalHandler(int sig)
+void signalHandler(const int sig)
 {
     if (gService && (sig == SIGTERM || sig == SIGINT))
         gService->shutdown();
 }
 
-int main(int argc, char* argv[])
+int main(const int argc, char* argv[])
 {
     std::string serviceId      = "field_001";
     std::string machineName    = "localhost";

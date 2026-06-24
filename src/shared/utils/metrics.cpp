@@ -16,8 +16,12 @@ void MetricsTracker::record(const std::string &capability,
     auto &s = stats_[capability];
 
     s.requestCount++;
-    if (!success)  s.errorCount++;
-    if (timedOut)  s.timeoutCount++;
+    if (!success) {
+      s.errorCount++;
+    }
+    if (timedOut) {
+      s.timeoutCount++;
+    }
 
     s.totalLatencyMs += latencyMs;
     s.minLatencyMs = std::min(latencyMs, s.minLatencyMs);
@@ -32,7 +36,9 @@ void MetricsTracker::record(const std::string &capability,
 
 double MetricsTracker::computePercentile(std::vector<double> samples, const double pct)
 {
-    if (samples.empty()) return 0.0;
+    if (samples.empty()) {
+      return 0.0;
+    }
     std::ranges::sort(samples.begin(), samples.end());
     const std::size_t idx = static_cast<std::size_t>(
         std::ceil(pct / 100.0 * static_cast<double>(samples.size()))) - 1;

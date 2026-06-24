@@ -13,24 +13,21 @@
 #include <valijson/validation_results.hpp>
 #include <valijson/validator.hpp>
 
-
-
 namespace rdws::validation {
-
 
 // Static factory method for string-based schemas
 SchemaValidator SchemaValidator::fromString(const std::string& name,
                                             const std::string& schemaString) {
-    SchemaValidator validator;
-    validator.schemaName = name;
-    validator.schema = std::make_unique<valijson::Schema>();
-    validator.validator = std::make_unique<valijson::Validator>();
+  SchemaValidator validator;
+  validator.schemaName = name;
+  validator.schema = std::make_unique<valijson::Schema>();
+  validator.validator = std::make_unique<valijson::Validator>();
 
-    if (!validator.loadSchemaFromString(schemaString)) {
-        throw std::runtime_error("Failed to parse schema: " + name);
-    }
+  if (!validator.loadSchemaFromString(schemaString)) {
+    throw std::runtime_error("Failed to parse schema: " + name);
+  }
 
-    return validator;
+  return validator;
 }
 
 SchemaValidator::SchemaValidator(SchemaValidator&& other) noexcept
@@ -38,33 +35,33 @@ SchemaValidator::SchemaValidator(SchemaValidator&& other) noexcept
       validator(std::move(other.validator)) {}
 
 SchemaValidator& SchemaValidator::operator=(SchemaValidator&& other) noexcept {
-    if (this != &other) {
-        schemaName = std::move(other.schemaName);
-        schema = std::move(other.schema);
-        validator = std::move(other.validator);
-    }
-    return *this;
+  if (this != &other) {
+    schemaName = std::move(other.schemaName);
+    schema = std::move(other.schema);
+    validator = std::move(other.validator);
+  }
+  return *this;
 }
 
 std::string SchemaValidator::getSchemaPath(const std::string& schemaFile) {
-    // Try relative to current directory first (new location in src)
-    std::string relativePath = "src/schemas/" + schemaFile;
-    if (std::filesystem::exists(relativePath)) {
-        return relativePath;
-    }
-
-    // Try old schemas path for backward compatibility
-    if (std::string oldPath = "schemas/" + schemaFile; std::filesystem::exists(oldPath)) {
-        return oldPath;
-    }
-
-    // Try absolute path
-    if (std::filesystem::exists(schemaFile)) {
-        return schemaFile;
-    }
-
-    // Default to new schemas directory
+  // Try relative to current directory first (new location in src)
+  std::string relativePath = "src/schemas/" + schemaFile;
+  if (std::filesystem::exists(relativePath)) {
     return relativePath;
+  }
+
+  // Try old schemas path for backward compatibility
+  if (std::string oldPath = "schemas/" + schemaFile; std::filesystem::exists(oldPath)) {
+    return oldPath;
+  }
+
+  // Try absolute path
+  if (std::filesystem::exists(schemaFile)) {
+    return schemaFile;
+  }
+
+  // Default to new schemas directory
+  return relativePath;
 }
 
 

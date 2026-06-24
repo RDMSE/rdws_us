@@ -33,8 +33,9 @@ std::string getPathParam(const rapidjson::Document& req, const std::string& key)
 {
     if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
         const auto& pp = req["pathParameters"];
-        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString())
-            return pp[key.c_str()].GetString();
+        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
+          return pp[key.c_str()].GetString();
+        }
     }
     return {};
 }
@@ -43,25 +44,27 @@ std::string getQueryParam(const rapidjson::Document& req, const std::string& key
 {
     if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
         const auto& qp = req["queryStringParameters"];
-        if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString())
-            return qp[key.c_str()].GetString();
+        if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
+          return qp[key.c_str()].GetString();
+        }
     }
     return {};
 }
 
 // Build a farm JSON object from the current row of a result set
-rapidjson::Value farmFromRow(IResultSet& rs, rapidjson::Document::AllocatorType& alloc)
-{
-    rapidjson::Value obj(rapidjson::kObjectType);
-    obj.AddMember("id",         rapidjson::Value(rs.getString("id").c_str(), alloc),         alloc);
-    obj.AddMember("name",       rapidjson::Value(rs.getString("name").c_str(), alloc),       alloc);
-    obj.AddMember("location",   rapidjson::Value(rs.isNull("location") ? "" : rs.getString("location").c_str(), alloc), alloc);
-    obj.AddMember("created_at", rapidjson::Value(rs.getString("created_at").c_str(), alloc), alloc);
-    if (!rs.isNull("updated_at"))
-        obj.AddMember("updated_at", rapidjson::Value(rs.getString("updated_at").c_str(), alloc), alloc);
-    if (!rs.isNull("updated_by"))
-        obj.AddMember("updated_by", rapidjson::Value(rs.getString("updated_by").c_str(), alloc), alloc);
-    return obj;
+rapidjson::Value farmFromRow(IResultSet& rs, rapidjson::Document::AllocatorType& alloc) {
+  rapidjson::Value obj(rapidjson::kObjectType);
+  obj.AddMember("id",         rapidjson::Value(rs.getString("id").c_str(), alloc),         alloc);
+  obj.AddMember("name",       rapidjson::Value(rs.getString("name").c_str(), alloc),       alloc);
+  obj.AddMember("location",   rapidjson::Value(rs.isNull("location") ? "" : rs.getString("location").c_str(), alloc), alloc);
+  obj.AddMember("created_at", rapidjson::Value(rs.getString("created_at").c_str(), alloc), alloc);
+  if (!rs.isNull("updated_at")) {
+    obj.AddMember("updated_at", rapidjson::Value(rs.getString("updated_at").c_str(), alloc), alloc);
+  }
+  if (!rs.isNull("updated_by")) {
+    obj.AddMember("updated_by", rapidjson::Value(rs.getString("updated_by").c_str(), alloc), alloc);
+  }
+  return obj;
 }
 
 } // namespace
@@ -107,7 +110,9 @@ public:
     void shutdown()
     {
         running.store(false);
-        if (client) client->stop();
+        if (client) {
+          client->stop();
+        }
     }
 
 private:
@@ -121,11 +126,21 @@ private:
             PostgreSQLDatabase db;
             db.connect();
 
-            if (cap == "farm.list")   return handleList(request, db);
-            if (cap == "farm.get")    return handleGet(request, db);
-            if (cap == "farm.create") return handleCreate(request, db);
-            if (cap == "farm.update") return handleUpdate(request, db);
-            if (cap == "farm.delete") return handleDelete(request, db);
+            if (cap == "farm.list") {
+              return handleList(request, db);
+            }
+            if (cap == "farm.get") {
+              return handleGet(request, db);
+            }
+            if (cap == "farm.create") {
+              return handleCreate(request, db);
+            }
+            if (cap == "farm.update") {
+              return handleUpdate(request, db);
+            }
+            if (cap == "farm.delete") {
+              return handleDelete(request, db);
+            }
 
             return makeError("Unknown capability: " + cap, 404);
         } catch (const std::exception& e) {
@@ -144,8 +159,9 @@ private:
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
         rapidjson::Value arr(rapidjson::kArrayType);
-        while (rs->next())
-            arr.PushBack(farmFromRow(*rs, alloc), alloc);
+        while (rs->next()) {
+          arr.PushBack(farmFromRow(*rs, alloc), alloc);
+        }
 
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
@@ -157,14 +173,18 @@ private:
     static rapidjson::Document handleGet(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+        if (id.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
-        auto rs = db.execQuery(
+        const auto rs = db.execQuery(
             "SELECT id, name, ST_AsText(location) AS location, created_at, updated_at, updated_by "
             "FROM farms WHERE id = $1",
             {id});
 
-        if (!rs->next()) return makeError("Farm not found", 404);
+        if (!rs->next()) {
+          return makeError("Farm not found", 404);
+        }
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -178,18 +198,19 @@ private:
     static rapidjson::Document handleCreate(const rapidjson::Document& req, IDatabase& db)
     {
         std::string name;
-        if (req.HasMember("name") && req["name"].IsString())
-            name = req["name"].GetString();
-        if (name.empty()) return makeError("Missing field: name");
-
+        if (req.HasMember("name") && req["name"].IsString()) {
+          name = req["name"].GetString();
+        }
+        if (name.empty()) {
+          return makeError("Missing field: name");
+        }
         std::string locationWkt;
         if (req.HasMember("location") && req["location"].IsObject()) {
-            const auto& loc = req["location"];
-            if (loc.HasMember("lat") && loc.HasMember("lng")) {
-                const double lat = loc["lat"].GetDouble();
-                const double lng = loc["lng"].GetDouble();
-                locationWkt = "POINT(" + std::to_string(lng) + " " + std::to_string(lat) + ")";
-            }
+          if (const auto& loc = req["location"]; loc.HasMember("lat") && loc.HasMember("lng")) {
+            const double lat = loc["lat"].GetDouble();
+            const double lng = loc["lng"].GetDouble();
+            locationWkt = "POINT(" + std::to_string(lng) + " " + std::to_string(lat) + ")";
+          }
         }
 
         const std::string sql = locationWkt.empty()
@@ -197,8 +218,8 @@ private:
             : "INSERT INTO farms (name, location) VALUES ($1, ST_SetSRID(ST_GeomFromText($2),4326)) RETURNING id";
 
         const std::vector<std::string> params = locationWkt.empty()
-            ? std::vector<std::string>{name}
-            : std::vector<std::string>{name, locationWkt};
+            ? std::vector{name}
+            : std::vector{name, locationWkt};
 
         auto rs = db.execQuery(sql, params);
 
@@ -206,7 +227,9 @@ private:
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
 
-        if (!rs->next()) return makeError("Failed to create farm", 500);
+        if (!rs->next()) {
+          return makeError("Failed to create farm", 500);
+        }
 
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 201, alloc);
@@ -219,21 +242,24 @@ private:
     static rapidjson::Document handleUpdate(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+        if (id.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
         std::string name;
-        if (req.HasMember("name") && req["name"].IsString())
-            name = req["name"].GetString();
-        if (name.empty()) return makeError("Missing field: name");
-
+        if (req.HasMember("name") && req["name"].IsString()) {
+          name = req["name"].GetString();
+        }
+        if (name.empty()) {
+          return makeError("Missing field: name");
+        }
         std::string locationWkt;
         if (req.HasMember("location") && req["location"].IsObject()) {
-            const auto& loc = req["location"];
-            if (loc.HasMember("lat") && loc.HasMember("lng")) {
-                const double lat = loc["lat"].GetDouble();
-                const double lng = loc["lng"].GetDouble();
-                locationWkt = "POINT(" + std::to_string(lng) + " " + std::to_string(lat) + ")";
-            }
+          if (const auto& loc = req["location"]; loc.HasMember("lat") && loc.HasMember("lng")) {
+            const double lat = loc["lat"].GetDouble();
+            const double lng = loc["lng"].GetDouble();
+            locationWkt = "POINT(" + std::to_string(lng) + " " + std::to_string(lat) + ")";
+          }
         }
 
         const std::string sql = locationWkt.empty()
@@ -257,8 +283,9 @@ private:
     static rapidjson::Document handleDelete(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
-
+        if (id.empty()) {
+          return makeError("Missing path parameter: id");
+        }
         const bool ok = db.execCommand("DELETE FROM farms WHERE id = $1", {id});
 
         rapidjson::Document doc;

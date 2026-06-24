@@ -12,12 +12,12 @@
 namespace rdws::validation {
 
   struct ValidationError {
-      std::string field;
-      std::string message;
-      std::string context;
+    std::string field;
+    std::string message;
+    std::string context;
 
-      ValidationError(std::string  f, std::string  m, std::string  c = "")
-          : field(std::move(f)), message(std::move(m)), context(std::move(c)) {}
+    ValidationError(std::string  f, std::string  m, std::string  c = "")
+        : field(std::move(f)), message(std::move(m)), context(std::move(c)) {}
   };
 
   class SchemaValidator {
@@ -66,4 +66,4 @@ namespace rdws::validation {
     }
   };
 
-};  
+};

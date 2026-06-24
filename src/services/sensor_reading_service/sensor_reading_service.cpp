@@ -34,8 +34,9 @@ std::string getPathParam(const rapidjson::Document& req, const std::string& key)
 {
     if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
         const auto& pp = req["pathParameters"];
-        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString())
-            return pp[key.c_str()].GetString();
+        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
+          return pp[key.c_str()].GetString();
+        }
     }
     return {};
 }
@@ -44,8 +45,9 @@ std::string getQueryParam(const rapidjson::Document& req, const std::string& key
 {
     if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
         const auto& qp = req["queryStringParameters"];
-        if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString())
-            return qp[key.c_str()].GetString();
+        if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
+          return qp[key.c_str()].GetString();
+        }
     }
     return {};
 }
@@ -104,7 +106,9 @@ public:
     void shutdown()
     {
         running.store(false);
-        if (client) client->stop();
+        if (client) {
+          client->stop();
+        }
     }
 
 private:
@@ -132,7 +136,9 @@ private:
     static rapidjson::Document handleList(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string sensorId = getPathParam(req, "id");
-        if (sensorId.empty()) return makeError("Missing path parameter: id");
+        if (sensorId.empty()) {
+          return makeError("Missing path parameter: id");
+        }
 
         const std::string from = getQueryParam(req, "from");
         const std::string to   = getQueryParam(req, "to");
@@ -177,15 +183,21 @@ private:
     {
         // 'rid' is the reading id; passed as a query or path param depending on routing
         std::string rid = getPathParam(req, "rid");
-        if (rid.empty()) rid = getQueryParam(req, "rid");
-        if (rid.empty()) return makeError("Missing reading id (rid)");
+        if (rid.empty()) {
+          rid = getQueryParam(req, "rid");
+        }
+        if (rid.empty()) {
+          return makeError("Missing reading id (rid)");
+        }
 
-        auto rs = db.execQuery(
+        const auto rs = db.execQuery(
             "SELECT id, sensor_id, timestamp, value::text AS value, created_at "
             "FROM sensor_readings WHERE id = $1",
             {rid});
 
-        if (!rs->next()) return makeError("Reading not found", 404);
+        if (!rs->next()) {
+          return makeError("Reading not found", 404);
+        }
 
         rapidjson::Document doc;
         doc.SetObject();
@@ -199,13 +211,13 @@ private:
 
 static SensorReadingService* gService = nullptr;
 
-void signalHandler(int sig)
+void signalHandler(const int sig)
 {
     if (gService && (sig == SIGTERM || sig == SIGINT))
         gService->shutdown();
 }
 
-int main(int argc, char* argv[])
+int main(const int argc, char* argv[])
 {
     std::string serviceId      = "sensor_reading_001";
     std::string machineName    = "localhost";
