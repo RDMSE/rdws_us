@@ -83,7 +83,16 @@ public:
     {
         running.store(true);
         std::cout << "[" << identity.serviceId << "] DeviceConfigService starting\n";
-        client->run();
+        while (running.load()) {
+            client->run();
+            if (!running.load()) break;
+            std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+            client = std::make_unique<ServiceClient>(identity, gatewayAddress);
+            client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
+                return processRequest(req);
+            });
+        }
         std::cout << "[" << identity.serviceId << "] DeviceConfigService stopped\n";
     }
 
@@ -104,7 +113,6 @@ private:
 
         try {
             PostgreSQLDatabase db;
-            db.connect();
 
             if (cap == "device_config.get") {
               return handleGet(request, db);

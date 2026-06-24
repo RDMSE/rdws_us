@@ -138,7 +138,16 @@ public:
       flushBuffers(); // drain on shutdown
     });
 
-    client->run();
+    while (running.load()) {
+      client->run();
+      if (!running.load()) break;
+      std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+      std::this_thread::sleep_for(std::chrono::seconds(3));
+      client = std::make_unique<ServiceClient>(identity, gatewayAddress);
+      client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
+        return processRequest(req);
+      });
+    }
 
     std::cout << "[" << identity.serviceId << "] PersistenceService stopped\n";
   }

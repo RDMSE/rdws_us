@@ -118,7 +118,16 @@ public:
     {
         running.store(true);
         std::cout << "[" << identity.serviceId << "] AuthService starting on " << gatewayAddress << '\n';
-        client->run();
+        while (running.load()) {
+            client->run();
+            if (!running.load()) break;
+            std::cout << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+            client = std::make_unique<servicegateway::ServiceClient>(identity, gatewayAddress);
+            client->setRequestHandler([this](const rapidjson::Document& req) {
+                return processRequest(req);
+            });
+        }
         std::cout << "[" << identity.serviceId << "] AuthService stopped\n";
     }
 
