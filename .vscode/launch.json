@@ -111,11 +111,7 @@
                 },
                 {
                     "name": "RDWS_JWT_ISSUER",
-                    "value": "rdws-dev"
-                },
-                {
-                    "name": "RDWS_JWT_AUDIENCE",
-                    "value": "rdws-gateway"
+                    "value": "rdws"
                 }
             ],
             "externalConsole": false,
