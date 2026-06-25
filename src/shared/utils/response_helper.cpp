@@ -64,8 +64,9 @@ std::string ResponseHelper::returnData(const ::rapidjson::Value& data, const std
 
 void ResponseHelper::addMetadata(::rapidjson::Document& doc,
                                  ::rapidjson::Document::AllocatorType& allocator) {
-  doc.AddMember("source", ::rapidjson::Value("microservice C++ with PostgreSQL", allocator),
-                allocator);
+  // TODO verify if this field is needed or not 
+  // doc.AddMember("source", ::rapidjson::Value("microservice C++ with PostgreSQL", allocator),
+  //              allocator);
   ::rapidjson::Value ts;
   ts.SetInt64(static_cast<int64_t>(std::time(nullptr)));
   doc.AddMember("timestamp", ts, allocator);

@@ -177,18 +177,21 @@ private:
         rapidjson::Value arr(rapidjson::kArrayType);
         while (rs->next())
             arr.PushBack(deviceFromRow(*rs, alloc), alloc);
+        const int total = static_cast<int>(arr.Size());
 
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
         doc.AddMember("data", arr, alloc);
-        doc.AddMember("total", static_cast<int>(arr.Size()), alloc);
+        doc.AddMember("total", total, alloc);
         return doc;
     }
 
     static rapidjson::Document handleGet(const rapidjson::Document& req, IDatabase& db)
     {
         const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+        if (id.empty()) {
+            return makeError("Missing path parameter: id");
+        }
 
         auto rs = db.execQuery(
             "SELECT id, field_id, type, status, installation_date, "
@@ -196,7 +199,9 @@ private:
             "FROM devices WHERE id = $1",
             {id});
 
-        if (!rs->next()) return makeError("Device not found", 404);
+        if (!rs->next()) {
+            return makeError("Device not found", 404);
+        }
 
         rapidjson::Document doc;
         doc.SetObject();

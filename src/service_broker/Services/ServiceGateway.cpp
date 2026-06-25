@@ -525,6 +525,10 @@ namespace servicegateway
                 isError = true;
                 errorMessage = data["error"].GetString();
             }
+            if (isError && errorMessage.empty() && data.HasMember("message") && data["message"].IsString())
+            {
+                errorMessage = data["message"].GetString();
+            }
         }
 
         const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - pending.createdAt);
@@ -533,7 +537,14 @@ namespace servicegateway
         if (isError)
         {
             pending.state = RequestState::FAILED;
-            pending.statusCode = 500;
+            // Propagate statusCode from payload if available
+            if (message.HasMember("data") && message["data"].IsObject() &&
+                message["data"].HasMember("statusCode") && message["data"]["statusCode"].IsInt())
+            {
+                pending.statusCode = message["data"]["statusCode"].GetInt();
+            } else {
+                pending.statusCode = 500;
+            }
             pending.errorMessage = errorMessage.empty() ? "Service returned an error response" : errorMessage;
             registry.recordServiceError(pending.targetServiceId);
         }

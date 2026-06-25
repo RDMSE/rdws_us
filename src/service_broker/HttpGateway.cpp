@@ -120,7 +120,8 @@ void HttpGateway::registerRoutes()
 
         if (result.state == RequestState::FAILED) {
             const auto msg = result.errorMessage.empty() ? "Service returned an error" : result.errorMessage;
-            respond(500, ResponseHelper::returnError(msg, 500));
+            const int code = result.statusCode > 0 ? result.statusCode : 500;
+            respond(code, ResponseHelper::returnError(msg, code));
             return;
         }
 
@@ -475,7 +476,8 @@ void HttpGateway::registerRoutes()
         if (result.state == RequestState::FAILED) {
             const auto msg = result.errorMessage.empty()
                 ? "Service returned an error" : result.errorMessage;
-            respond(500, ResponseHelper::returnError(msg, 500));
+            const int code = result.statusCode > 0 ? result.statusCode : 500;
+            respond(code, ResponseHelper::returnError(msg, code));
             return;
         }
         respond(200, result.responsePayload);
@@ -548,9 +550,13 @@ rapidjson::Document HttpGateway::documentFromRequest(const httplib::Request &req
         event.setHeader(fst, snd);
     }
 
-    if (const auto queryPos = request.path.find('?'); queryPos != std::string::npos) {
-        const std::string queryString = request.path.substr(queryPos + 1);
-        event.parseQueryString(queryString);
+    if (!request.params.empty()) {
+        std::string qs;
+        for (const auto &[key, value] : request.params) {
+            if (!qs.empty()) qs += '&';
+            qs += key + '=' + value;
+        }
+        event.parseQueryString(qs);
     }
 
     event.setPathParameter("capability", capability);

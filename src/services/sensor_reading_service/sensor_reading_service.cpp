@@ -181,8 +181,9 @@ private:
 
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
+        const int total = static_cast<int>(arr.Size());
         doc.AddMember("data", arr, alloc);
-        doc.AddMember("total", static_cast<int>(arr.Size()), alloc);
+        doc.AddMember("total", total, alloc);
         return doc;
     }
 
