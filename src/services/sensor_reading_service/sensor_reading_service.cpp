@@ -3,6 +3,8 @@
 // Append-only (read-only via REST — writes come from devices via PersistenceService).
 //
 
+#include "../../shared/repository/SensorReadingRepository.h"
+#include "../../shared/service/SensorReadingService.h"
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 
@@ -16,6 +18,7 @@
 
 using namespace servicegateway;
 using namespace rdws::database;
+using namespace rdws::sensor_reading;
 
 namespace {
 
@@ -52,20 +55,20 @@ std::string getQueryParam(const rapidjson::Document& req, const std::string& key
     return {};
 }
 
-rapidjson::Value readingFromRow(IResultSet& rs, rapidjson::Document::AllocatorType& alloc)
+rapidjson::Value readingToJson(const SensorReading& r, rapidjson::Document::AllocatorType& alloc)
 {
     rapidjson::Value obj(rapidjson::kObjectType);
-    obj.AddMember("id",         rapidjson::Value(rs.getString("id").c_str(), alloc),         alloc);
-    obj.AddMember("sensor_id",  rapidjson::Value(rs.getString("sensor_id").c_str(), alloc),  alloc);
-    obj.AddMember("timestamp",  rapidjson::Value(rs.getString("timestamp").c_str(), alloc),  alloc);
-    obj.AddMember("value",      rapidjson::Value(rs.getString("value").c_str(), alloc),      alloc);
-    obj.AddMember("created_at", rapidjson::Value(rs.getString("created_at").c_str(), alloc), alloc);
+    obj.AddMember("id",         rapidjson::Value(r.id.c_str(), alloc),        alloc);
+    obj.AddMember("sensor_id",  rapidjson::Value(r.sensorId.c_str(), alloc),  alloc);
+    obj.AddMember("timestamp",  rapidjson::Value(r.timestamp.c_str(), alloc), alloc);
+    obj.AddMember("value",      rapidjson::Value(r.value.c_str(), alloc),     alloc);
+    obj.AddMember("created_at", rapidjson::Value(r.createdAt.c_str(), alloc), alloc);
     return obj;
 }
 
 } // namespace
 
-class SensorReadingService
+class AppSensorReadingService
 {
 private:
     ServiceIdentity identity;
@@ -73,9 +76,14 @@ private:
     std::string gatewayAddress;
     std::atomic<bool> running{false};
 
+    // DB/repo/svc — declared in dependency order
+    PostgreSQLDatabase                                db_;
+    SensorReadingRepository                           repo_;
+    rdws::sensor_reading::SensorReadingService        svc_;
+
 public:
-    SensorReadingService(const std::string& serviceId, const std::string& machineName, std::string broker)
-        : gatewayAddress(std::move(broker))
+    AppSensorReadingService(const std::string& serviceId, const std::string& machineName, std::string broker)
+        : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_)
     {
         identity.machineName   = machineName;
         identity.serviceName   = "sensor_reading_service";
@@ -121,17 +129,15 @@ public:
     }
 
 private:
-    [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const
+    [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request)
     {
         const std::string cap = request.HasMember("capability") && request["capability"].IsString()
                                     ? request["capability"].GetString() : "";
         std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
         try {
-            PostgreSQLDatabase db;
-
-            if (cap == "sensor_reading.list") return handleList(request, db);
-            if (cap == "sensor_reading.get")  return handleGet(request, db);
+            if (cap == "sensor_reading.list") return handleList(request, svc_);
+            if (cap == "sensor_reading.get")  return handleGet(request, svc_);
 
             return makeError("Unknown capability: " + cap, 404);
         } catch (const std::exception& e) {
@@ -141,43 +147,22 @@ private:
     }
 
     // GET /sensors/{id}/readings?from=...&to=...
-    static rapidjson::Document handleList(const rapidjson::Document& req, IDatabase& db)
+    static rapidjson::Document handleList(const rapidjson::Document& req, rdws::sensor_reading::SensorReadingService& svc)
     {
         const std::string sensorId = getPathParam(req, "id");
-        if (sensorId.empty()) {
-          return makeError("Missing path parameter: id");
-        }
+        if (sensorId.empty()) return makeError("Missing path parameter: id");
 
         const std::string from = getQueryParam(req, "from");
         const std::string to   = getQueryParam(req, "to");
 
-        std::unique_ptr<IResultSet> rs;
-        if (!from.empty() && !to.empty()) {
-            rs = db.execQuery(
-                "SELECT id, sensor_id, timestamp, value::text AS value, created_at "
-                "FROM sensor_readings WHERE sensor_id = $1 AND timestamp BETWEEN $2 AND $3 "
-                "ORDER BY timestamp DESC",
-                {sensorId, from, to});
-        } else if (!from.empty()) {
-            rs = db.execQuery(
-                "SELECT id, sensor_id, timestamp, value::text AS value, created_at "
-                "FROM sensor_readings WHERE sensor_id = $1 AND timestamp >= $2 "
-                "ORDER BY timestamp DESC",
-                {sensorId, from});
-        } else {
-            rs = db.execQuery(
-                "SELECT id, sensor_id, timestamp, value::text AS value, created_at "
-                "FROM sensor_readings WHERE sensor_id = $1 "
-                "ORDER BY timestamp DESC LIMIT 1000",
-                {sensorId});
-        }
+        const auto readings = svc.findBySensorId(sensorId, from, to);
 
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
         rapidjson::Value arr(rapidjson::kArrayType);
-        while (rs->next())
-            arr.PushBack(readingFromRow(*rs, alloc), alloc);
+        for (const auto& r : readings)
+            arr.PushBack(readingToJson(r, alloc), alloc);
 
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
@@ -188,37 +173,29 @@ private:
     }
 
     // GET /sensors/{id}/readings/{rid}
-    static rapidjson::Document handleGet(const rapidjson::Document& req, IDatabase& db)
+    static rapidjson::Document handleGet(const rapidjson::Document& req, rdws::sensor_reading::SensorReadingService& svc)
     {
         // 'rid' is the reading id; passed as a query or path param depending on routing
         std::string rid = getPathParam(req, "rid");
         if (rid.empty()) {
           rid = getQueryParam(req, "rid");
         }
-        if (rid.empty()) {
-          return makeError("Missing reading id (rid)");
-        }
+        if (rid.empty()) return makeError("Missing reading id (rid)");
 
-        const auto rs = db.execQuery(
-            "SELECT id, sensor_id, timestamp, value::text AS value, created_at "
-            "FROM sensor_readings WHERE id = $1",
-            {rid});
-
-        if (!rs->next()) {
-          return makeError("Reading not found", 404);
-        }
+        const auto reading = svc.findById(rid);
+        if (!reading) return makeError("Reading not found", 404);
 
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
-        doc.AddMember("data", readingFromRow(*rs, alloc), alloc);
+        doc.AddMember("data", readingToJson(*reading, alloc), alloc);
         return doc;
     }
 };
 
-static SensorReadingService* gService = nullptr;
+static AppSensorReadingService* gService = nullptr;
 
 void signalHandler(const int sig)
 {
@@ -241,7 +218,7 @@ int main(const int argc, char* argv[])
         machineName = "dev-machine";
     }
 
-    SensorReadingService service(serviceId, machineName, gatewayAddress);
+    AppSensorReadingService service(serviceId, machineName, gatewayAddress);
     gService = &service;
     signal(SIGTERM, signalHandler);
     signal(SIGINT,  signalHandler);

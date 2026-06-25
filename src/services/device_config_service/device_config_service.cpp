@@ -4,6 +4,8 @@
 // Path parameter {id} refers to device_id.
 //
 
+#include "../../shared/repository/DeviceConfigRepository.h"
+#include "../../shared/service/DeviceConfigService.h"
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 
@@ -19,6 +21,7 @@
 
 using namespace servicegateway;
 using namespace rdws::database;
+using namespace rdws::device_config;
 
 namespace {
 
@@ -46,7 +49,7 @@ std::string getPathParam(const rapidjson::Document& req, const std::string& key)
 
 } // namespace
 
-class DeviceConfigService
+class AppDeviceConfigService
 {
 private:
     ServiceIdentity identity;
@@ -54,9 +57,14 @@ private:
     std::string gatewayAddress;
     std::atomic<bool> running{false};
 
+    // DB/repo/svc — declared in dependency order
+    PostgreSQLDatabase                              db_;
+    DeviceConfigRepository                          repo_;
+    rdws::device_config::DeviceConfigService        svc_;
+
 public:
-    DeviceConfigService(const std::string& serviceId, const std::string& machineName, std::string broker)
-        : gatewayAddress(std::move(broker))
+    AppDeviceConfigService(const std::string& serviceId, const std::string& machineName, std::string broker)
+        : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_)
     {
         identity.machineName   = machineName;
         identity.serviceName   = "device_config_service";
@@ -105,27 +113,17 @@ public:
     }
 
 private:
-    [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const
+    [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request)
     {
         const std::string cap = request.HasMember("capability") && request["capability"].IsString()
                                     ? request["capability"].GetString() : "";
         std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
         try {
-            PostgreSQLDatabase db;
-
-            if (cap == "device_config.get") {
-              return handleGet(request, db);
-            }
-            if (cap == "device_config.create") {
-              return handleCreate(request, db);
-            }
-            if (cap == "device_config.update") {
-              return handleUpdate(request, db);
-            }
-            if (cap == "device_config.delete") {
-              return handleDelete(request, db);
-            }
+            if (cap == "device_config.get")    return handleGet(request, svc_);
+            if (cap == "device_config.create") return handleCreate(request, svc_);
+            if (cap == "device_config.update") return handleUpdate(request, svc_);
+            if (cap == "device_config.delete") return handleDelete(request, svc_);
             return makeError("Unknown capability: " + cap, 404);
         } catch (const std::exception& e) {
             std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
@@ -133,57 +131,48 @@ private:
         }
     }
 
-    static rapidjson::Document handleGet(const rapidjson::Document& req, IDatabase& db)
+    static rapidjson::Document handleGet(const rapidjson::Document& req, rdws::device_config::DeviceConfigService& svc)
     {
         // {id} = device_id
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) {
-          return makeError("Missing path parameter: id");
-        }
-        auto rs = db.execQuery(
-            "SELECT id, device_id, config::text AS config, created_at, updated_at, updated_by "
-            "FROM device_configurations WHERE device_id = $1 ORDER BY id DESC LIMIT 1",
-            {deviceId});
+        if (deviceId.empty()) return makeError("Missing path parameter: id");
 
-        if (!rs->next()) {
-          return makeError("Configuration not found", 404);
-        }
+        const auto cfg = svc.findByDeviceId(deviceId);
+        if (!cfg) return makeError("Configuration not found", 404);
 
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
 
         rapidjson::Value data(rapidjson::kObjectType);
-        data.AddMember("id",        rapidjson::Value(rs->getString("id").c_str(), alloc),        alloc);
-        data.AddMember("device_id", rapidjson::Value(rs->getString("device_id").c_str(), alloc), alloc);
+        data.AddMember("id",        rapidjson::Value(cfg->id.c_str(), alloc),       alloc);
+        data.AddMember("device_id", rapidjson::Value(cfg->deviceId.c_str(), alloc), alloc);
 
         // config is stored as JSONB — parse it back
-        const std::string configStr = rs->getString("config");
         rapidjson::Document configDoc;
-        if (!configStr.empty() && !configDoc.Parse(configStr.c_str()).HasParseError()) {
+        if (!cfg->config.empty() && !configDoc.Parse(cfg->config.c_str()).HasParseError()) {
             rapidjson::Value configVal;
             configVal.CopyFrom(configDoc, alloc);
             data.AddMember("config", configVal, alloc);
         } else {
-            data.AddMember("config", rapidjson::Value(configStr.c_str(), alloc), alloc);
+            data.AddMember("config", rapidjson::Value(cfg->config.c_str(), alloc), alloc);
         }
 
-        data.AddMember("created_at", rapidjson::Value(rs->getString("created_at").c_str(), alloc), alloc);
-        if (!rs->isNull("updated_at")) {
-          data.AddMember("updated_at", rapidjson::Value(rs->getString("updated_at").c_str(), alloc), alloc);
-        }
+        data.AddMember("created_at", rapidjson::Value(cfg->createdAt.c_str(), alloc), alloc);
+        if (!cfg->updatedAt.empty())
+            data.AddMember("updated_at", rapidjson::Value(cfg->updatedAt.c_str(), alloc), alloc);
+
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 200, alloc);
         doc.AddMember("data", data, alloc);
         return doc;
     }
 
-    static rapidjson::Document handleCreate(const rapidjson::Document& req, IDatabase& db)
+    static rapidjson::Document handleCreate(const rapidjson::Document& req, rdws::device_config::DeviceConfigService& svc)
     {
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) {
-          return makeError("Missing path parameter: id");
-        }
+        if (deviceId.empty()) return makeError("Missing path parameter: id");
+
         // Serialize the 'config' body field back to JSON string for JSONB
         std::string configJson;
         if (req.HasMember("config")) {
@@ -192,33 +181,26 @@ private:
             req["config"].Accept(writer);
             configJson = buf.GetString();
         }
-        if (configJson.empty()) {
-          return makeError("Missing field: config");
-        }
-        auto rs = db.execQuery(
-            "INSERT INTO device_configurations (device_id, config) VALUES ($1, $2::jsonb) RETURNING id",
-            {deviceId, configJson});
+        if (configJson.empty()) return makeError("Missing field: config");
+
+        const std::string id = svc.create({deviceId, configJson});
+        if (id.empty()) return makeError("Failed to create configuration", 500);
 
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
-        if (!rs->next()) {
-          return makeError("Failed to create configuration", 500);
-        }
         doc.AddMember("status", "success", alloc);
         doc.AddMember("statusCode", 201, alloc);
         rapidjson::Value data(rapidjson::kObjectType);
-        data.AddMember("id", rapidjson::Value(rs->getString("id").c_str(), alloc), alloc);
+        data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
         doc.AddMember("data", data, alloc);
         return doc;
     }
 
-    static rapidjson::Document handleUpdate(const rapidjson::Document& req, IDatabase& db)
+    static rapidjson::Document handleUpdate(const rapidjson::Document& req, rdws::device_config::DeviceConfigService& svc)
     {
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) {
-          return makeError("Missing path parameter: id");
-        }
+        if (deviceId.empty()) return makeError("Missing path parameter: id");
 
         std::string configJson;
         if (req.HasMember("config")) {
@@ -227,14 +209,9 @@ private:
             req["config"].Accept(writer);
             configJson = buf.GetString();
         }
-        if (configJson.empty()) {
-          return makeError("Missing field: config");
-        }
+        if (configJson.empty()) return makeError("Missing field: config");
 
-        const bool ok = db.execCommand(
-            "UPDATE device_configurations SET config=$1::jsonb, updated_at=now() WHERE device_id=$2",
-            {configJson, deviceId});
-
+        const bool ok = svc.update(deviceId, {configJson});
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
@@ -243,16 +220,12 @@ private:
         return doc;
     }
 
-    static rapidjson::Document handleDelete(const rapidjson::Document& req, IDatabase& db)
+    static rapidjson::Document handleDelete(const rapidjson::Document& req, rdws::device_config::DeviceConfigService& svc)
     {
         const std::string deviceId = getPathParam(req, "id");
-        if (deviceId.empty()) {
-          return makeError("Missing path parameter: id");
-        }
+        if (deviceId.empty()) return makeError("Missing path parameter: id");
 
-        const bool ok = db.execCommand(
-            "DELETE FROM device_configurations WHERE device_id = $1", {deviceId});
-
+        const bool ok = svc.remove(deviceId);
         rapidjson::Document doc;
         doc.SetObject();
         auto& alloc = doc.GetAllocator();
@@ -262,7 +235,7 @@ private:
     }
 };
 
-static DeviceConfigService* gService = nullptr;
+static AppDeviceConfigService* gService = nullptr;
 
 void signalHandler(int sig)
 {
@@ -285,7 +258,7 @@ int main(int argc, char* argv[])
         machineName = "dev-machine";
     }
 
-    DeviceConfigService service(serviceId, machineName, gatewayAddress);
+    AppDeviceConfigService service(serviceId, machineName, gatewayAddress);
     gService = &service;
     signal(SIGTERM, signalHandler);
     signal(SIGINT,  signalHandler);

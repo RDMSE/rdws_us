@@ -1,4 +1,7 @@
-add_executable(field_service field_service.cpp)
+add_executable(field_service field_service.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/repository/FieldRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/FieldService.cpp
+)
 
 target_link_libraries(field_service PRIVATE
     service_gateway_core

@@ -1,4 +1,7 @@
-add_executable(farm_service farm_service.cpp)
+add_executable(farm_service farm_service.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/repository/FarmRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/FarmService.cpp
+)
 
 target_link_libraries(farm_service PRIVATE
     service_gateway_core

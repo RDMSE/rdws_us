@@ -1,4 +1,7 @@
-add_executable(device_service device_service.cpp)
+add_executable(device_service device_service.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceService.cpp
+)
 
 target_link_libraries(device_service PRIVATE
     service_gateway_core
