@@ -13,7 +13,7 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
 
   if (!message.empty()) {
-      doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
   }
 
   addMetadata(doc, allocator);
@@ -64,7 +64,7 @@ std::string ResponseHelper::returnData(const ::rapidjson::Value& data, const std
 
 void ResponseHelper::addMetadata(::rapidjson::Document& doc,
                                  ::rapidjson::Document::AllocatorType& allocator) {
-  // TODO verify if this field is needed or not 
+  // TODO verify if this field is needed or not
   // doc.AddMember("source", ::rapidjson::Value("microservice C++ with PostgreSQL", allocator),
   //              allocator);
   ::rapidjson::Value ts;

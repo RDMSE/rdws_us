@@ -7,15 +7,14 @@ namespace rdws::utils {
 static constexpr char kJsonParseError[] = "JSON Parse error";
 static constexpr char kLambdaParamsSizeError[] = "Wrong number of arguments";
 
-tl::expected<bool, std::string> LambdaParamsHelper::checkParams(const int argc, char *argv[])
-{
+tl::expected<bool, std::string> LambdaParamsHelper::checkParams(const int argc, char* argv[]) {
   if (argc < 3) {
     return tl::unexpected(kLambdaParamsSizeError);
   }
 
   const LambdaParams lambdaParams = {
-    .eventJson = argv[1],
-    .contextJson = argv[2],
+      .eventJson = argv[1],
+      .contextJson = argv[2],
   };
 
   rapidjson::Document doc;

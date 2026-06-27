@@ -29,6 +29,7 @@ AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: false
+InsertBraces: true
 
 # Spacing
 SpaceAfterCStyleCast: false

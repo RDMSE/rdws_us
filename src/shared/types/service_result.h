@@ -8,38 +8,41 @@
 
 namespace rdws::types {
 
-template <typename T>
-class ServiceResult {
+template <typename T> class ServiceResult {
 public:
-  static ServiceResult success(T data, int statusCode = 200)
-  {
+  static ServiceResult success(T data, int statusCode = 200) {
     return ServiceResult(true, std::move(data), "", statusCode);
   }
 
-  static ServiceResult error(std::string errorMessage, int statusCode = 500)
-  {
+  static ServiceResult error(std::string errorMessage, int statusCode = 500) {
     return ServiceResult(false, std::nullopt, std::move(errorMessage), statusCode);
   }
 
-  [[nodiscard]] bool isSuccess() const { return success_; }
-  [[nodiscard]] bool isError() const { return !success_; }
-  [[nodiscard]] int getStatusCode() const { return statusCode_; }
+  [[nodiscard]] bool isSuccess() const {
+    return success_;
+  }
+  [[nodiscard]] bool isError() const {
+    return !success_;
+  }
+  [[nodiscard]] int getStatusCode() const {
+    return statusCode_;
+  }
 
-  const T &getData() const
-  {
+  const T& getData() const {
     if (!success_ || !data_.has_value()) {
       throw std::runtime_error("ServiceResult has no data");
     }
     return data_.value();
   }
 
-  [[nodiscard]] const std::string &getErrorMessage() const { return errorMessage_; }
+  [[nodiscard]] const std::string& getErrorMessage() const {
+    return errorMessage_;
+  }
 
 private:
   ServiceResult(bool success, std::optional<T> data, std::string errorMessage, int statusCode)
-      : success_(success), data_(std::move(data)), errorMessage_(std::move(errorMessage)), statusCode_(statusCode)
-  {
-  }
+      : success_(success), data_(std::move(data)), errorMessage_(std::move(errorMessage)),
+        statusCode_(statusCode) {}
 
   bool success_;
   std::optional<T> data_;

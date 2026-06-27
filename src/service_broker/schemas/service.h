@@ -5,9 +5,9 @@
 
 namespace servicegateway::schemas {
 
-    // Function to generate the service properties schema (DRY approach)
-    inline std::string getServicePropertiesJson() {
-        return R"(
+// Function to generate the service properties schema (DRY approach)
+inline std::string getServicePropertiesJson() {
+  return R"(
             "properties": {
                 "active": {
                     "type": "boolean",
@@ -22,7 +22,7 @@ namespace servicegateway::schemas {
                     "pattern": "^[a-zA-Z0-9_-]+$"
                 },
                 "path": {
-                    "type": "string", 
+                    "type": "string",
                     "description": "The filesystem path to the service executable or directory",
                     "minLength": 1,
                     "maxLength": 500
@@ -38,20 +38,19 @@ namespace servicegateway::schemas {
             "required": ["name", "path", "instances"],
             "additionalProperties": false
         )";
-    }
+}
 
-    // JSON Schema for validating individual service objects
-    // Corresponds to the 'service' struct in ../service.h
-    const std::string SERVICE_SCHEMA = R"({
+// JSON Schema for validating individual service objects
+// Corresponds to the 'service' struct in ../service.h
+const std::string SERVICE_SCHEMA = R"({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "title": "Service Definition",
-        "description": "Schema for validating a single service configuration",)" + 
-        getServicePropertiesJson() + 
-        R"(})";
+        "description": "Schema for validating a single service configuration",)" +
+                                   getServicePropertiesJson() + R"(})";
 
-    // JSON Schema for validating arrays of services (like services.json)
-    const std::string SERVICES_ARRAY_SCHEMA = R"({
+// JSON Schema for validating arrays of services (like services.json)
+const std::string SERVICES_ARRAY_SCHEMA = R"({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "array",
         "title": "Services Collection",
@@ -59,9 +58,9 @@ namespace servicegateway::schemas {
         "items": {
             "type": "object",
             "title": "Service Definition",
-            "description": "Schema for validating a single service configuration",)" + 
-            getServicePropertiesJson() + 
-            R"(},
+            "description": "Schema for validating a single service configuration",)" +
+                                          getServicePropertiesJson() +
+                                          R"(},
         "minItems": 0,
         "maxItems": 50
     })";

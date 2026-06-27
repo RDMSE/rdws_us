@@ -1,12 +1,13 @@
 #include "schema_validator.h"
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <sstream>
-#include <utility>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <sstream>
+#include <utility>
 #include <valijson/adapters/rapidjson_adapter.hpp>
 #include <valijson/schema.hpp>
 #include <valijson/schema_parser.hpp>
@@ -64,105 +65,101 @@ std::string SchemaValidator::getSchemaPath(const std::string& schemaFile) {
   return relativePath;
 }
 
-
-
 bool SchemaValidator::loadSchemaFromString(const std::string& schemaString) const {
-    try {
-        rapidjson::Document schemaDoc;
-        schemaDoc.Parse(schemaString.c_str());
-        if (schemaDoc.HasParseError()) {
-            std::cerr << "Schema parse error at offset " << schemaDoc.GetErrorOffset() << '\n';
-            return false;
-        }
-
-        // Create schema from parsed JSON
-        valijson::SchemaParser parser;
-        const valijson::adapters::RapidJsonAdapter schemaAdapter(schemaDoc);
-        parser.populateSchema(schemaAdapter, *schema);
-
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error parsing schema string: " << e.what() << '\n';
-        return false;
+  try {
+    rapidjson::Document schemaDoc;
+    schemaDoc.Parse(schemaString.c_str());
+    if (schemaDoc.HasParseError()) {
+      std::cerr << "Schema parse error at offset " << schemaDoc.GetErrorOffset() << '\n';
+      return false;
     }
+
+    // Create schema from parsed JSON
+    valijson::SchemaParser parser;
+    const valijson::adapters::RapidJsonAdapter schemaAdapter(schemaDoc);
+    parser.populateSchema(schemaAdapter, *schema);
+
+    return true;
+  } catch (const std::exception& e) {
+    std::cerr << "Error parsing schema string: " << e.what() << '\n';
+    return false;
+  }
 }
 
 std::vector<ValidationError> SchemaValidator::validate(const rapidjson::Document& json) const {
-    valijson::ValidationResults results;
+  valijson::ValidationResults results;
 
-    if (valijson::adapters::RapidJsonAdapter targetAdapter(json); validator->validate(*schema, targetAdapter, &results)) {
-        return {}; // No errors
-    }
+  if (valijson::adapters::RapidJsonAdapter targetAdapter(json);
+      validator->validate(*schema, targetAdapter, &results)) {
+    return {}; // No errors
+  }
 
-    return convertValidationResults(results);
+  return convertValidationResults(results);
 }
 
 std::vector<ValidationError> SchemaValidator::validate(const std::string& jsonString) const {
-    rapidjson::Document json;
-    json.Parse(jsonString.c_str());
-    if (json.HasParseError()) {
-        std::ostringstream oss;
-        oss << "Invalid JSON format at offset " << json.GetErrorOffset();
-        return {
-            ValidationError("root", oss.str())
-        };
-    }
+  rapidjson::Document json;
+  json.Parse(jsonString.c_str());
+  if (json.HasParseError()) {
+    std::ostringstream oss;
+    oss << "Invalid JSON format at offset " << json.GetErrorOffset();
+    return {ValidationError("root", oss.str())};
+  }
 
-    return validate(json);
+  return validate(json);
 }
 
 std::vector<ValidationError>
 SchemaValidator::convertValidationResults(const valijson::ValidationResults& results) {
-    std::vector<ValidationError> errors;
+  std::vector<ValidationError> errors;
 
-    // Note: results.popError modifies the object, so we need non-const
-    auto& mutableResults = const_cast<valijson::ValidationResults&>(results);
+  // Note: results.popError modifies the object, so we need non-const
+  auto& mutableResults = const_cast<valijson::ValidationResults&>(results);
 
-    valijson::ValidationResults::Error error;
-    while (mutableResults.popError(error)) {
-        std::string fieldPath;
-        for (const auto& token : error.context) {
-            if (!fieldPath.empty()) {
-                fieldPath += ".";
-            }
-            fieldPath += token;
-        }
-
-        if (fieldPath.empty()) {
-            fieldPath = "<root>";
-        }
-
-        errors.emplace_back(fieldPath, error.description, "");
+  valijson::ValidationResults::Error error;
+  while (mutableResults.popError(error)) {
+    std::string fieldPath;
+    for (const auto& token : error.context) {
+      if (!fieldPath.empty()) {
+        fieldPath += ".";
+      }
+      fieldPath += token;
     }
 
-    return errors;
+    if (fieldPath.empty()) {
+      fieldPath = "<root>";
+    }
+
+    errors.emplace_back(fieldPath, error.description, "");
+  }
+
+  return errors;
 }
 
 std::string SchemaValidator::getErrorsAsJson(const std::vector<ValidationError>& errors) const {
-    rapidjson::Document result;
-    result.SetObject();
-    auto& allocator = result.GetAllocator();
+  rapidjson::Document result;
+  result.SetObject();
+  auto& allocator = result.GetAllocator();
 
-    result.AddMember("valid", false, allocator);
-    result.AddMember("schema", rapidjson::Value(schemaName.c_str(), allocator), allocator);
+  result.AddMember("valid", false, allocator);
+  result.AddMember("schema", rapidjson::Value(schemaName.c_str(), allocator), allocator);
 
-    rapidjson::Value errorsArray(rapidjson::kArrayType);
-    for (const auto& error : errors) {
-        rapidjson::Value errorObj(rapidjson::kObjectType);
-        errorObj.AddMember("field", rapidjson::Value(error.field.c_str(), allocator), allocator);
-        errorObj.AddMember("message", rapidjson::Value(error.message.c_str(), allocator), allocator);
-        if (!error.context.empty()) {
-            errorObj.AddMember("context", rapidjson::Value(error.context.c_str(), allocator), allocator);
-        }
-        errorsArray.PushBack(errorObj, allocator);
+  rapidjson::Value errorsArray(rapidjson::kArrayType);
+  for (const auto& error : errors) {
+    rapidjson::Value errorObj(rapidjson::kObjectType);
+    errorObj.AddMember("field", rapidjson::Value(error.field.c_str(), allocator), allocator);
+    errorObj.AddMember("message", rapidjson::Value(error.message.c_str(), allocator), allocator);
+    if (!error.context.empty()) {
+      errorObj.AddMember("context", rapidjson::Value(error.context.c_str(), allocator), allocator);
     }
-    result.AddMember("errors", errorsArray, allocator);
+    errorsArray.PushBack(errorObj, allocator);
+  }
+  result.AddMember("errors", errorsArray, allocator);
 
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    result.Accept(writer);
-    return buffer.GetString();
+  rapidjson::StringBuffer buffer;
+  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+  result.Accept(writer);
+  return buffer.GetString();
 }
 
-
-};
+}; // namespace rdws::validation

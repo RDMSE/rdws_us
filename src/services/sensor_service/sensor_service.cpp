@@ -1,11 +1,12 @@
 //
-// SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update, sensor.delete
+// SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update,
+// sensor.delete
 //
 
-#include "../../shared/repository/SensorRepository.h"
-#include "../../shared/service/SensorService.h"
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
+#include "../../shared/repository/SensorRepository.h"
+#include "../../shared/service/SensorService.h"
 
 #include <atomic>
 #include <csignal>
@@ -21,273 +22,303 @@ using namespace rdws::sensor;
 
 namespace {
 
-rapidjson::Document makeError(const std::string& msg, const int code = 400)
-{
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "error", alloc);
-    doc.AddMember("statusCode", code, alloc);
-    doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-    return doc;
+rapidjson::Document makeError(const std::string& msg, const int code = 400) {
+  rapidjson::Document doc;
+  doc.SetObject();
+  auto& alloc = doc.GetAllocator();
+  doc.AddMember("status", "error", alloc);
+  doc.AddMember("statusCode", code, alloc);
+  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
+  return doc;
 }
 
-std::string getPathParam(const rapidjson::Document& req, const std::string& key)
-{
-    if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-        const auto& pp = req["pathParameters"];
-        if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-          return pp[key.c_str()].GetString();
-        }
+std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
+  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
+    const auto& pp = req["pathParameters"];
+    if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
+      return pp[key.c_str()].GetString();
     }
-    return {};
+  }
+  return {};
 }
 
-std::string getQueryParam(const rapidjson::Document& req, const std::string& key)
-{
-    if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
-        const auto& qp = req["queryStringParameters"];
-        if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
-          return qp[key.c_str()].GetString();
-        }
+std::string getQueryParam(const rapidjson::Document& req, const std::string& key) {
+  if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
+    const auto& qp = req["queryStringParameters"];
+    if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
+      return qp[key.c_str()].GetString();
     }
-    return {};
+  }
+  return {};
 }
 
-std::string getStr(const rapidjson::Document& req, const std::string& key)
-{
-    if (req.HasMember(key.c_str()) && req[key.c_str()].IsString()) {
-      return req[key.c_str()].GetString();
-    }
-    return {};
+std::string getStr(const rapidjson::Document& req, const std::string& key) {
+  if (req.HasMember(key.c_str()) && req[key.c_str()].IsString()) {
+    return req[key.c_str()].GetString();
+  }
+  return {};
 }
 
-rapidjson::Value sensorToJson(const Sensor& s, rapidjson::Document::AllocatorType& alloc)
-{
-    rapidjson::Value obj(rapidjson::kObjectType);
-    obj.AddMember("id",        rapidjson::Value(s.id.c_str(), alloc),       alloc);
-    obj.AddMember("device_id", rapidjson::Value(s.deviceId.c_str(), alloc), alloc);
-    obj.AddMember("type",      rapidjson::Value(s.type.c_str(), alloc),     alloc);
-    obj.AddMember("unit",      rapidjson::Value(s.unit.c_str(), alloc),     alloc);
-    if (!s.location.empty())
-        obj.AddMember("location", rapidjson::Value(s.location.c_str(), alloc), alloc);
-    obj.AddMember("created_at", rapidjson::Value(s.createdAt.c_str(), alloc), alloc);
-    if (!s.updatedAt.empty())
-        obj.AddMember("updated_at", rapidjson::Value(s.updatedAt.c_str(), alloc), alloc);
-    if (!s.updatedBy.empty())
-        obj.AddMember("updated_by", rapidjson::Value(s.updatedBy.c_str(), alloc), alloc);
-    return obj;
+rapidjson::Value sensorToJson(const Sensor& s, rapidjson::Document::AllocatorType& alloc) {
+  rapidjson::Value obj(rapidjson::kObjectType);
+  obj.AddMember("id", rapidjson::Value(s.id.c_str(), alloc), alloc);
+  obj.AddMember("device_id", rapidjson::Value(s.deviceId.c_str(), alloc), alloc);
+  obj.AddMember("type", rapidjson::Value(s.type.c_str(), alloc), alloc);
+  obj.AddMember("unit", rapidjson::Value(s.unit.c_str(), alloc), alloc);
+  if (!s.location.empty()) {
+    obj.AddMember("location", rapidjson::Value(s.location.c_str(), alloc), alloc);
+  }
+  obj.AddMember("created_at", rapidjson::Value(s.createdAt.c_str(), alloc), alloc);
+  if (!s.updatedAt.empty()) {
+    obj.AddMember("updated_at", rapidjson::Value(s.updatedAt.c_str(), alloc), alloc);
+  }
+  if (!s.updatedBy.empty()) {
+    obj.AddMember("updated_by", rapidjson::Value(s.updatedBy.c_str(), alloc), alloc);
+  }
+  return obj;
 }
 
 } // namespace
 
-class AppSensorService
-{
+class AppSensorService {
 private:
-    ServiceIdentity identity;
-    std::unique_ptr<ServiceClient> client;
-    std::string gatewayAddress;
-    std::atomic<bool> running{false};
+  ServiceIdentity identity;
+  std::unique_ptr<ServiceClient> client;
+  std::string gatewayAddress;
+  std::atomic<bool> running{false};
 
-    // DB/repo/svc — declared in dependency order
-    PostgreSQLDatabase            db_;
-    SensorRepository              repo_;
-    rdws::sensor::SensorService   svc_;
+  // DB/repo/svc — declared in dependency order
+  PostgreSQLDatabase db_;
+  SensorRepository repo_;
+  rdws::sensor::SensorService svc_;
 
 public:
-    AppSensorService(const std::string& serviceId, const std::string& machineName, std::string broker)
-        : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_)
-    {
-        identity.machineName   = machineName;
-        identity.serviceName   = "sensor_service";
-        identity.serviceId     = serviceId;
-        identity.version       = "v1.0.0";
-        identity.environment   = "prod";
-        identity.maxConcurrent = 20;
-        identity.capabilities  = {"sensor.list", "sensor.get", "sensor.create", "sensor.update", "sensor.delete"};
-    }
+  AppSensorService(const std::string& serviceId, const std::string& machineName, std::string broker)
+      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+    identity.machineName = machineName;
+    identity.serviceName = "sensor_service";
+    identity.serviceId = serviceId;
+    identity.version = "v1.0.0";
+    identity.environment = "prod";
+    identity.maxConcurrent = 20;
+    identity.capabilities = {"sensor.list", "sensor.get", "sensor.create", "sensor.update",
+                             "sensor.delete"};
+  }
 
-    bool initialize()
-    {
-        client = std::make_unique<ServiceClient>(identity, gatewayAddress);
-        client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
-            return processRequest(req);
-        });
-        return true;
-    }
+  bool initialize() {
+    client = std::make_unique<ServiceClient>(identity, gatewayAddress);
+    client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
+      return processRequest(req);
+    });
+    return true;
+  }
 
-    void run()
-    {
-        running.store(true);
-        std::cout << "[" << identity.serviceId << "] SensorService starting\n";
-        while (running.load()) {
-            client->run();
-            if (!running.load()) break;
-            std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
-            std::this_thread::sleep_for(std::chrono::seconds(3));
-            client = std::make_unique<ServiceClient>(identity, gatewayAddress);
-            client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
-                return processRequest(req);
-            });
-        }
-        std::cout << "[" << identity.serviceId << "] SensorService stopped\n";
+  void run() {
+    running.store(true);
+    std::cout << "[" << identity.serviceId << "] SensorService starting\n";
+    while (running.load()) {
+      client->run();
+      if (!running.load()) {
+        break;
+      }
+      std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+      std::this_thread::sleep_for(std::chrono::seconds(3));
+      client = std::make_unique<ServiceClient>(identity, gatewayAddress);
+      client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
+        return processRequest(req);
+      });
     }
+    std::cout << "[" << identity.serviceId << "] SensorService stopped\n";
+  }
 
-    void shutdown()
-    {
-        running.store(false);
-        if (client) {
-          client->stop();
-        }
+  void shutdown() {
+    running.store(false);
+    if (client) {
+      client->stop();
     }
+  }
 
 private:
-    [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request)
-    {
-        const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                    ? request["capability"].GetString() : "";
-        std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
+  [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
+    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
+                                ? request["capability"].GetString()
+                                : "";
+    std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
-        try {
-            if (cap == "sensor.list")   return handleList(request, svc_);
-            if (cap == "sensor.get")    return handleGet(request, svc_);
-            if (cap == "sensor.create") return handleCreate(request, svc_);
-            if (cap == "sensor.update") return handleUpdate(request, svc_);
-            if (cap == "sensor.delete") return handleDelete(request, svc_);
+    try {
+      if (cap == "sensor.list") {
+        return handleList(request, svc_);
+      }
+      if (cap == "sensor.get") {
+        return handleGet(request, svc_);
+      }
+      if (cap == "sensor.create") {
+        return handleCreate(request, svc_);
+      }
+      if (cap == "sensor.update") {
+        return handleUpdate(request, svc_);
+      }
+      if (cap == "sensor.delete") {
+        return handleDelete(request, svc_);
+      }
 
-            return makeError("Unknown capability: " + cap, 404);
-        } catch (const std::exception& e) {
-            std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-            return makeError(std::string("Internal error: ") + e.what(), 500);
-        }
+      return makeError("Unknown capability: " + cap, 404);
+    } catch (const std::exception& e) {
+      std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
+      return makeError(std::string("Internal error: ") + e.what(), 500);
+    }
+  }
+
+  static rapidjson::Document handleList(const rapidjson::Document& req,
+                                        rdws::sensor::SensorService& svc) {
+    const std::string deviceId = getQueryParam(req, "device_id");
+    const auto sensors = svc.findAll(deviceId);
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+    rapidjson::Value arr(rapidjson::kArrayType);
+    for (const auto& s : sensors) {
+      arr.PushBack(sensorToJson(s, alloc), alloc);
+    }
+    doc.AddMember("status", "success", alloc);
+    doc.AddMember("statusCode", 200, alloc);
+    const int total = static_cast<int>(arr.Size());
+    doc.AddMember("data", arr, alloc);
+    doc.AddMember("total", total, alloc);
+    return doc;
+  }
+
+  static rapidjson::Document handleGet(const rapidjson::Document& req,
+                                       rdws::sensor::SensorService& svc) {
+    const std::string id = getPathParam(req, "id");
+    if (id.empty()) {
+      return makeError("Missing path parameter: id");
     }
 
-    static rapidjson::Document handleList(const rapidjson::Document& req, rdws::sensor::SensorService& svc)
-    {
-        const std::string deviceId = getQueryParam(req, "device_id");
-        const auto sensors = svc.findAll(deviceId);
-
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& alloc = doc.GetAllocator();
-        rapidjson::Value arr(rapidjson::kArrayType);
-        for (const auto& s : sensors)
-            arr.PushBack(sensorToJson(s, alloc), alloc);
-        doc.AddMember("status", "success", alloc);
-        doc.AddMember("statusCode", 200, alloc);
-        const int total = static_cast<int>(arr.Size());
-        doc.AddMember("data", arr, alloc);
-        doc.AddMember("total", total, alloc);
-        return doc;
+    const auto sensor = svc.findById(id);
+    if (!sensor) {
+      return makeError("Sensor not found", 404);
     }
 
-    static rapidjson::Document handleGet(const rapidjson::Document& req, rdws::sensor::SensorService& svc)
-    {
-        const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+    doc.AddMember("status", "success", alloc);
+    doc.AddMember("statusCode", 200, alloc);
+    doc.AddMember("data", sensorToJson(*sensor, alloc), alloc);
+    return doc;
+  }
 
-        const auto sensor = svc.findById(id);
-        if (!sensor) return makeError("Sensor not found", 404);
+  static rapidjson::Document handleCreate(const rapidjson::Document& req,
+                                          rdws::sensor::SensorService& svc) {
+    const std::string deviceId = getStr(req, "device_id");
+    const std::string type = getStr(req, "type");
+    const std::string unit = getStr(req, "unit");
 
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& alloc = doc.GetAllocator();
-        doc.AddMember("status", "success", alloc);
-        doc.AddMember("statusCode", 200, alloc);
-        doc.AddMember("data", sensorToJson(*sensor, alloc), alloc);
-        return doc;
+    if (deviceId.empty()) {
+      return makeError("Missing field: device_id");
+    }
+    if (type.empty()) {
+      return makeError("Missing field: type");
+    }
+    if (unit.empty()) {
+      return makeError("Missing field: unit");
     }
 
-    static rapidjson::Document handleCreate(const rapidjson::Document& req, rdws::sensor::SensorService& svc)
-    {
-        const std::string deviceId = getStr(req, "device_id");
-        const std::string type     = getStr(req, "type");
-        const std::string unit     = getStr(req, "unit");
-
-        if (deviceId.empty()) return makeError("Missing field: device_id");
-        if (type.empty())     return makeError("Missing field: type");
-        if (unit.empty())     return makeError("Missing field: unit");
-
-        const std::string id = svc.create({deviceId, type, unit});
-        if (id.empty()) return makeError("Failed to create sensor", 500);
-
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& alloc = doc.GetAllocator();
-        doc.AddMember("status", "success", alloc);
-        doc.AddMember("statusCode", 201, alloc);
-        rapidjson::Value data(rapidjson::kObjectType);
-        data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-        doc.AddMember("data", data, alloc);
-        return doc;
+    const std::string id = svc.create({deviceId, type, unit});
+    if (id.empty()) {
+      return makeError("Failed to create sensor", 500);
     }
 
-    static rapidjson::Document handleUpdate(const rapidjson::Document& req, rdws::sensor::SensorService& svc)
-    {
-        const std::string id   = getPathParam(req, "id");
-        const std::string type = getStr(req, "type");
-        const std::string unit = getStr(req, "unit");
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+    doc.AddMember("status", "success", alloc);
+    doc.AddMember("statusCode", 201, alloc);
+    rapidjson::Value data(rapidjson::kObjectType);
+    data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
+    doc.AddMember("data", data, alloc);
+    return doc;
+  }
 
-        if (id.empty())   return makeError("Missing path parameter: id");
-        if (type.empty()) return makeError("Missing field: type");
-        if (unit.empty()) return makeError("Missing field: unit");
+  static rapidjson::Document handleUpdate(const rapidjson::Document& req,
+                                          rdws::sensor::SensorService& svc) {
+    const std::string id = getPathParam(req, "id");
+    const std::string type = getStr(req, "type");
+    const std::string unit = getStr(req, "unit");
 
-        const bool ok = svc.update(id, {type, unit});
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& alloc = doc.GetAllocator();
-        doc.AddMember("status", ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc), alloc);
-        doc.AddMember("statusCode", ok ? 200 : 500, alloc);
-        return doc;
+    if (id.empty()) {
+      return makeError("Missing path parameter: id");
+    }
+    if (type.empty()) {
+      return makeError("Missing field: type");
+    }
+    if (unit.empty()) {
+      return makeError("Missing field: unit");
     }
 
-    static rapidjson::Document handleDelete(const rapidjson::Document& req, rdws::sensor::SensorService& svc)
-    {
-        const std::string id = getPathParam(req, "id");
-        if (id.empty()) return makeError("Missing path parameter: id");
+    const bool ok = svc.update(id, {type, unit});
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+    doc.AddMember("status",
+                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
+                  alloc);
+    doc.AddMember("statusCode", ok ? 200 : 500, alloc);
+    return doc;
+  }
 
-        const bool ok = svc.remove(id);
-        rapidjson::Document doc;
-        doc.SetObject();
-        auto& alloc = doc.GetAllocator();
-        doc.AddMember("status", ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc), alloc);
-        doc.AddMember("statusCode", ok ? 204 : 500, alloc);
-        return doc;
+  static rapidjson::Document handleDelete(const rapidjson::Document& req,
+                                          rdws::sensor::SensorService& svc) {
+    const std::string id = getPathParam(req, "id");
+    if (id.empty()) {
+      return makeError("Missing path parameter: id");
     }
+
+    const bool ok = svc.remove(id);
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+    doc.AddMember("status",
+                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
+                  alloc);
+    doc.AddMember("statusCode", ok ? 204 : 500, alloc);
+    return doc;
+  }
 };
 
 static AppSensorService* gService = nullptr;
 
-void signalHandler(const int sig)
-{
-    if (gService && (sig == SIGTERM || sig == SIGINT))
-        gService->shutdown();
+void signalHandler(const int sig) {
+  if (gService && (sig == SIGTERM || sig == SIGINT)) {
+    gService->shutdown();
+  }
 }
 
-int main(const int argc, char* argv[])
-{
-    std::string serviceId      = "sensor_001";
-    std::string machineName    = "localhost";
-    std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
+int main(const int argc, char* argv[]) {
+  std::string serviceId = "sensor_001";
+  std::string machineName = "localhost";
+  std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
 
-    if (argc >= 4) {
-        serviceId      = argv[1];
-        machineName    = argv[2];
-        gatewayAddress = argv[3];
-    } else if (argc >= 2 && std::string(argv[1]) == "--dev") {
-        serviceId   = "sensor_dev";
-        machineName = "dev-machine";
-    }
+  if (argc >= 4) {
+    serviceId = argv[1];
+    machineName = argv[2];
+    gatewayAddress = argv[3];
+  } else if (argc >= 2 && std::string(argv[1]) == "--dev") {
+    serviceId = "sensor_dev";
+    machineName = "dev-machine";
+  }
 
-    AppSensorService service(serviceId, machineName, gatewayAddress);
-    gService = &service;
-    signal(SIGTERM, signalHandler);
-    signal(SIGINT,  signalHandler);
+  AppSensorService service(serviceId, machineName, gatewayAddress);
+  gService = &service;
+  signal(SIGTERM, signalHandler);
+  signal(SIGINT, signalHandler);
 
-    if (!service.initialize()) {
-        std::cerr << "Failed to initialize SensorService\n";
-        return 1;
-    }
-    service.run();
-    return 0;
+  if (!service.initialize()) {
+    std::cerr << "Failed to initialize SensorService\n";
+    return 1;
+  }
+  service.run();
+  return 0;
 }

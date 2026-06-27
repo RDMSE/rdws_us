@@ -25,8 +25,8 @@ pqxx::result exec_prepared_helper(Transaction& txn, const std::string& stmt_name
 
 // PostgreSQLResultSet Implementation
 
-PostgreSQLResultSet::PostgreSQLResultSet(pqxx::result res) :
-  result(std::move(res)), currentRow(0) {}
+PostgreSQLResultSet::PostgreSQLResultSet(pqxx::result res)
+    : result(std::move(res)), currentRow(0) {}
 
 bool PostgreSQLResultSet::next() {
   if (currentRow < result.size()) {
@@ -97,7 +97,7 @@ std::vector<std::string> PostgreSQLResultSet::getColumnNames() const {
 }
 
 size_t PostgreSQLResultSet::getRowCount() {
-    return result.size();
+  return result.size();
 }
 
 // PostgreSQLDatabase Implementation
@@ -106,7 +106,7 @@ PostgreSQLDatabase::PostgreSQLDatabase() {
   PostgreSQLDatabase::connect();
 }
 
-PostgreSQLDatabase::PostgreSQLDatabase(Config  dbConfig) : config(std::move(dbConfig)) {
+PostgreSQLDatabase::PostgreSQLDatabase(Config dbConfig) : config(std::move(dbConfig)) {
   PostgreSQLDatabase::connect();
 }
 
@@ -187,14 +187,14 @@ bool PostgreSQLDatabase::execBatch(const std::vector<std::string>& commands,
     for (size_t i = 0; i < commands.size(); ++i) {
       const std::string stmt_name = "stmt_" + std::to_string(std::hash<std::string>{}(commands[i]));
       if (!preparedStatements_.contains(stmt_name)) {
-          connection->prepare(stmt_name, commands[i]);
-          preparedStatements_.insert(stmt_name);
+        connection->prepare(stmt_name, commands[i]);
+        preparedStatements_.insert(stmt_name);
       }
       exec_prepared_helper(*currentTransaction, stmt_name, parameterSets[i], commands[i]);
     }
 
     if (!wasInTransaction) {
-        commitTransaction();
+      commitTransaction();
     }
 
     return true;
