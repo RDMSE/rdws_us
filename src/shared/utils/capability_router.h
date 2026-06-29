@@ -15,7 +15,9 @@ using CapabilityHandler =
 
 template <typename TService>
 rapidjson::Document dispatchCapability(
-    const std::string& cap, const rapidjson::Document& request, TService& svc,
+    const std::string& cap,
+    const rapidjson::Document& request,
+    TService& svc,
     const std::unordered_map<std::string, CapabilityHandler<TService>>& handlers) {
   auto it = handlers.find(cap);
   if (it == handlers.end()) {

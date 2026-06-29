@@ -9,6 +9,7 @@
 #include "../../shared/service/SensorReadingService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -100,15 +101,16 @@ private:
     const std::string cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
-    try {
-      if (cap == "sensor_reading.list") {
-        return handleList(request, svc_);
-      }
-      if (cap == "sensor_reading.get") {
-        return handleGet(request, svc_);
-      }
+    static const std::unordered_map<
+        std::string,
+        rdws::utils::CapabilityHandler<rdws::sensor_reading::SensorReadingService>>
+        handlers = {
+            {"sensor_reading.list", handleList},
+            {"sensor_reading.get", handleGet},
+        };
 
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+    try {
+      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
@@ -125,29 +127,20 @@ private:
 
     const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
     const std::string to = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "to");
-
     const auto readings = svc.findBySensorId(sensorId, from, to);
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    rapidjson::Value arr(rapidjson::kArrayType);
-    for (const auto& r : readings) {
-      arr.PushBack(readingToJson(r, alloc), alloc);
-    }
-
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    const int total = static_cast<int>(arr.Size());
-    doc.AddMember("data", arr, alloc);
-    doc.AddMember("total", total, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& r : readings) {
+        arr.PushBack(readingToJson(r, alloc), alloc);
+      }
+      return arr;
+    });
   }
 
   // GET /sensors/{id}/readings/{rid}
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::sensor_reading::SensorReadingService& svc) {
-    // 'rid' is the reading id; passed as a query or path param depending on routing
     std::string rid = rdws::utils::LambdaParamsHelper::getPathParam(req, "rid");
     if (rid.empty()) {
       rid = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "rid");
@@ -161,13 +154,8 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Reading not found", 404);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", readingToJson(*reading, alloc), alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) { return readingToJson(*reading, alloc); });
   }
 };
 

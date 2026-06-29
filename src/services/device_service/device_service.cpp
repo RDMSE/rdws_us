@@ -9,6 +9,7 @@
 #include "../../shared/service/DeviceService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -112,28 +113,18 @@ private:
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
+    static const std::unordered_map<std::string,
+                                     rdws::utils::CapabilityHandler<rdws::device::DeviceService>>
+        handlers = {
+            {"device.list", handleList},
+            {"device.get", handleGet},
+            {"device.create", handleCreate},
+            {"device.update", handleUpdate},
+            {"device.delete", handleDelete},
+        };
+
     try {
-      if (cap == "device.list") {
-        return handleList(request, svc_);
-      }
-
-      if (cap == "device.get") {
-        return handleGet(request, svc_);
-      }
-
-      if (cap == "device.create") {
-        return handleCreate(request, svc_);
-      }
-
-      if (cap == "device.update") {
-        return handleUpdate(request, svc_);
-      }
-
-      if (cap == "device.delete") {
-        return handleDelete(request, svc_);
-      }
-
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
@@ -146,21 +137,13 @@ private:
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
     const auto devices = svc.findAll(fieldId);
-
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    rapidjson::Value arr(rapidjson::kArrayType);
-    for (const auto& d : devices) {
-      arr.PushBack(deviceToJson(d, alloc), alloc);
-    }
-    const int total = static_cast<int>(arr.Size());
-
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", arr, alloc);
-    doc.AddMember("total", total, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& d : devices) {
+        arr.PushBack(deviceToJson(d, alloc), alloc);
+      }
+      return arr;
+    });
   }
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
@@ -175,13 +158,8 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Device not found", 404);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", deviceToJson(*device, alloc), alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) { return deviceToJson(*device, alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
@@ -202,15 +180,13 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create device", 500);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 201, alloc);
-    rapidjson::Value data(rapidjson::kObjectType);
-    data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-    doc.AddMember("data", data, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) {
+          rapidjson::Value data(rapidjson::kObjectType);
+          data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
+          return data;
+        },
+        201);
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
@@ -230,14 +206,8 @@ private:
     }
 
     const bool ok = svc.update(id, {type, status});
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 200 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update device", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -248,14 +218,8 @@ private:
     }
 
     const bool ok = svc.remove(id);
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 204 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete device", 500);
   }
 };
 

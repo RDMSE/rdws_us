@@ -17,6 +17,33 @@ public:
   static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode = 500,
                                               const ::rapidjson::Value* details = nullptr);
 
+  static ::rapidjson::Document returnSuccessDoc(int statusCode = 200,
+                                                const std::string& message = "");
+
+  static ::rapidjson::Document returnDataDoc(const ::rapidjson::Value& data, int statusCode = 200,
+                                             const std::string& message = "");
+
+  template <typename Builder>
+  static ::rapidjson::Document returnDataDoc(Builder&& builder, int statusCode = 200,
+                                             const std::string& message = "") {
+    ::rapidjson::Document doc;
+    doc.SetObject();
+    auto& allocator = doc.GetAllocator();
+
+    doc.AddMember("success", ::rapidjson::Value(true), allocator);
+    doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
+
+    if (!message.empty()) {
+      doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+    }
+
+    ::rapidjson::Value data = builder(allocator);
+    doc.AddMember("data", data, allocator);
+
+    addMetadata(doc, allocator);
+    return doc;
+  }
+
   static std::string returnData(const ::rapidjson::Value& data, const std::string& message = "",
                                 int statusCode = 200);
 
@@ -27,6 +54,8 @@ public:
   template <typename T>
   static std::string returnEntities(const std::vector<T>& entities, const std::string& entitiesName,
                                     const std::string& message = "", int statusCode = 200);
+
+  static std::string toString(const ::rapidjson::Value& value);
 
 private:
   static void addMetadata(::rapidjson::Document& doc,

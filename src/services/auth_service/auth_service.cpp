@@ -137,6 +137,7 @@ private:
   }
 
   [[nodiscard]] rapidjson::Document handleLogin(const rapidjson::Document& request) const {
+    std::cout << "[auth] request: " << rdws::utils::ResponseHelper::toString(request) << std::endl;
     // Extract credentials from top-level body fields (spread by HttpGateway)
     std::string username = rdws::utils::getString(request, "username").value_or("");
     std::string password = rdws::utils::getString(request, "password").value_or("");

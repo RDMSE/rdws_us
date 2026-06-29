@@ -10,6 +10,7 @@
 #include "../../shared/service/DeviceConfigService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -93,20 +94,18 @@ private:
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
+    static const std::unordered_map<
+        std::string,
+        rdws::utils::CapabilityHandler<rdws::device_config::DeviceConfigService>>
+        handlers = {
+            {"device_config.get", handleGet},
+            {"device_config.create", handleCreate},
+            {"device_config.update", handleUpdate},
+            {"device_config.delete", handleDelete},
+        };
+
     try {
-      if (cap == "device_config.get") {
-        return handleGet(request, svc_);
-      }
-      if (cap == "device_config.create") {
-        return handleCreate(request, svc_);
-      }
-      if (cap == "device_config.update") {
-        return handleUpdate(request, svc_);
-      }
-      if (cap == "device_config.delete") {
-        return handleDelete(request, svc_);
-      }
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
@@ -116,7 +115,6 @@ private:
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::device_config::DeviceConfigService& svc) {
-    // {id} = device_id
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
@@ -127,33 +125,26 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Configuration not found", 404);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value data(rapidjson::kObjectType);
+      data.AddMember("id", rapidjson::Value(cfg->id.c_str(), alloc), alloc);
+      data.AddMember("device_id", rapidjson::Value(cfg->deviceId.c_str(), alloc), alloc);
 
-    rapidjson::Value data(rapidjson::kObjectType);
-    data.AddMember("id", rapidjson::Value(cfg->id.c_str(), alloc), alloc);
-    data.AddMember("device_id", rapidjson::Value(cfg->deviceId.c_str(), alloc), alloc);
+      rapidjson::Document configDoc;
+      if (!cfg->config.empty() && !configDoc.Parse(cfg->config.c_str()).HasParseError()) {
+        rapidjson::Value configVal;
+        configVal.CopyFrom(configDoc, alloc);
+        data.AddMember("config", configVal, alloc);
+      } else {
+        data.AddMember("config", rapidjson::Value(cfg->config.c_str(), alloc), alloc);
+      }
 
-    // config is stored as JSONB — parse it back
-    rapidjson::Document configDoc;
-    if (!cfg->config.empty() && !configDoc.Parse(cfg->config.c_str()).HasParseError()) {
-      rapidjson::Value configVal;
-      configVal.CopyFrom(configDoc, alloc);
-      data.AddMember("config", configVal, alloc);
-    } else {
-      data.AddMember("config", rapidjson::Value(cfg->config.c_str(), alloc), alloc);
-    }
-
-    data.AddMember("created_at", rapidjson::Value(cfg->createdAt.c_str(), alloc), alloc);
-    if (!cfg->updatedAt.empty()) {
-      data.AddMember("updated_at", rapidjson::Value(cfg->updatedAt.c_str(), alloc), alloc);
-    }
-
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", data, alloc);
-    return doc;
+      data.AddMember("created_at", rapidjson::Value(cfg->createdAt.c_str(), alloc), alloc);
+      if (!cfg->updatedAt.empty()) {
+        data.AddMember("updated_at", rapidjson::Value(cfg->updatedAt.c_str(), alloc), alloc);
+      }
+      return data;
+    });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
@@ -163,7 +154,6 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    // Serialize the 'config' body field back to JSON string for JSONB
     std::string configJson;
     if (req.HasMember("config")) {
       rapidjson::StringBuffer buf;
@@ -180,15 +170,13 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 201, alloc);
-    rapidjson::Value data(rapidjson::kObjectType);
-    data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-    doc.AddMember("data", data, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) {
+          rapidjson::Value data(rapidjson::kObjectType);
+          data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
+          return data;
+        },
+        201);
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
@@ -210,14 +198,8 @@ private:
     }
 
     const bool ok = svc.update(deviceId, {configJson});
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 200 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update configuration", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -228,14 +210,8 @@ private:
     }
 
     const bool ok = svc.remove(deviceId);
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 204 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete configuration", 500);
   }
 };
 

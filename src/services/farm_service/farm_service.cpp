@@ -8,6 +8,7 @@
 #include "../../shared/service/FarmService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 
@@ -105,24 +106,18 @@ private:
     const auto& cap = rdws::utils::getString(request, "capability").value_or(std::string{});
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
-    try {
-      if (cap == "farm.list") {
-        return handleList(svc_);
-      }
-      if (cap == "farm.get") {
-        return handleGet(request, svc_);
-      }
-      if (cap == "farm.create") {
-        return handleCreate(request, svc_);
-      }
-      if (cap == "farm.update") {
-        return handleUpdate(request, svc_);
-      }
-      if (cap == "farm.delete") {
-        return handleDelete(request, svc_);
-      }
+    static const std::unordered_map<std::string,
+                                     rdws::utils::CapabilityHandler<rdws::farm::FarmService>>
+        handlers = {
+            {"farm.list",   [](const rapidjson::Document&, rdws::farm::FarmService& svc) { return handleList(svc); }},
+            {"farm.get",    handleGet},
+            {"farm.create", handleCreate},
+            {"farm.update", handleUpdate},
+            {"farm.delete", handleDelete},
+        };
 
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+    try {
+      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
@@ -131,21 +126,13 @@ private:
 
   static rapidjson::Document handleList(rdws::farm::FarmService& svc) {
     const auto farms = svc.findAll();
-
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    rapidjson::Value arr(rapidjson::kArrayType);
-    for (const auto& f : farms) {
-      arr.PushBack(farmToJson(f, alloc), alloc);
-    }
-
-    const int total = static_cast<int>(arr.Size());
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", arr, alloc);
-    doc.AddMember("total", total, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& f : farms) {
+        arr.PushBack(farmToJson(f, alloc), alloc);
+      }
+      return arr;
+    });
   }
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
@@ -160,19 +147,13 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Farm not found", 404);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", farmToJson(*farm, alloc), alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) { return farmToJson(*farm, alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::farm::FarmService& svc) {
     const auto& name = rdws::utils::getString(req, "name").value_or(std::string{});
-
     if (name.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
@@ -194,15 +175,13 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create farm", 500);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 201, alloc);
-    rapidjson::Value dataObj(rapidjson::kObjectType);
-    dataObj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-    doc.AddMember("data", dataObj, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) {
+          rapidjson::Value obj(rapidjson::kObjectType);
+          obj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
+          return obj;
+        },
+        201);
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
@@ -230,14 +209,8 @@ private:
     }
 
     const bool ok = svc.update(id, data);
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 200 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update farm", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -248,14 +221,8 @@ private:
     }
 
     const bool ok = svc.remove(id);
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 204 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete farm", 500);
   }
 };
 

@@ -1,6 +1,7 @@
 #include "ServiceClient.h"
 
 #include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <arpa/inet.h>
 #include <iostream>
@@ -348,7 +349,9 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
 
   try {
     // Process request
+    std::cout << "[ServiceClient] Request data: " << rdws::utils::ResponseHelper::toString(requestData) << std::endl;
     rapidjson::Document response = requestHandler(requestData);
+    std::cout << "[ServiceClient] Response data: " << rdws::utils::ResponseHelper::toString(response) << std::endl;
 
     // Send response back to broker
     (void)sendResponse(requestId.value(), response);

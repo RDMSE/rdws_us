@@ -683,19 +683,7 @@ bool ServiceGateway::sendDirectRequest(const std::string& serviceId,
   }
 
   rapidjson::Document outbound;
-  const auto& type = rdws::utils::getString(requestData, "type");
-  if (requestData.IsObject() && !type.has_value()) {
-    outbound.CopyFrom(requestData, outbound.GetAllocator());
-  } else {
-    outbound.SetObject();
-    auto& allocator = outbound.GetAllocator();
-    outbound.AddMember("type", "REQUEST", allocator);
-    const std::string requestId = generateRequestId();
-    outbound.AddMember("requestId", rapidjson::Value(requestId.c_str(), allocator), allocator);
-    rapidjson::Value data;
-    data.CopyFrom(requestData, allocator);
-    outbound.AddMember("data", data, allocator);
-  }
+  outbound.CopyFrom(requestData, outbound.GetAllocator());
 
   rapidjson::StringBuffer buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);

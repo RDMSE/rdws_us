@@ -8,6 +8,7 @@
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -147,14 +148,21 @@ private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
 
+    const std::unordered_map<std::string,
+                              rdws::utils::CapabilityHandler<PersistenceService>>
+        handlers = {
+            {"persistence.save.request",
+             [this](const rapidjson::Document& req, PersistenceService&) {
+               return handleSaveRequest(req);
+             }},
+            {"persistence.save.metrics",
+             [this](const rapidjson::Document& req, PersistenceService&) {
+               return handleSaveMetrics(req);
+             }},
+        };
+
     try {
-      if (cap == "persistence.save.request") {
-        return handleSaveRequest(request);
-      }
-      if (cap == "persistence.save.metrics") {
-        return handleSaveMetrics(request);
-      }
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+      return rdws::utils::dispatchCapability(cap, request, *this, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);

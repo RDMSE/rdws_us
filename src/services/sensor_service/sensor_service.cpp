@@ -130,22 +130,16 @@ private:
 
   static rapidjson::Document handleList(const rapidjson::Document& req,
                                         rdws::sensor::SensorService& svc) {
-    const std::string deviceId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
+    const std::string deviceId =
+        rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
     const auto sensors = svc.findAll(deviceId);
-
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    rapidjson::Value arr(rapidjson::kArrayType);
-    for (const auto& s : sensors) {
-      arr.PushBack(sensorToJson(s, alloc), alloc);
-    }
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    const int total = static_cast<int>(arr.Size());
-    doc.AddMember("data", arr, alloc);
-    doc.AddMember("total", total, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& s : sensors) {
+        arr.PushBack(sensorToJson(s, alloc), alloc);
+      }
+      return arr;
+    });
   }
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
@@ -160,13 +154,8 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Sensor not found", 404);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", sensorToJson(*sensor, alloc), alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) { return sensorToJson(*sensor, alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
@@ -190,15 +179,13 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 201, alloc);
-    rapidjson::Value data(rapidjson::kObjectType);
-    data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-    doc.AddMember("data", data, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) {
+          rapidjson::Value obj(rapidjson::kObjectType);
+          obj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
+          return obj;
+        },
+        201);
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
@@ -218,14 +205,8 @@ private:
     }
 
     const bool ok = svc.update(id, {type, unit});
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 200 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update sensor", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -236,14 +217,8 @@ private:
     }
 
     const bool ok = svc.remove(id);
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 204 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete sensor", 500);
   }
 };
 

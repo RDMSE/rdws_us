@@ -8,6 +8,7 @@
 #include "../../shared/service/FieldService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -110,24 +111,18 @@ private:
     const std::string cap = rdws::utils::getString(request, "capability").value_or(std::string{});
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
-    try {
-      if (cap == "field.list") {
-        return handleList(request, svc_);
-      }
-      if (cap == "field.get") {
-        return handleGet(request, svc_);
-      }
-      if (cap == "field.create") {
-        return handleCreate(request, svc_);
-      }
-      if (cap == "field.update") {
-        return handleUpdate(request, svc_);
-      }
-      if (cap == "field.delete") {
-        return handleDelete(request, svc_);
-      }
+    static const std::unordered_map<std::string,
+                                     rdws::utils::CapabilityHandler<rdws::field::FieldService>>
+        handlers = {
+            {"field.list",   handleList},
+            {"field.get",    handleGet},
+            {"field.create", handleCreate},
+            {"field.update", handleUpdate},
+            {"field.delete", handleDelete},
+        };
 
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+    try {
+      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
@@ -139,20 +134,13 @@ private:
                                         rdws::field::FieldService& svc) {
     const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
     const auto fields = svc.findAll(farmId);
-
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    rapidjson::Value arr(rapidjson::kArrayType);
-    for (const auto& f : fields) {
-      arr.PushBack(fieldToJson(f, alloc), alloc);
-    }
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    const int total = static_cast<int>(arr.Size());
-    doc.AddMember("data", arr, alloc);
-    doc.AddMember("total", total, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& f : fields) {
+        arr.PushBack(fieldToJson(f, alloc), alloc);
+      }
+      return arr;
+    });
   }
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
@@ -167,13 +155,8 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Field not found", 404);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 200, alloc);
-    doc.AddMember("data", fieldToJson(*field, alloc), alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) { return fieldToJson(*field, alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
@@ -204,15 +187,13 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create field", 500);
     }
 
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status", "success", alloc);
-    doc.AddMember("statusCode", 201, alloc);
-    rapidjson::Value dataObj(rapidjson::kObjectType);
-    dataObj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-    doc.AddMember("data", dataObj, alloc);
-    return doc;
+    return rdws::utils::ResponseHelper::returnDataDoc(
+        [&](auto& alloc) {
+          rapidjson::Value obj(rapidjson::kObjectType);
+          obj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
+          return obj;
+        },
+        201);
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
@@ -228,14 +209,8 @@ private:
     }
 
     const bool ok = svc.update(id, {name});
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 200 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update field", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -246,14 +221,8 @@ private:
     }
 
     const bool ok = svc.remove(id);
-    rapidjson::Document doc;
-    doc.SetObject();
-    auto& alloc = doc.GetAllocator();
-    doc.AddMember("status",
-                  ok ? rapidjson::Value("success", alloc) : rapidjson::Value("error", alloc),
-                  alloc);
-    doc.AddMember("statusCode", ok ? 204 : 500, alloc);
-    return doc;
+    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
+              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete field", 500);
   }
 };
 

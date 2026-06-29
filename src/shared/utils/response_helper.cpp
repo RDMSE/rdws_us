@@ -21,6 +21,44 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   return documentToString(doc);
 }
 
+::rapidjson::Document ResponseHelper::returnSuccessDoc(int statusCode,
+                                                       const std::string& message) {
+  ::rapidjson::Document doc;
+  doc.SetObject();
+  auto& allocator = doc.GetAllocator();
+
+  doc.AddMember("success", ::rapidjson::Value(true), allocator);
+  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
+
+  if (!message.empty()) {
+    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+  }
+
+  addMetadata(doc, allocator);
+  return doc;
+}
+
+::rapidjson::Document ResponseHelper::returnDataDoc(const ::rapidjson::Value& data, int statusCode,
+                                                    const std::string& message) {
+  ::rapidjson::Document doc;
+  doc.SetObject();
+  auto& allocator = doc.GetAllocator();
+
+  doc.AddMember("success", ::rapidjson::Value(true), allocator);
+  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
+
+  if (!message.empty()) {
+    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+  }
+
+  ::rapidjson::Value dataCopy;
+  dataCopy.CopyFrom(data, allocator);
+  doc.AddMember("data", dataCopy, allocator);
+
+  addMetadata(doc, allocator);
+  return doc;
+}
+
 ::rapidjson::Document ResponseHelper::returnErrorDoc(const std::string& message, int statusCode,
                                                      const ::rapidjson::Value* details) {
   ::rapidjson::Document doc;
@@ -77,11 +115,15 @@ void ResponseHelper::addMetadata(::rapidjson::Document& doc,
   doc.AddMember("timestamp", ts, allocator);
 }
 
-std::string ResponseHelper::documentToString(const ::rapidjson::Document& doc) {
+std::string ResponseHelper::toString(const ::rapidjson::Value& value) {
   ::rapidjson::StringBuffer buffer;
   ::rapidjson::Writer<::rapidjson::StringBuffer> writer(buffer);
-  doc.Accept(writer);
+  value.Accept(writer);
   return buffer.GetString();
+}
+
+std::string ResponseHelper::documentToString(const ::rapidjson::Document& doc) {
+  return toString(doc);
 }
 
 } // namespace rdws::utils
