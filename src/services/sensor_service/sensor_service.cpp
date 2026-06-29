@@ -9,6 +9,7 @@
 #include "../../shared/service/SensorService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -109,24 +110,18 @@ private:
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
-    try {
-      if (cap == "sensor.list") {
-        return handleList(request, svc_);
-      }
-      if (cap == "sensor.get") {
-        return handleGet(request, svc_);
-      }
-      if (cap == "sensor.create") {
-        return handleCreate(request, svc_);
-      }
-      if (cap == "sensor.update") {
-        return handleUpdate(request, svc_);
-      }
-      if (cap == "sensor.delete") {
-        return handleDelete(request, svc_);
-      }
+    static const std::unordered_map<std::string,
+                                     rdws::utils::CapabilityHandler<rdws::sensor::SensorService>>
+        handlers = {
+            {"sensor.list", handleList},
+            {"sensor.get", handleGet},
+            {"sensor.create", handleCreate},
+            {"sensor.update", handleUpdate},
+            {"sensor.delete", handleDelete},
+        };
 
-      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+    try {
+      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
