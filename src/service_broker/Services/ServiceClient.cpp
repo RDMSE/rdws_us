@@ -1,5 +1,7 @@
 #include "ServiceClient.h"
 
+#include "../../shared/utils/json_helper.h"
+
 #include <arpa/inet.h>
 #include <iostream>
 #include <netinet/in.h>
@@ -298,26 +300,27 @@ void ServiceClient::handleMessage(const std::string& message) {
       return;
     }
 
-    if (!jsonMessage.HasMember("type") || !jsonMessage["type"].IsString()) {
+    const auto& messageType = rdws::utils::getString(jsonMessage, "type");
+
+    if (!messageType.has_value()) {
       std::cout << "Unknown message without type from broker" << '\n';
       return;
     }
 
-    if (const std::string messageType = jsonMessage["type"].GetString();
-        messageType == "ACKNOWLEDGED") {
+    if (messageType.value() == "ACKNOWLEDGED") {
       registered.store(true);
-      if (jsonMessage.HasMember("serviceId") && jsonMessage["serviceId"].IsString()) {
-        std::cout << "Service registered successfully: " << jsonMessage["serviceId"].GetString()
-                  << '\n';
+      const auto& serviceId = rdws::utils::getString(jsonMessage, "serviceId");
+      if (serviceId.has_value()) {
+        std::cout << "Service registered successfully: " << serviceId.value() << '\n';
       } else {
         std::cout << "Service registered successfully" << '\n';
       }
-    } else if (messageType == "REQUEST") {
+    } else if (messageType.value() == "REQUEST") {
       handleRequest(jsonMessage);
-    } else if (messageType == "PONG") {
+    } else if (messageType.value() == "PONG") {
       handlePong(jsonMessage);
     } else {
-      std::cout << "Unknown message type from broker: " << messageType << '\n';
+      std::cout << "Unknown message type from broker: " << messageType.value() << '\n';
     }
 
   } catch (const std::exception& e) {
@@ -331,39 +334,38 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
     return;
   }
 
-  if (!message.HasMember("requestId") || !message["requestId"].IsString() ||
-      !message.HasMember("data")) {
+  const auto& requestId = rdws::utils::getString(message, "requestId");
+
+  if (!requestId.has_value() || !message.HasMember("data")) {
     std::cerr << "Invalid REQUEST message from broker" << '\n';
     return;
   }
 
-  const std::string requestId = message["requestId"].GetString();
-
   rapidjson::Document requestData;
   requestData.CopyFrom(message["data"], requestData.GetAllocator());
 
-  std::cout << "Processing request " << requestId << '\n';
+  std::cout << "Processing request " << requestId.value() << '\n';
 
   try {
     // Process request
     rapidjson::Document response = requestHandler(requestData);
 
     // Send response back to broker
-    (void)sendResponse(requestId, response);
+    (void)sendResponse(requestId.value(), response);
 
     // Update stats
     identity.totalRequests++;
     identity.currentLoad = std::max(0, static_cast<int>(identity.currentLoad) - 1);
 
   } catch (const std::exception& e) {
-    std::cerr << "Error processing request " << requestId << ": " << e.what() << '\n';
+    std::cerr << "Error processing request " << requestId.value() << ": " << e.what() << '\n';
 
     // Send error response
     rapidjson::Document errorResponse;
     errorResponse.SetObject();
     errorResponse.AddMember("error", rapidjson::Value(e.what(), errorResponse.GetAllocator()),
                             errorResponse.GetAllocator());
-    (void)sendResponse(requestId, errorResponse);
+    (void)sendResponse(requestId.value(), errorResponse);
 
     // Update error count
     identity.errorCount++;

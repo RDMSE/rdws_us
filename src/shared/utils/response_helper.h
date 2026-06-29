@@ -14,6 +14,9 @@ public:
   static std::string returnError(const std::string& message, int statusCode = 500,
                                  const ::rapidjson::Value* details = nullptr);
 
+  static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode = 500,
+                                              const ::rapidjson::Value* details = nullptr);
+
   static std::string returnData(const ::rapidjson::Value& data, const std::string& message = "",
                                 int statusCode = 200);
 

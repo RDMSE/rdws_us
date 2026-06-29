@@ -6,6 +6,10 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/FarmRepository.h"
 #include "../../shared/service/FarmService.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/response_helper.h"
+
 
 #include <atomic>
 #include <csignal>
@@ -21,26 +25,6 @@ using namespace rdws::database;
 using namespace rdws::farm;
 
 namespace {
-
-rapidjson::Document makeError(const std::string& msg, int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
-
-std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-    const auto& pp = req["pathParameters"];
-    if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-      return pp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
 
 rapidjson::Value farmToJson(const Farm& f, rapidjson::Document::AllocatorType& alloc) {
   rapidjson::Value obj(rapidjson::kObjectType);
@@ -118,9 +102,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const auto& cap = rdws::utils::getString(request, "capability").value_or(std::string{});
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     try {
@@ -140,10 +122,10 @@ private:
         return handleDelete(request, svc_);
       }
 
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
@@ -168,14 +150,14 @@ private:
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::farm::FarmService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto farm = svc.findById(id);
     if (!farm) {
-      return makeError("Farm not found", 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Farm not found", 404);
     }
 
     rapidjson::Document doc;
@@ -189,24 +171,27 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::farm::FarmService& svc) {
-    if (!req.HasMember("name") || !req["name"].IsString() || req["name"].GetStringLength() == 0) {
-      return makeError("Missing field: name");
+    const auto& name = rdws::utils::getString(req, "name").value_or(std::string{});
+
+    if (name.empty()) {
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FarmCreate data;
-    data.name = req["name"].GetString();
-    if (req.HasMember("location") && req["location"].IsObject()) {
-      const auto& loc = req["location"];
-      if (loc.HasMember("lat") && loc.HasMember("lng")) {
-        const double lat = loc["lat"].GetDouble();
-        const double lng = loc["lng"].GetDouble();
-        data.locationWkt = "POINT(" + std::to_string(lng) + " " + std::to_string(lat) + ")";
+    data.name = name;
+    if (const auto location = rdws::utils::getObject(req, "location"); location != nullptr) {
+      const auto& loc = *location;
+      const auto lat = rdws::utils::getDouble(loc, "lat");
+      const auto lng = rdws::utils::getDouble(loc, "lng");
+      if (lat.has_value() && lng.has_value()) {
+        data.locationWkt =
+            "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";
       }
     }
 
     const std::string id = svc.create(data);
     if (id.empty()) {
-      return makeError("Failed to create farm", 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create farm", 500);
     }
 
     rapidjson::Document doc;
@@ -222,22 +207,25 @@ private:
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::farm::FarmService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
-    if (!req.HasMember("name") || !req["name"].IsString() || req["name"].GetStringLength() == 0) {
-      return makeError("Missing field: name");
+
+    const auto& name = rdws::utils::getString(req, "name").value_or(std::string{});
+    if (name.empty()) {
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FarmUpdate data;
-    data.name = req["name"].GetString();
-    if (req.HasMember("location") && req["location"].IsObject()) {
-      const auto& loc = req["location"];
-      if (loc.HasMember("lat") && loc.HasMember("lng")) {
-        const double lat = loc["lat"].GetDouble();
-        const double lng = loc["lng"].GetDouble();
-        data.locationWkt = "POINT(" + std::to_string(lng) + " " + std::to_string(lat) + ")";
+    data.name = name;
+    if (const auto location = rdws::utils::getObject(req, "location"); location != nullptr) {
+      const auto& loc = *location;
+      const auto lat = rdws::utils::getDouble(loc, "lat");
+      const auto lng = rdws::utils::getDouble(loc, "lng");
+      if (lat.has_value() && lng.has_value()) {
+        data.locationWkt =
+            "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";
       }
     }
 
@@ -254,9 +242,9 @@ private:
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::farm::FarmService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);

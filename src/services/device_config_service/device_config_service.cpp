@@ -8,6 +8,9 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceConfigRepository.h"
 #include "../../shared/service/DeviceConfigService.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <csignal>
@@ -23,29 +26,7 @@ using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device_config;
 
-namespace {
-
-rapidjson::Document makeError(const std::string& msg, const int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
-
-std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-    const auto& pp = req["pathParameters"];
-    if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-      return pp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-} // namespace
+namespace {} // namespace
 
 class AppDeviceConfigService {
 private:
@@ -108,9 +89,8 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+
+    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     try {
@@ -126,24 +106,25 @@ private:
       if (cap == "device_config.delete") {
         return handleDelete(request, svc_);
       }
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
+                                                         500);
     }
   }
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::device_config::DeviceConfigService& svc) {
     // {id} = device_id
-    const std::string deviceId = getPathParam(req, "id");
+    const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto cfg = svc.findByDeviceId(deviceId);
     if (!cfg) {
-      return makeError("Configuration not found", 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Configuration not found", 404);
     }
 
     rapidjson::Document doc;
@@ -177,9 +158,9 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::device_config::DeviceConfigService& svc) {
-    const std::string deviceId = getPathParam(req, "id");
+    const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     // Serialize the 'config' body field back to JSON string for JSONB
@@ -191,12 +172,12 @@ private:
       configJson = buf.GetString();
     }
     if (configJson.empty()) {
-      return makeError("Missing field: config");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: config");
     }
 
     const std::string id = svc.create({deviceId, configJson});
     if (id.empty()) {
-      return makeError("Failed to create configuration", 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
     }
 
     rapidjson::Document doc;
@@ -212,9 +193,9 @@ private:
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::device_config::DeviceConfigService& svc) {
-    const std::string deviceId = getPathParam(req, "id");
+    const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     std::string configJson;
@@ -225,7 +206,7 @@ private:
       configJson = buf.GetString();
     }
     if (configJson.empty()) {
-      return makeError("Missing field: config");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: config");
     }
 
     const bool ok = svc.update(deviceId, {configJson});
@@ -241,9 +222,9 @@ private:
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::device_config::DeviceConfigService& svc) {
-    const std::string deviceId = getPathParam(req, "id");
+    const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(deviceId);

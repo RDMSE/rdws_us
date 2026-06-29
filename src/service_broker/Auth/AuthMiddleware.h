@@ -94,6 +94,7 @@ public:
   [[nodiscard]] bool isEnabled() const {
     return config_.mode != AuthMode::NONE;
   }
+
   [[nodiscard]] const AuthConfig& config() const {
     return config_;
   }

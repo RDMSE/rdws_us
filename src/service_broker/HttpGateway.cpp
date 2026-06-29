@@ -3,6 +3,7 @@
 #include "../shared/types/lambda_context.h"
 #include "../shared/types/lambda_event.h"
 #include "../shared/types/service_result.h"
+#include "../shared/utils/json_helper.h"
 #include "../shared/utils/logger.h"
 #include "../shared/utils/response_helper.h"
 #include "Config/GatewayConfig.h"
@@ -330,15 +331,12 @@ void HttpGateway::registerRoutes() {
 
     // Read existing config for this capability and apply partial updates.
     CapabilityConfig cfg = gateway_.getConfig().forCapability(cap);
-    if (body.HasMember("timeoutMs") && body["timeoutMs"].IsInt()) {
-      cfg.timeoutMs = std::chrono::milliseconds(body["timeoutMs"].GetInt());
+    cfg.timeoutMs = std::chrono::milliseconds{rdws::utils::getInt(body, "timeoutMs").value_or(0)};
+    if (auto lb = rdws::utils::getString(body, "loadBalancing"); lb != std::nullopt) {
+      cfg.loadBalancing = GatewayConfig::lbStrategyFromString(*lb);
     }
-    if (body.HasMember("loadBalancing") && body["loadBalancing"].IsString()) {
-      cfg.loadBalancing = GatewayConfig::lbStrategyFromString(body["loadBalancing"].GetString());
-    }
-    if (body.HasMember("maxConcurrentRequests") && body["maxConcurrentRequests"].IsInt()) {
-      cfg.maxConcurrentRequests = body["maxConcurrentRequests"].GetInt();
-    }
+    cfg.maxConcurrentRequests =
+        rdws::utils::getInt(body, "maxConcurrentRequests").value_or(cfg.maxConcurrentRequests);
 
     gateway_.getConfig().setCapabilityConfig(cap, cfg);
 
@@ -437,8 +435,7 @@ void HttpGateway::registerRoutes() {
 
     // Merge extracted path params into pathParameters
     if (!match->pathParams.empty()) {
-      if (!eventDocument.HasMember("pathParameters") ||
-          !eventDocument["pathParameters"].IsObject()) {
+      if (rdws::utils::getObject(eventDocument, "pathParameters") == nullptr) {
         eventDocument.AddMember("pathParameters", rapidjson::Value(rapidjson::kObjectType), alloc);
       }
       auto& pp = eventDocument["pathParameters"];

@@ -6,6 +6,9 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/FieldRepository.h"
 #include "../../shared/service/FieldService.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <csignal>
@@ -20,36 +23,6 @@ using namespace rdws::database;
 using namespace rdws::field;
 
 namespace {
-
-rapidjson::Document makeError(const std::string& msg, int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
-
-std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-    if (const auto& pp = req["pathParameters"];
-        pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-      return pp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-std::string getQueryParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
-    if (const auto& qp = req["queryStringParameters"];
-        qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
-      return qp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
 
 rapidjson::Value fieldToJson(const Field& f, rapidjson::Document::AllocatorType& alloc) {
   rapidjson::Value obj(rapidjson::kObjectType);
@@ -134,9 +107,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const std::string cap = rdws::utils::getString(request, "capability").value_or(std::string{});
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     try {
@@ -156,16 +127,17 @@ private:
         return handleDelete(request, svc_);
       }
 
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
+                                                         500);
     }
   }
 
   static rapidjson::Document handleList(const rapidjson::Document& req,
                                         rdws::field::FieldService& svc) {
-    const std::string farmId = getQueryParam(req, "farm_id");
+    const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
     const auto fields = svc.findAll(farmId);
 
     rapidjson::Document doc;
@@ -185,14 +157,14 @@ private:
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::field::FieldService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto field = svc.findById(id);
     if (!field) {
-      return makeError("Field not found", 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Field not found", 404);
     }
 
     rapidjson::Document doc;
@@ -206,20 +178,14 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::field::FieldService& svc) {
-    std::string farmId;
-    std::string name;
-    if (req.HasMember("farm_id") && req["farm_id"].IsString()) {
-      farmId = req["farm_id"].GetString();
-    }
-    if (req.HasMember("name") && req["name"].IsString()) {
-      name = req["name"].GetString();
-    }
+    std::string farmId = rdws::utils::getString(req, "farm_id").value_or(std::string{});
+    std::string name = rdws::utils::getString(req, "name").value_or(std::string{});
 
     if (farmId.empty()) {
-      return makeError("Missing field: farm_id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: farm_id");
     }
     if (name.empty()) {
-      return makeError("Missing field: name");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FieldCreate data;
@@ -235,7 +201,7 @@ private:
 
     const std::string id = svc.create(data);
     if (id.empty()) {
-      return makeError("Failed to create field", 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create field", 500);
     }
 
     rapidjson::Document doc;
@@ -251,17 +217,14 @@ private:
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::field::FieldService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    std::string name;
-    if (req.HasMember("name") && req["name"].IsString()) {
-      name = req["name"].GetString();
-    }
+    std::string name = rdws::utils::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
-      return makeError("Missing field: name");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     const bool ok = svc.update(id, {name});
@@ -277,9 +240,9 @@ private:
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::field::FieldService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);

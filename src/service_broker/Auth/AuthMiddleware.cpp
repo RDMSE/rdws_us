@@ -1,5 +1,7 @@
 #include "AuthMiddleware.h"
 
+#include "../../shared/utils/json_helper.h"
+
 #include <algorithm>
 #include <chrono>
 #include <openssl/evp.h>
@@ -122,8 +124,9 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
     if (hdr.HasParseError() || !hdr.IsObject()) {
       return {.authorized = false, .statusCode = 401, .message = "Malformed JWT header"};
     }
-    if (!hdr.HasMember("alg") || !hdr["alg"].IsString() ||
-        std::string(hdr["alg"].GetString()) != "HS256") {
+
+    const auto& alg = rdws::utils::getString(hdr, "alg");
+    if (alg.has_value() && alg.value() != "HS256") {
       return {.authorized = false,
               .statusCode = 401,
               .message = "Unsupported JWT algorithm (only HS256 accepted)"};
@@ -180,8 +183,8 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
 
   // ── Validate issuer ───────────────────────────────────────────────────
   if (!config_.jwtIssuer.empty()) {
-    if (!doc.HasMember("iss") || !doc["iss"].IsString() ||
-        doc["iss"].GetString() != config_.jwtIssuer) {
+    const auto& iss = rdws::utils::getString(doc, "iss");
+    if (!iss.has_value() || iss.value() != config_.jwtIssuer) {
       return {.authorized = false, .statusCode = 401, .message = "JWT issuer mismatch"};
     }
   }
@@ -209,12 +212,8 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
 
   // ── Build identity ────────────────────────────────────────────────────
   AuthIdentity id;
-  if (doc.HasMember("sub") && doc["sub"].IsString()) {
-    id.subject = doc["sub"].GetString();
-  }
-  if (doc.HasMember("iss") && doc["iss"].IsString()) {
-    id.issuer = doc["iss"].GetString();
-  }
+  id.subject = rdws::utils::getString(doc, "sub").value_or(std::string{});
+  id.issuer = rdws::utils::getString(doc, "iss").value_or(std::string{});
 
   // Collect all string-valued claims as identity metadata.
   for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {

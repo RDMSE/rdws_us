@@ -1,5 +1,6 @@
 #include "Services/ServiceClient.h"
 #include "Services/ServiceGateway.h"
+#include "../../shared/utils/json_helper.h"
 
 #include <atomic>
 #include <chrono>
@@ -132,8 +133,7 @@ TEST_F(GatewayIntegrationTest, EchoRequest_ServiceResponds_Success) {
     rapidjson::Document resp;
     resp.SetObject();
     auto& alloc = resp.GetAllocator();
-    const std::string msg =
-        (req.HasMember("message") && req["message"].IsString()) ? req["message"].GetString() : "";
+    const std::string msg = rdws::utils::getString(req, "message").value_or("");
     const std::string result = "echo: " + msg;
     resp.AddMember("result", rapidjson::Value(result.c_str(), alloc), alloc);
     resp.AddMember("status", "success", alloc);

@@ -7,16 +7,16 @@ static constexpr auto kSelectCols =
     "created_at, updated_at, updated_by FROM fields";
 
 Field FieldRepository::fieldFromRow(rdws::database::IResultSet& rs) {
-  Field f;
-  f.id = rs.getString("id");
-  f.farmId = rs.getString("farm_id");
-  f.name = rs.getString("name");
-  f.area = rs.isNull("area") ? "" : rs.getString("area");
-  f.geometry = rs.isNull("geometry") ? "" : rs.getString("geometry");
-  f.createdAt = rs.getString("created_at");
-  f.updatedAt = rs.isNull("updated_at") ? "" : rs.getString("updated_at");
-  f.updatedBy = rs.isNull("updated_by") ? "" : rs.getString("updated_by");
-  return f;
+  return {
+    .id = rs.getString("id"),
+    .farmId = rs.getString("farm_id"),
+    .name = rs.getString("name"),
+    .area = rs.isNull("area") ? "" : rs.getString("area"),
+    .geometry = rs.isNull("geometry") ? "" : rs.getString("geometry"),
+    .createdAt = rs.getString("created_at"),
+    .updatedAt = rs.isNull("updated_at") ? "" : rs.getString("updated_at"),
+    .updatedBy = rs.isNull("updated_by") ? "" : rs.getString("updated_by")
+  };
 }
 
 std::vector<Field> FieldRepository::findAll(const std::string& farmId) {

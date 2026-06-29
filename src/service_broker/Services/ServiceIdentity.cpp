@@ -1,5 +1,7 @@
 #include "ServiceIdentity.h"
 
+#include "../../shared/utils/json_helper.h"
+
 #include <algorithm>
 
 namespace servicegateway {
@@ -49,39 +51,19 @@ rapidjson::Value ServiceIdentity::toJsonValue(rapidjson::Document::AllocatorType
 ServiceIdentity ServiceIdentity::fromJson(const rapidjson::Value& json) {
   ServiceIdentity identity;
 
-  if (json.HasMember("machineName") && json["machineName"].IsString()) {
-    identity.machineName = json["machineName"].GetString();
-  }
-  if (json.HasMember("serviceName") && json["serviceName"].IsString()) {
-    identity.serviceName = json["serviceName"].GetString();
-  }
-  if (json.HasMember("serviceId") && json["serviceId"].IsString()) {
-    identity.serviceId = json["serviceId"].GetString();
-  }
-  if (json.HasMember("version") && json["version"].IsString()) {
-    identity.version = json["version"].GetString();
-  }
-  identity.environment = (json.HasMember("environment") && json["environment"].IsString())
-                             ? json["environment"].GetString()
-                             : "dev";
-  identity.maxConcurrent = (json.HasMember("maxConcurrent") && json["maxConcurrent"].IsUint())
-                               ? json["maxConcurrent"].GetUint()
-                               : 10;
-  identity.connectionType = (json.HasMember("connectionType") && json["connectionType"].IsString())
-                                ? json["connectionType"].GetString()
-                                : "";
-  identity.clientAddress = (json.HasMember("clientAddress") && json["clientAddress"].IsString())
-                               ? json["clientAddress"].GetString()
-                               : "";
-  identity.currentLoad = (json.HasMember("currentLoad") && json["currentLoad"].IsUint())
-                             ? json["currentLoad"].GetUint()
-                             : 0;
-  identity.totalRequests = (json.HasMember("totalRequests") && json["totalRequests"].IsUint())
-                               ? json["totalRequests"].GetUint()
-                               : 0;
-  identity.errorCount = (json.HasMember("errorCount") && json["errorCount"].IsUint())
-                            ? json["errorCount"].GetUint()
-                            : 0;
+  identity.machineName = rdws::utils::getString(json, "machineName").value_or("");
+  identity.serviceName = rdws::utils::getString(json, "serviceName").value_or("");
+  identity.serviceId = rdws::utils::getString(json, "serviceId").value_or("");
+  identity.version = rdws::utils::getString(json, "version").value_or("");
+  identity.environment = rdws::utils::getString(json, "environment").value_or("dev");
+  identity.maxConcurrent = rdws::utils::getInt(json, "maxConcurrent").value_or(10);
+  identity.connectionType = rdws::utils::getString(json, "connectionType").value_or("");
+  identity.clientAddress = rdws::utils::getString(json, "clientAddress").value_or("");
+  identity.currentLoad = rdws::utils::getInt(json, "currentLoad").value_or(0);
+  identity.totalRequests = rdws::utils::getInt(json, "totalRequests").value_or(0);
+  identity.errorCount = rdws::utils::getInt(json, "errorCount").value_or(0);
+  identity.avgResponseTime =
+      std::chrono::milliseconds(rdws::utils::getInt(json, "avgResponseTimeMs").value_or(0));
 
   // Read capabilities
   if (json.HasMember("capabilities") && json["capabilities"].IsArray()) {
@@ -91,13 +73,6 @@ ServiceIdentity ServiceIdentity::fromJson(const rapidjson::Value& json) {
       }
     }
   }
-
-  // Average response time
-  const int responseTimeMs =
-      (json.HasMember("avgResponseTimeMs") && json["avgResponseTimeMs"].IsInt())
-          ? json["avgResponseTimeMs"].GetInt()
-          : 0;
-  identity.avgResponseTime = std::chrono::milliseconds(responseTimeMs);
 
   return identity;
 }

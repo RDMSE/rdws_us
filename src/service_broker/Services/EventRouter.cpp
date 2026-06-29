@@ -12,6 +12,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/writer.h>
 #include <sstream>
+#include "../../shared/utils/json_helper.h"
 
 namespace servicegateway {
 
@@ -290,50 +291,28 @@ rapidjson::Document EventRouter::ruleToJson(const RoutingRule& rule) {
 
 RoutingRule EventRouter::ruleFromJson(const rapidjson::Value& obj) {
   RoutingRule rule;
+  const auto& condition = rdws::utils::getObject(obj, "condition");
 
-  auto str = [&](const char* key, const std::string& def = "") -> std::string {
-    if (obj.HasMember(key) && obj[key].IsString()) {
-      return obj[key].GetString();
-    }
-    return def;
-  };
+  rule.id = rdws::utils::getString(obj, "id").value_or(std::string{});
+  rule.name = rdws::utils::getString(obj, "name").value_or(std::string{});
+  rule.inputCapability = rdws::utils::getString(obj, "inputCapability").value_or(std::string{});
+  rule.outputCapability = rdws::utils::getString(obj, "outputCapability").value_or(std::string{});
+  rule.priority = rdws::utils::getInt(obj, "priority").value_or(0);
+  rule.enabled = rdws::utils::getBool(obj, "enabled").value_or(true);
+  rule.createdAt = rdws::utils::getString(obj, "createdAt").value_or(std::string{});
+  rule.updatedAt = rdws::utils::getString(obj, "updatedAt").value_or(std::string{});
 
-  rule.id = str("id");
-  rule.name = str("name");
-  rule.inputCapability = str("inputCapability");
-  rule.outputCapability = str("outputCapability");
-  rule.priority =
-      (obj.HasMember("priority") && obj["priority"].IsInt()) ? obj["priority"].GetInt() : 0;
-  rule.enabled =
-      (!obj.HasMember("enabled") || !obj["enabled"].IsBool()) ? true : obj["enabled"].GetBool();
-  rule.createdAt = str("createdAt");
-  rule.updatedAt = str("updatedAt");
-
-  if (obj.HasMember("condition") && obj["condition"].IsObject()) {
-    const auto& c = obj["condition"];
-    RouteCondition cond;
-    if (c.HasMember("field") && c["field"].IsString()) {
-      cond.field = c["field"].GetString();
-    }
-    if (c.HasMember("op") && c["op"].IsString()) {
-      cond.op = c["op"].GetString();
-    }
-    if (c.HasMember("value") && c["value"].IsString()) {
-      cond.value = c["value"].GetString();
-    }
-    rule.condition = cond;
+  if (condition != nullptr) {
+    rule.condition = {
+    .field = rdws::utils::getString(*condition, "field").value_or(std::string{}),
+    .op = rdws::utils::getString(*condition, "op").value_or(std::string{}),
+    .value = rdws::utils::getString(*condition, "value").value_or(std::string{}),
+    };
   }
 
-  if (obj.HasMember("fallbackCapability") && obj["fallbackCapability"].IsString()) {
-    rule.fallbackCapability = obj["fallbackCapability"].GetString();
-  }
-
-  if (obj.HasMember("httpMethod") && obj["httpMethod"].IsString()) {
-    rule.httpMethod = obj["httpMethod"].GetString();
-  }
-  if (obj.HasMember("httpPath") && obj["httpPath"].IsString()) {
-    rule.httpPath = obj["httpPath"].GetString();
-  }
+  rule.fallbackCapability = rdws::utils::getString(obj, "fallbackCapability");
+  rule.httpMethod = rdws::utils::getString(obj, "httpMethod");
+  rule.httpPath = rdws::utils::getString(obj, "httpPath");
 
   return rule;
 }

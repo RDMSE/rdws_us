@@ -1,5 +1,7 @@
 #include "lambda_event.h"
 
+#include "../../shared/utils/json_helper.h"
+
 #include <algorithm>
 #include <chrono>
 #include <random>
@@ -64,23 +66,11 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
     throw std::runtime_error("Invalid JSON in LambdaEvent constructor");
   }
 
-  if (doc.HasMember("httpMethod") && doc["httpMethod"].IsString()) {
-    httpRequest_.method = doc["httpMethod"].GetString();
-  }
-  if (doc.HasMember("path") && doc["path"].IsString()) {
-    httpRequest_.path = doc["path"].GetString();
-  }
-  if (doc.HasMember("resource") && doc["resource"].IsString()) {
-    httpRequest_.resource = doc["resource"].GetString();
-  } else {
-    httpRequest_.resource = httpRequest_.path;
-  }
-  if (doc.HasMember("body") && doc["body"].IsString()) {
-    httpRequest_.body = doc["body"].GetString();
-  }
-  if (doc.HasMember("isBase64Encoded") && doc["isBase64Encoded"].IsBool()) {
-    httpRequest_.isBase64Encoded = doc["isBase64Encoded"].GetBool();
-  }
+  httpRequest_.method = rdws::utils::getString(doc, "httpMethod").value_or("");
+  httpRequest_.path = rdws::utils::getString(doc, "path").value_or("");
+  httpRequest_.resource = rdws::utils::getString(doc, "resource").value_or(httpRequest_.path);
+  httpRequest_.body = rdws::utils::getString(doc, "body").value_or("");
+  httpRequest_.isBase64Encoded = rdws::utils::getBool(doc, "isBase64Encoded").value_or(false);
 
   if (doc.HasMember("headers") && doc["headers"].IsObject()) {
     for (auto it = doc["headers"].MemberBegin(); it != doc["headers"].MemberEnd(); ++it) {
@@ -108,32 +98,26 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
     }
   }
 
-  if (doc.HasMember("requestContext") && doc["requestContext"].IsObject()) {
-    const auto& ctx = doc["requestContext"];
-    if (ctx.HasMember("requestId") && ctx["requestId"].IsString()) {
-      requestContext_.requestId = ctx["requestId"].GetString();
-    }
-    if (ctx.HasMember("stage") && ctx["stage"].IsString()) {
-      requestContext_.stage = ctx["stage"].GetString();
-    }
-    if (ctx.HasMember("httpMethod") && ctx["httpMethod"].IsString()) {
-      requestContext_.httpMethod = ctx["httpMethod"].GetString();
-    }
-    if (ctx.HasMember("resourcePath") && ctx["resourcePath"].IsString()) {
-      requestContext_.resourcePath = ctx["resourcePath"].GetString();
-    }
-    if (ctx.HasMember("protocol") && ctx["protocol"].IsString()) {
-      requestContext_.protocol = ctx["protocol"].GetString();
-    }
-    if (ctx.HasMember("sourceIp") && ctx["sourceIp"].IsString()) {
-      requestContext_.sourceIp = ctx["sourceIp"].GetString();
-    }
-    if (ctx.HasMember("userAgent") && ctx["userAgent"].IsString()) {
-      requestContext_.userAgent = ctx["userAgent"].GetString();
-    }
-    if (ctx.HasMember("requestTimeEpoch") && ctx["requestTimeEpoch"].IsInt64()) {
-      requestContext_.requestTimeEpoch = ctx["requestTimeEpoch"].GetInt64();
-    }
+  const auto requestContext = rdws::utils::getObject(doc, "requestContext");
+  if (requestContext != nullptr) {
+    requestContext_.requestId =
+        rdws::utils::getString(*requestContext, "requestId").value_or(generateRequestId());
+    requestContext_.stage = rdws::utils::getString(*requestContext, "stage").value_or("prod");
+    requestContext_.httpMethod =
+        rdws::utils::getString(*requestContext, "httpMethod").value_or(httpRequest_.method);
+    requestContext_.resourcePath =
+        rdws::utils::getString(*requestContext, "resourcePath").value_or(httpRequest_.resource);
+    requestContext_.protocol =
+        rdws::utils::getString(*requestContext, "protocol").value_or("HTTP/1.1");
+    requestContext_.sourceIp =
+        rdws::utils::getString(*requestContext, "sourceIp").value_or("127.0.0.1");
+    requestContext_.userAgent =
+        rdws::utils::getString(*requestContext, "userAgent").value_or("rdws-gateway/1.0");
+    requestContext_.requestTimeEpoch =
+        rdws::utils::getInt64(*requestContext, "requestTimeEpoch")
+            .value_or(std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count());
   }
 
   if (doc.HasMember("stageVariables") && doc["stageVariables"].IsObject()) {

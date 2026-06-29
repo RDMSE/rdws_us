@@ -7,6 +7,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include "utils/json_helper.h"
 
 namespace servicegateway {
 
@@ -191,17 +192,15 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
     if (obj.HasMember("loadBalancing") && obj["loadBalancing"].IsString()) {
       cfg.loadBalancing = GatewayConfig::lbStrategyFromString(obj["loadBalancing"].GetString());
     }
-    if (obj.HasMember("maxConcurrentRequests") && obj["maxConcurrentRequests"].IsInt()) {
-      cfg.maxConcurrentRequests = obj["maxConcurrentRequests"].GetInt();
-    }
+    cfg.maxConcurrentRequests = rdws::utils::getInt(obj, "maxConcurrentRequests").value_or(0);
     return cfg;
   };
 
-  if (doc.HasMember("defaults") && doc["defaults"].IsObject()) {
+  if (rdws::utils::getObject(doc, "defaults") != nullptr) {
     defaults_ = parseCapCfg(doc["defaults"]);
   }
 
-  if (doc.HasMember("capabilities") && doc["capabilities"].IsObject()) {
+  if (rdws::utils::getObject(doc, "capabilities") != nullptr) {
     for (auto it = doc["capabilities"].MemberBegin(); it != doc["capabilities"].MemberEnd(); ++it) {
       if (it->value.IsObject()) {
         capabilities_[it->name.GetString()] = parseCapCfg(it->value);
@@ -209,7 +208,7 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
     }
   }
 
-  if (doc.HasMember("features") && doc["features"].IsObject()) {
+  if (rdws::utils::getObject(doc, "features") != nullptr) {
     for (auto it = doc["features"].MemberBegin(); it != doc["features"].MemberEnd(); ++it) {
       if (it->value.IsBool()) {
         features_[it->name.GetString()] = it->value.GetBool();

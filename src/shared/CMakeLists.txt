@@ -16,6 +16,21 @@ target_link_libraries(rdws_shared_validation PUBLIC
     rapidjson_wrapper
 )
 
+# --- Shared json utils library ---
+add_library(rdws_shared_json_utils
+    utils/json_helper.cpp
+    utils/json_helper.h
+)
+
+target_include_directories(rdws_shared_json_utils PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+)
+
+target_link_libraries(rdws_shared_json_utils PUBLIC
+    rapidjson_wrapper
+)
+
 # jsoncpp is provided via valijson_wrapper (bundled)
 
 

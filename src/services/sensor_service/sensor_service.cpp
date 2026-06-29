@@ -7,6 +7,9 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/SensorRepository.h"
 #include "../../shared/service/SensorService.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <csignal>
@@ -21,43 +24,6 @@ using namespace rdws::database;
 using namespace rdws::sensor;
 
 namespace {
-
-rapidjson::Document makeError(const std::string& msg, const int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
-
-std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-    const auto& pp = req["pathParameters"];
-    if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-      return pp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-std::string getQueryParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
-    const auto& qp = req["queryStringParameters"];
-    if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
-      return qp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-std::string getStr(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember(key.c_str()) && req[key.c_str()].IsString()) {
-    return req[key.c_str()].GetString();
-  }
-  return {};
-}
 
 rapidjson::Value sensorToJson(const Sensor& s, rapidjson::Document::AllocatorType& alloc) {
   rapidjson::Value obj(rapidjson::kObjectType);
@@ -140,9 +106,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     try {
@@ -162,16 +126,16 @@ private:
         return handleDelete(request, svc_);
       }
 
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
   static rapidjson::Document handleList(const rapidjson::Document& req,
                                         rdws::sensor::SensorService& svc) {
-    const std::string deviceId = getQueryParam(req, "device_id");
+    const std::string deviceId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
     const auto sensors = svc.findAll(deviceId);
 
     rapidjson::Document doc;
@@ -191,14 +155,14 @@ private:
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::sensor::SensorService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto sensor = svc.findById(id);
     if (!sensor) {
-      return makeError("Sensor not found", 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Sensor not found", 404);
     }
 
     rapidjson::Document doc;
@@ -212,23 +176,23 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
-    const std::string deviceId = getStr(req, "device_id");
-    const std::string type = getStr(req, "type");
-    const std::string unit = getStr(req, "unit");
+    const std::string deviceId = rdws::utils::getString(req, "device_id").value_or(std::string{});
+    const std::string type = rdws::utils::getString(req, "type").value_or(std::string{});
+    const std::string unit = rdws::utils::getString(req, "unit").value_or(std::string{});
 
     if (deviceId.empty()) {
-      return makeError("Missing field: device_id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: device_id");
     }
     if (type.empty()) {
-      return makeError("Missing field: type");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
     }
     if (unit.empty()) {
-      return makeError("Missing field: unit");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: unit");
     }
 
     const std::string id = svc.create({deviceId, type, unit});
     if (id.empty()) {
-      return makeError("Failed to create sensor", 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
     }
 
     rapidjson::Document doc;
@@ -244,18 +208,18 @@ private:
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
-    const std::string id = getPathParam(req, "id");
-    const std::string type = getStr(req, "type");
-    const std::string unit = getStr(req, "unit");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
+    const std::string type = rdws::utils::getString(req, "type").value_or(std::string{});
+    const std::string unit = rdws::utils::getString(req, "unit").value_or(std::string{});
 
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
     if (type.empty()) {
-      return makeError("Missing field: type");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
     }
     if (unit.empty()) {
-      return makeError("Missing field: unit");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: unit");
     }
 
     const bool ok = svc.update(id, {type, unit});
@@ -271,9 +235,9 @@ private:
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);

@@ -7,6 +7,9 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/SensorReadingRepository.h"
 #include "../../shared/service/SensorReadingService.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <csignal>
@@ -21,36 +24,6 @@ using namespace rdws::database;
 using namespace rdws::sensor_reading;
 
 namespace {
-
-rapidjson::Document makeError(const std::string& msg, int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
-
-std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-    const auto& pp = req["pathParameters"];
-    if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-      return pp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-std::string getQueryParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
-    const auto& qp = req["queryStringParameters"];
-    if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
-      return qp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
 
 rapidjson::Value readingToJson(const SensorReading& r, rapidjson::Document::AllocatorType& alloc) {
   rapidjson::Value obj(rapidjson::kObjectType);
@@ -124,9 +97,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const std::string cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     try {
@@ -137,23 +108,23 @@ private:
         return handleGet(request, svc_);
       }
 
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
   // GET /sensors/{id}/readings?from=...&to=...
   static rapidjson::Document handleList(const rapidjson::Document& req,
                                         rdws::sensor_reading::SensorReadingService& svc) {
-    const std::string sensorId = getPathParam(req, "id");
+    const std::string sensorId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (sensorId.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    const std::string from = getQueryParam(req, "from");
-    const std::string to = getQueryParam(req, "to");
+    const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
+    const std::string to = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "to");
 
     const auto readings = svc.findBySensorId(sensorId, from, to);
 
@@ -177,17 +148,17 @@ private:
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::sensor_reading::SensorReadingService& svc) {
     // 'rid' is the reading id; passed as a query or path param depending on routing
-    std::string rid = getPathParam(req, "rid");
+    std::string rid = rdws::utils::LambdaParamsHelper::getPathParam(req, "rid");
     if (rid.empty()) {
-      rid = getQueryParam(req, "rid");
+      rid = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "rid");
     }
     if (rid.empty()) {
-      return makeError("Missing reading id (rid)");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing reading id (rid)");
     }
 
     const auto reading = svc.findById(rid);
     if (!reading) {
-      return makeError("Reading not found", 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Reading not found", 404);
     }
 
     rapidjson::Document doc;

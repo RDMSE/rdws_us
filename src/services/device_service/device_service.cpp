@@ -7,6 +7,9 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceRepository.h"
 #include "../../shared/service/DeviceService.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/lambda_params_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <csignal>
@@ -21,43 +24,6 @@ using namespace rdws::database;
 using namespace rdws::device;
 
 namespace {
-
-rapidjson::Document makeError(const std::string& msg, int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
-
-std::string getPathParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("pathParameters") && req["pathParameters"].IsObject()) {
-    const auto& pp = req["pathParameters"];
-    if (pp.HasMember(key.c_str()) && pp[key.c_str()].IsString()) {
-      return pp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-std::string getQueryParam(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember("queryStringParameters") && req["queryStringParameters"].IsObject()) {
-    const auto& qp = req["queryStringParameters"];
-    if (qp.HasMember(key.c_str()) && qp[key.c_str()].IsString()) {
-      return qp[key.c_str()].GetString();
-    }
-  }
-  return {};
-}
-
-std::string getStr(const rapidjson::Document& req, const std::string& key) {
-  if (req.HasMember(key.c_str()) && req[key.c_str()].IsString()) {
-    return req[key.c_str()].GetString();
-  }
-  return {};
-}
 
 rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
   rapidjson::Value obj(rapidjson::kObjectType);
@@ -143,9 +109,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     try {
@@ -169,16 +133,18 @@ private:
         return handleDelete(request, svc_);
       }
 
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
+                                                         500);
     }
   }
 
   static rapidjson::Document handleList(const rapidjson::Document& req,
                                         rdws::device::DeviceService& svc) {
-    const std::string fieldId = getQueryParam(req, "field_id");
+    const std::string fieldId =
+        rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
     const auto devices = svc.findAll(fieldId);
 
     rapidjson::Document doc;
@@ -199,14 +165,14 @@ private:
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
                                        rdws::device::DeviceService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto device = svc.findById(id);
     if (!device) {
-      return makeError("Device not found", 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Device not found", 404);
     }
 
     rapidjson::Document doc;
@@ -220,20 +186,20 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
-    const std::string fieldId = getStr(req, "field_id");
-    const std::string type = getStr(req, "type");
-    const std::string status = getStr(req, "status");
+    const auto& fieldId = rdws::utils::getString(req, "field_id").value_or(std::string{});
+    const auto& type = rdws::utils::getString(req, "type").value_or(std::string{});
+    const auto& status = rdws::utils::getString(req, "status").value_or(std::string{});
 
     if (fieldId.empty()) {
-      return makeError("Missing field: field_id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: field_id");
     }
     if (type.empty()) {
-      return makeError("Missing field: type");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
     }
 
     const std::string id = svc.create({fieldId, type, status});
     if (id.empty()) {
-      return makeError("Failed to create device", 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create device", 500);
     }
 
     rapidjson::Document doc;
@@ -249,18 +215,18 @@ private:
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
-    const std::string id = getPathParam(req, "id");
-    const std::string type = getStr(req, "type");
-    const std::string status = getStr(req, "status");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
+    const std::string type = rdws::utils::getString(req, "type").value_or(std::string{});
+    const std::string status = rdws::utils::getString(req, "status").value_or(std::string{});
 
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
     if (type.empty()) {
-      return makeError("Missing field: type");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
     }
     if (status.empty()) {
-      return makeError("Missing field: status");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: status");
     }
 
     const bool ok = svc.update(id, {type, status});
@@ -276,9 +242,9 @@ private:
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
-    const std::string id = getPathParam(req, "id");
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return makeError("Missing path parameter: id");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);

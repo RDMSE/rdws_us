@@ -21,8 +21,8 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   return documentToString(doc);
 }
 
-std::string ResponseHelper::returnError(const std::string& message, int statusCode,
-                                        const ::rapidjson::Value* details) {
+::rapidjson::Document ResponseHelper::returnErrorDoc(const std::string& message, int statusCode,
+                                                     const ::rapidjson::Value* details) {
   ::rapidjson::Document doc;
   doc.SetObject();
   auto& allocator = doc.GetAllocator();
@@ -38,7 +38,12 @@ std::string ResponseHelper::returnError(const std::string& message, int statusCo
 
   addMetadata(doc, allocator);
 
-  return documentToString(doc);
+  return doc;
+}
+
+std::string ResponseHelper::returnError(const std::string& message, int statusCode,
+                                        const ::rapidjson::Value* details) {
+  return documentToString(returnErrorDoc(message, statusCode, details));
 }
 
 std::string ResponseHelper::returnData(const ::rapidjson::Value& data, const std::string& message,

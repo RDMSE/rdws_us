@@ -7,6 +7,8 @@
 
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <chrono>
@@ -28,15 +30,6 @@ using namespace rdws::database;
 
 namespace {
 
-rapidjson::Document makeError(const std::string& msg, const int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& a = doc.GetAllocator();
-  doc.AddMember("status", "error", a);
-  doc.AddMember("statusCode", code, a);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), a), a);
-  return doc;
-}
 
 rapidjson::Document makeOk() {
   rapidjson::Document doc;
@@ -45,13 +38,6 @@ rapidjson::Document makeOk() {
   doc.AddMember("status", "success", a);
   doc.AddMember("statusCode", 200, a);
   return doc;
-}
-
-std::string getStr(const rapidjson::Document& doc, const char* key, const std::string& def = "") {
-  if (doc.HasMember(key) && doc[key].IsString()) {
-    return doc[key].GetString();
-  }
-  return def;
 }
 
 std::string docToString(const rapidjson::Value& v) {
@@ -159,9 +145,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
 
     try {
       if (cap == "persistence.save.request") {
@@ -170,26 +154,25 @@ private:
       if (cap == "persistence.save.metrics") {
         return handleSaveMetrics(request);
       }
-      return makeError("Unknown capability: " + cap, 404);
+      return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
   // Enqueue a single request.completed event
   rapidjson::Document handleSaveRequest(const rapidjson::Document& req) {
-    RequestRecord r;
-    r.requestId = getStr(req, "requestId");
-    r.capability = getStr(req, "capability");
-    r.serviceId = getStr(req, "serviceId");
-    r.success =
-        req.HasMember("success") && req["success"].IsBool() ? req["success"].GetBool() : false;
-    r.latencyMs =
-        req.HasMember("latencyMs") && req["latencyMs"].IsInt() ? req["latencyMs"].GetInt() : 0;
+    RequestRecord r{
+        .requestId = rdws::utils::getString(req, "requestId").value_or(std::string{}),
+        .capability = rdws::utils::getString(req, "capability").value_or(std::string{}),
+        .serviceId = rdws::utils::getString(req, "serviceId").value_or(std::string{}),
+        .success = rdws::utils::getBool(req, "success").value_or(false),
+        .latencyMs = rdws::utils::getInt(req, "latencyMs").value_or(0),
+    };
 
     if (r.requestId.empty()) {
-      return makeError("Missing requestId");
+      return rdws::utils::ResponseHelper::returnErrorDoc("Missing requestId");
     }
 
     {
@@ -205,7 +188,7 @@ private:
   // Enqueue a metrics.snapshot event
   rapidjson::Document handleSaveMetrics(const rapidjson::Document& req) {
     MetricsRecord m;
-    m.snapshotAt = getStr(req, "snapshotAt");
+    m.snapshotAt = rdws::utils::getString(req, "snapshotAt").value_or("");
     m.metricsJson = docToString(req);
 
     {

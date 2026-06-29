@@ -1,5 +1,7 @@
 #include "lambda_context.h"
 
+#include "../../shared/utils/json_helper.h"
+
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -28,27 +30,11 @@ LambdaContext::LambdaContext(const std::string& jsonString)
     throw std::runtime_error("Invalid JSON in LambdaContext constructor");
   }
 
-  requestId_ = "unknown";
-  functionName_ = "unknown";
-  functionVersion_ = "1.0";
-  timeoutMs_ = std::chrono::milliseconds(30000);
-  memoryLimitMB_ = 128;
-
-  if (doc.HasMember("requestId") && doc["requestId"].IsString()) {
-    requestId_ = doc["requestId"].GetString();
-  }
-  if (doc.HasMember("functionName") && doc["functionName"].IsString()) {
-    functionName_ = doc["functionName"].GetString();
-  }
-  if (doc.HasMember("functionVersion") && doc["functionVersion"].IsString()) {
-    functionVersion_ = doc["functionVersion"].GetString();
-  }
-  if (doc.HasMember("timeoutMs") && doc["timeoutMs"].IsInt64()) {
-    timeoutMs_ = std::chrono::milliseconds(doc["timeoutMs"].GetInt64());
-  }
-  if (doc.HasMember("memoryLimitMB") && doc["memoryLimitMB"].IsInt()) {
-    memoryLimitMB_ = doc["memoryLimitMB"].GetInt();
-  }
+  requestId_ = rdws::utils::getString(doc, "requestId").value_or("unknown");
+  functionName_ = rdws::utils::getString(doc, "functionName").value_or("unknown");
+  functionVersion_ = rdws::utils::getString(doc, "functionVersion").value_or("1.0");
+  timeoutMs_ = std::chrono::milliseconds(rdws::utils::getInt64(doc, "timeoutMs").value_or(30000));
+  memoryLimitMB_ = rdws::utils::getInt(doc, "memoryLimitMB").value_or(128);
 }
 
 LambdaContext LambdaContext::fromJson(const std::string& jsonString) {

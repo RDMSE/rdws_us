@@ -6,6 +6,8 @@
 #include "../../service_broker/Auth/AuthMiddleware.h"
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
+#include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <chrono>
@@ -24,16 +26,6 @@ using namespace servicegateway;
 using namespace rdws::database;
 
 namespace {
-
-rapidjson::Document makeError(const std::string& msg, const int code = 400) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& alloc = doc.GetAllocator();
-  doc.AddMember("status", "error", alloc);
-  doc.AddMember("statusCode", code, alloc);
-  doc.AddMember("message", rapidjson::Value(msg.c_str(), alloc), alloc);
-  return doc;
-}
 
 rapidjson::Document makeSuccess(rapidjson::Value data, rapidjson::Document::AllocatorType& alloc) {
   rapidjson::Document doc;
@@ -134,31 +126,23 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const {
-    const std::string cap = request.HasMember("capability") && request["capability"].IsString()
-                                ? request["capability"].GetString()
-                                : "";
+    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     if (cap == "auth.login") {
       return handleLogin(request);
     }
 
-    return makeError("Unknown capability: " + cap, 404);
+    return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
   }
 
   [[nodiscard]] rapidjson::Document handleLogin(const rapidjson::Document& request) const {
     // Extract credentials from top-level body fields (spread by HttpGateway)
-    std::string username;
-    std::string password;
-    if (request.HasMember("username") && request["username"].IsString()) {
-      username = request["username"].GetString();
-    }
-    if (request.HasMember("password") && request["password"].IsString()) {
-      password = request["password"].GetString();
-    }
+    std::string username = rdws::utils::getString(request, "username").value_or("");
+    std::string password = rdws::utils::getString(request, "password").value_or("");
 
     if (username.empty() || password.empty()) {
-      return makeError("username and password are required", 400);
+      return rdws::utils::ResponseHelper::returnErrorDoc("username and password are required", 400);
     }
 
     try {
@@ -171,7 +155,7 @@ private:
           {username, password});
 
       if (!rs->next()) {
-        return makeError("Invalid credentials", 401);
+        return rdws::utils::ResponseHelper::returnErrorDoc("Invalid credentials", 401);
       }
 
       const std::string userId = rs->getString("id");
@@ -204,7 +188,7 @@ private:
 
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] DB error: " << e.what() << std::endl;
-      return makeError(std::string("Internal error: ") + e.what(), 500);
+      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 };
