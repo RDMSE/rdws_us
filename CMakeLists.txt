@@ -42,10 +42,22 @@ if(BUILD_TESTING)
   FetchContent_MakeAvailable(googletest)
 endif()
 
+if(libpqxx_FOUND)
+    message(STATUS "libpqxx found via CMake config")
+    add_library(PQXX_DEP ALIAS libpqxx::pqxx)
+else()
+    message(STATUS "libpqxx CMake config not found, using pkg-config")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PQXX REQUIRED IMPORTED_TARGET libpqxx)
+    add_library(PQXX_DEP ALIAS PkgConfig::PQXX)
+endif()
 
-find_package(libpqxx REQUIRED)
+# Linux Mint
+# find_package(libpqxx REQUIRED)
+
+# Linux Mint Debian Edition
 # find_package(PkgConfig REQUIRED)
-# pkg_check_modules(PQXX REQUIRED libpqxx)
+# pkg_check_modules(PQXX REQUIRED IMPORTED_TARGET libpqxx)
 
 # --- Third-party ---
 # NOTE: src/third_party forces BUILD_TESTING OFF (to suppress third-party tests).

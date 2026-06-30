@@ -16,21 +16,6 @@ target_link_libraries(rdws_shared_validation PUBLIC
     rapidjson_wrapper
 )
 
-# --- Shared json utils library ---
-add_library(rdws_shared_json_utils
-    utils/json_helper.cpp
-    utils/json_helper.h
-)
-
-target_include_directories(rdws_shared_json_utils PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils
-)
-
-target_link_libraries(rdws_shared_json_utils PUBLIC
-    rapidjson_wrapper
-)
-
 # jsoncpp is provided via valijson_wrapper (bundled)
 
 
@@ -109,15 +94,23 @@ target_include_directories(rdws_shared_database PUBLIC
     ${PQXX_INCLUDE_DIRS}
 )
 
+target_link_libraries(rdws_shared_database
+    PRIVATE
+    PQXX_DEP
+    ...
+)
+
+# Linux Mint Debian Edition
+# target_link_libraries(rdws_shared_database PUBLIC
+#     rdws_shared_config
+#     libpqxx::pqxx
+# )
+
+# Linux Mint
 # target_link_libraries(rdws_shared_database PUBLIC
 #     rdws_shared_config
 #     ${PQXX_LIBRARIES}
 # )
-
-target_link_libraries(rdws_shared_database PUBLIC
-    rdws_shared_config
-    libpqxx::pqxx
-)
 
 # --- Testes para shared components ---
 if(BUILD_TESTING)
