@@ -252,6 +252,8 @@ int main(int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
+  rdws::logger::init("farm_service", "info", serviceId);
+
   AppFarmService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);

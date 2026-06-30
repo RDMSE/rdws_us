@@ -185,6 +185,8 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
+  rdws::logger::init("sensor_reading_service", "info", serviceId);
+
   AppSensorReadingService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);

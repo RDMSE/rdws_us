@@ -82,9 +82,8 @@ int main(const int argc, char* argv[]) {
   int brokerPort = 8080;
   int httpPort = 3001;
   std::string unixSocket = "/tmp/service_gateway.sock";
-  std::string logFile;    // empty = stdout only
   std::string routesFile; // empty = no persistence
-  // Config file: argv[6] or RDWS_CONFIG_FILE env var.
+  // Config file: argv[5] or RDWS_CONFIG_FILE env var.
   std::string configFile = getenv_str("RDWS_CONFIG_FILE");
 
   if (argc >= 2) {
@@ -97,16 +96,14 @@ int main(const int argc, char* argv[]) {
     unixSocket = argv[3];
   }
   if (argc >= 5) {
-    logFile = argv[4];
+    routesFile = argv[4];
   }
   if (argc >= 6) {
-    routesFile = argv[5];
-  }
-  if (argc >= 7) {
-    configFile = argv[6];
+    configFile = argv[5];
   }
 
-  rdws::logger::init("rdws-gateway", "info", logFile);
+  // Logs to logs/rdws-gateway.log automatically — no CLI argument needed.
+  rdws::logger::init("rdws-gateway", "info");
 
   const auto modeLabel = [&]() -> std::string {
     const std::string mode = getenv_str("RDWS_AUTH_MODE");
@@ -120,7 +117,6 @@ int main(const int argc, char* argv[]) {
     " http=" + std::to_string(httpPort) +
     " unix=" + unixSocket +
     " auth=" + modeLabel +
-    (logFile.empty()    ? "" : " log=" + logFile) +
     (routesFile.empty() ? "" : " routes=" + routesFile) +
     (configFile.empty() ? "" : " config=" + configFile));
 

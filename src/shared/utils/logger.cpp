@@ -79,6 +79,8 @@ std::string kv(std::string_view key, std::string_view value) {
   return '"' + std::string(key) + "\":\"" + jsonEscape(value) + '"';
 }
 
+/// Instance identifier embedded in every log line, set once by init().
+std::string g_serviceId;
 
 } // anonymous namespace
 
@@ -89,23 +91,27 @@ std::string kv(std::string_view key, std::string_view value) {
 void init(
         const std::string_view name,
         const std::string_view level,
+        const std::string_view serviceId,
         const std::string_view logFile) {
+  g_serviceId = std::string(serviceId);
+
   std::vector<spdlog::sink_ptr> sinks;
 
   // Always log to stdout (with colour).
   sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 
-  // Optional rotating file sink — plain text (no ANSI codes).
-  if (!logFile.empty()) {
-    // Create parent directory if it doesn't exist.
-    if (const auto parent = std::filesystem::path(logFile).parent_path(); !parent.empty()) {
-      std::filesystem::create_directories(parent);
-    }
-    constexpr std::size_t maxBytes = static_cast<const std::size_t>(10 * 1024 * 1024); // 10 MB
-    constexpr std::size_t maxFiles = 3;
-    sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(std::string(logFile),
-                                                                           maxBytes, maxFiles));
+  // Rotating file sink — plain text (no ANSI codes). Path defaults to
+  // "logs/<name>.log" so every process gets its own file without callers
+  // having to wire a CLI argument; pass logFile to override.
+  const std::string filePath =
+      logFile.empty() ? "logs/" + std::string(name) + ".log" : std::string(logFile);
+  if (const auto parent = std::filesystem::path(filePath).parent_path(); !parent.empty()) {
+    std::filesystem::create_directories(parent);
   }
+  constexpr std::size_t maxBytes = static_cast<const std::size_t>(10 * 1024 * 1024); // 10 MB
+  constexpr std::size_t maxFiles = 3;
+  sinks.push_back(
+      std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, maxBytes, maxFiles));
 
   const auto logger =
       std::make_shared<spdlog::logger>(std::string(name), sinks.begin(), sinks.end());
@@ -122,15 +128,18 @@ void init(
 }
 
 void info(const std::string_view message, const std::string_view context) {
-  spdlog::info(buildJson("info", {kv("message", message), kv("context", context)}));
+  spdlog::info(buildJson(
+      "info", {kv("service_id", g_serviceId), kv("message", message), kv("context", context)}));
 }
 
 void warn(const std::string_view message, const std::string_view context) {
-  spdlog::warn(buildJson("warn", {kv("message", message), kv("context", context)}));
+  spdlog::warn(buildJson(
+      "warn", {kv("service_id", g_serviceId), kv("message", message), kv("context", context)}));
 }
 
 void error(const std::string_view message, const std::string_view context) {
-  spdlog::error(buildJson("error", {kv("message", message), kv("context", context)}));
+  spdlog::error(buildJson(
+      "error", {kv("service_id", g_serviceId), kv("message", message), kv("context", context)}));
 }
 
 } // namespace rdws::logger

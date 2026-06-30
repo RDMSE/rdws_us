@@ -249,6 +249,8 @@ int main(int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
+  rdws::logger::init("device_service", "info", serviceId);
+
   AppDeviceService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);

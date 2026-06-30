@@ -337,6 +337,8 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
+  rdws::logger::init("persistence_service", "info", serviceId);
+
   PersistenceService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);

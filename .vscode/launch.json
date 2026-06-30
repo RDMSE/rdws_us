@@ -34,7 +34,6 @@
                 "8085",
                 "3001",
                 "/tmp/rdws_gateway.sock",
-                "${workspaceFolder}/gateway.log",
                 "${workspaceFolder}/routes.json"
             ],
             "stopAtEntry": false,
@@ -60,7 +59,6 @@
                 "8085",
                 "3001",
                 "/tmp/rdws_gateway.sock",
-                "${workspaceFolder}/gateway.log",
                 "${workspaceFolder}/routes.json"
             ],
             "stopAtEntry": false,
@@ -95,7 +93,6 @@
                 "8085",
                 "3001",
                 "/tmp/rdws_gateway.sock",
-                "${workspaceFolder}/gateway.log",
                 "${workspaceFolder}/routes.json"
             ],
             "stopAtEntry": false,

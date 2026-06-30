@@ -256,6 +256,8 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
+  rdws::logger::init("field_service", "info", serviceId);
+
   AppFieldService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);

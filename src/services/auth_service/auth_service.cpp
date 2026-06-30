@@ -209,6 +209,8 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
+  rdws::logger::init("auth_service", "info", serviceId);
+
   AuthService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);

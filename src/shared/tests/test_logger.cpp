@@ -24,7 +24,7 @@ protected:
     fs::remove(logPath);
 
     spdlog::drop_all();
-    rdws::logger::init("test-logger", "info", logPath);
+    rdws::logger::init("test-logger", "info", "", logPath);
   }
 
   void TearDown() override {
