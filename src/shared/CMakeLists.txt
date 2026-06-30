@@ -49,6 +49,20 @@ target_link_libraries(rdws_shared_types PUBLIC
     rapidjson_wrapper
 )
 
+add_library(rdws_shared_json_utils
+    utils/json_helper.cpp
+    utils/json_helper.h
+)
+
+target_include_directories(rdws_shared_json_utils PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+)
+
+target_link_libraries(rdws_shared_json_utils PUBLIC
+    rapidjson_wrapper
+)
+
 add_library(rdws_shared_utils
     utils/lambda_params_helper.cpp
     utils/lambda_params_helper.h
@@ -97,7 +111,7 @@ target_include_directories(rdws_shared_database PUBLIC
 target_link_libraries(rdws_shared_database
     PRIVATE
     PQXX_DEP
-    ...
+    pq
 )
 
 # Linux Mint Debian Edition
