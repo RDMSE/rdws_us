@@ -253,7 +253,25 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
-### Fase 12 - Segurança: prevenção de IDOR
+### Fase 12 - Profiling granular via RequestContext
+
+**Contexto:** o `Profiler` atual mede o tempo total do handler no `processRequest`. Para granularidade maior (DB, serialização, cálculos), seria necessário propagar o profiler pelo call stack.
+
+**Decisão de design proposta:**
+- Introduzir `struct RequestContext { const rapidjson::Document& req; Profiler& profiler; }` — pode crescer com identity JWT, trace ID, etc.
+- `CapabilityHandler<TService>` passa a receber `RequestContext` em vez de `const rapidjson::Document&`.
+- Handlers fazem `ctx.profiler.scoped("db.query")`, `ctx.profiler.scoped("json.serialize")`, etc.
+
+**Quando faz sentido:** serviços com cálculos complexos, queries lentas para investigar, ou base de dados grande onde a origem do tempo importa.
+
+- ⬜ Definir `struct RequestContext` em `capability_router.h`.
+- ⬜ Atualizar `CapabilityHandler` e `dispatchCapability` para usar `RequestContext`.
+- ⬜ Migrar handlers de todos os serviços para a nova assinatura.
+- Critério de aceite: dump do profiler mostra breakdown por etapa (db, serialize, etc.) em vez de só o tempo total.
+
+---
+
+### Fase 13 - Segurança: prevenção de IDOR
 
 **Contexto:** os IDs expostos na API são `BIGSERIAL` sequenciais, permitindo enumeração trivial de recursos (IDOR — Insecure Direct Object Reference).
 
