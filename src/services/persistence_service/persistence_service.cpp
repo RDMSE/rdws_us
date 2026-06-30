@@ -12,11 +12,12 @@
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/profiler.h"
 
+#include "../../shared/utils/logger.h"
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <deque>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <rapidjson/document.h>
@@ -107,7 +108,7 @@ public:
 
   void run() {
     running.store(true);
-    std::cout << "[" << identity.serviceId << "] PersistenceService starting\n";
+    rdws::logger::info("PersistenceService starting", identity.serviceId);
 
     flushThread_ = std::thread([this]() {
       while (running.load()) {
@@ -124,7 +125,7 @@ public:
       if (!running.load()) {
         break;
       }
-      std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
@@ -132,7 +133,7 @@ public:
       });
     }
 
-    std::cout << "[" << identity.serviceId << "] PersistenceService stopped\n";
+    rdws::logger::info("PersistenceService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -167,7 +168,7 @@ private:
       auto t = profiler.scoped(cap);
       return rdws::utils::dispatchCapability(cap, request, *this, handlers);
     } catch (const std::exception& e) {
-      std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
+      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
@@ -244,10 +245,9 @@ private:
                        {r.requestId, r.capability, r.serviceId, r.success ? "true" : "false",
                         std::to_string(r.latencyMs)});
       }
-      std::cout << "[" << identity.serviceId << "] flushed " << batch.size()
-                << " request records\n";
+      rdws::logger::info("Flushed request records", identity.serviceId + " count=" + std::to_string(batch.size()));
     } catch (const std::exception& e) {
-      std::cerr << "[" << identity.serviceId << "] flush error: " << e.what() << '\n';
+      rdws::logger::error("Flush error", identity.serviceId + " " + e.what());
     }
   }
 
@@ -289,16 +289,12 @@ private:
 
           const auto& stats = it->value;
           auto getNum = [&](const char* k) -> std::string {
-            if (stats.HasMember(k)) {
-              if (stats[k].IsInt()) {
-                return std::to_string(stats[k].GetInt());
-              }
-              if (stats[k].IsInt64()) {
-                return std::to_string(stats[k].GetInt64());
-              }
-              if (stats[k].IsDouble()) {
-                return std::to_string(stats[k].GetDouble());
-              }
+            if (auto val = rdws::utils::getInt(stats, k); val.has_value()) {
+              return std::to_string(val.value());
+            } else if (auto val = rdws::utils::getInt64(stats, k); val.has_value()) {
+              return std::to_string(val.value());
+            } else if (auto val = rdws::utils::getDouble(stats, k); val.has_value()) {
+              return std::to_string(val.value());
             }
             return "0";
           };
@@ -312,10 +308,9 @@ private:
                           getNum("p99LatencyMs"), getNum("minLatencyMs"), getNum("maxLatencyMs")});
         }
       }
-      std::cout << "[" << identity.serviceId << "] flushed " << batch.size()
-                << " metrics snapshots\n";
+      rdws::logger::info("Flushed metrics snapshots", identity.serviceId + " count=" + std::to_string(batch.size()));
     } catch (const std::exception& e) {
-      std::cerr << "[" << identity.serviceId << "] metrics flush error: " << e.what() << '\n';
+      rdws::logger::error("Metrics flush error", identity.serviceId + " " + e.what());
     }
   }
 };
@@ -348,7 +343,7 @@ int main(const int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    std::cerr << "Failed to initialize PersistenceService\n";
+    rdws::logger::error("Failed to initialize PersistenceService");
     return 1;
   }
   service.run();

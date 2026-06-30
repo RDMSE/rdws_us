@@ -3,6 +3,7 @@
 #include "HttpGateway.h"
 #include "Services/ServiceClient.h"
 #include "Services/ServiceGateway.h"
+#include "../../shared/utils/json_helper.h"
 
 #include <atomic>
 #include <chrono>
@@ -174,8 +175,9 @@ TEST_F(HttpE2ETest, InvokeNoService_Returns503) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  ASSERT_TRUE(doc.HasMember("error") && doc["error"].IsBool());
-  EXPECT_TRUE(doc["error"].GetBool());
+  const auto& errorValue = rdws::utils::getString(doc, "error");
+  ASSERT_TRUE(errorValue.has_value());
+  EXPECT_NE(errorValue.value().find("unknown-cap"), std::string::npos);
 }
 
 // ── Scenario 3: Echo service responds → 200 with payload ──────────────────────
@@ -188,9 +190,7 @@ TEST_F(HttpE2ETest, EchoService_Returns200WithPayload) {
                      rapidjson::Document resp;
                      resp.SetObject();
                      auto& alloc = resp.GetAllocator();
-                     const std::string msg = (req.HasMember("message") && req["message"].IsString())
-                                                 ? req["message"].GetString()
-                                                 : "";
+                     const auto& msg = rdws::utils::getString(req, "message").value_or("");
                      resp.AddMember("result", rapidjson::Value(("echo: " + msg).c_str(), alloc),
                                     alloc);
                      resp.AddMember("status", "success", alloc);
@@ -205,8 +205,9 @@ TEST_F(HttpE2ETest, EchoService_Returns200WithPayload) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  ASSERT_TRUE(doc.HasMember("result") && doc["result"].IsString());
-  EXPECT_STREQ(doc["result"].GetString(), "echo: world");
+  const auto& resultValue = rdws::utils::getString(doc, "result");
+  ASSERT_TRUE(resultValue.has_value());
+  EXPECT_STREQ(resultValue.value().c_str(), "echo: world");
 }
 
 // ── Scenario 4: Slow service exceeds capability timeout → 504 ─────────────────
@@ -238,7 +239,9 @@ TEST_F(HttpE2ETest, SlowService_Timeout_Returns504) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  EXPECT_TRUE(doc.HasMember("error") && doc["error"].GetBool());
+  const auto& errorValue = rdws::utils::getString(doc, "error");
+  ASSERT_TRUE(errorValue.has_value());
+  EXPECT_NE(errorValue.value().find("timed out"), std::string::npos);
 
   *stopFlag = true;
 }
@@ -288,8 +291,9 @@ TEST_F(HttpE2ETest, Auth_ValidApiKey_RequestProceeds) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  ASSERT_TRUE(doc.HasMember("ok") && doc["ok"].IsBool());
-  EXPECT_TRUE(doc["ok"].GetBool());
+  const auto& okValue = rdws::utils::getBool(doc, "ok");
+  ASSERT_TRUE(okValue.has_value());
+  EXPECT_TRUE(okValue.value());
 }
 
 // ── Scenario 7: GET /requests/{id} for unknown id → 404 ───────────────────────
@@ -332,6 +336,7 @@ TEST_F(HttpE2ETest, EventRouter_RedirectsCapability_ServiceResponds) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  ASSERT_TRUE(doc.HasMember("routed") && doc["routed"].IsBool());
-  EXPECT_TRUE(doc["routed"].GetBool());
+  const auto& routedValue = rdws::utils::getBool(doc, "routed");
+  ASSERT_TRUE(routedValue.has_value());
+  EXPECT_TRUE(routedValue.value());
 }

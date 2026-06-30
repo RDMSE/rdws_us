@@ -16,47 +16,8 @@ void init(std::string_view name = "rdws-gateway", std::string_view level = "info
 // Structured log helpers — each emits one JSON line.
 // ---------------------------------------------------------------------------
 
-/// HTTP request received by the gateway.
-void httpRequest(
-                    std::string_view requestId,
-                    std::string_view capability, std::string_view method,
-                    std::string_view path
-);
-
-/// HTTP response sent to the caller.
-void httpResponse(
-                    std::string_view requestId,
-                    std::string_view capability,
-                    int statusCode,
-                    long latencyMs
-);
-
-/// Request dispatched to a backend service.
-void requestDispatched(
-                    std::string_view requestId,
-                    std::string_view capability,
-                    std::string_view serviceId
-);
-
-/// Response correlated back from a service.
-void responseCorrelated(
-                    std::string_view requestId,
-                    std::string_view serviceId,
-                    std::string_view state
-);
-
-/// A service connected and registered.
-void serviceConnected(
-                    std::string_view serviceId,
-                    std::string_view serviceName,
-                    std::string_view address
-);
-
-/// A service disconnected.
-void serviceDisconnected(
-                    std::string_view serviceId,
-                    std::string_view reason = ""
-);
+/// Generic informational message.
+void info(std::string_view message, std::string_view context = "");
 
 /// Generic warning.
 void warn(std::string_view message, std::string_view context = "");

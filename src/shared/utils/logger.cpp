@@ -79,9 +79,6 @@ std::string kv(std::string_view key, std::string_view value) {
   return '"' + std::string(key) + "\":\"" + jsonEscape(value) + '"';
 }
 
-std::string kvInt(std::string_view key, long value) {
-  return '"' + std::string(key) + "\":" + std::to_string(value);
-}
 
 } // anonymous namespace
 
@@ -90,7 +87,7 @@ std::string kvInt(std::string_view key, long value) {
 // ---------------------------------------------------------------------------
 
 void init(
-        const std::string_view name, 
+        const std::string_view name,
         const std::string_view level,
         const std::string_view logFile) {
   std::vector<spdlog::sink_ptr> sinks;
@@ -124,42 +121,8 @@ void init(
   logger->flush_on(spdlog::level::trace);
 }
 
-void httpRequest(const std::string_view requestId, const std::string_view capability,
-                 const std::string_view method, const std::string_view path) {
-  spdlog::info(buildJson("http_request", {kv("requestId", requestId), kv("capability", capability),
-                                          kv("method", method), kv("path", path)}));
-}
-
-void httpResponse(const std::string_view requestId, const std::string_view capability,
-                  const int statusCode, const long latencyMs) {
-  spdlog::info(
-      buildJson("http_response", {kv("requestId", requestId), kv("capability", capability),
-                                  kvInt("statusCode", statusCode), kvInt("latencyMs", latencyMs)}));
-}
-
-void requestDispatched(const std::string_view requestId, const std::string_view capability,
-                       const std::string_view serviceId) {
-  spdlog::info(
-      buildJson("request_dispatched", {kv("requestId", requestId), kv("capability", capability),
-                                       kv("serviceId", serviceId)}));
-}
-
-void responseCorrelated(const std::string_view requestId, const std::string_view serviceId,
-                        const std::string_view state) {
-  spdlog::info(buildJson("response_correlated", {kv("requestId", requestId),
-                                                 kv("serviceId", serviceId), kv("state", state)}));
-}
-
-void serviceConnected(const std::string_view serviceId, const std::string_view serviceName,
-                      const std::string_view address) {
-  spdlog::info(
-      buildJson("service_connected", {kv("serviceId", serviceId), kv("serviceName", serviceName),
-                                      kv("address", address)}));
-}
-
-void serviceDisconnected(const std::string_view serviceId, const std::string_view reason) {
-  spdlog::info(
-      buildJson("service_disconnected", {kv("serviceId", serviceId), kv("reason", reason)}));
+void info(const std::string_view message, const std::string_view context) {
+  spdlog::info(buildJson("info", {kv("message", message), kv("context", context)}));
 }
 
 void warn(const std::string_view message, const std::string_view context) {

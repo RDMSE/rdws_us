@@ -5,7 +5,6 @@
 
 #include <arpa/inet.h>
 #include <cmath>
-#include <iostream>
 #include <netinet/in.h>
 #include <ranges>
 #include <rapidjson/stringbuffer.h>
@@ -40,7 +39,7 @@ ServiceGateway::~ServiceGateway() {
 
 bool ServiceGateway::start() {
   if (running.load()) {
-    std::cerr << "ServiceGateway is already running" << '\n';
+    rdws::logger::warn("ServiceGateway is already running");
     return false;
   }
 
@@ -48,9 +47,7 @@ bool ServiceGateway::start() {
 
   bus_.start();
 
-  std::cout << "Starting ServiceGateway..." << '\n';
-  std::cout << "TCP Port: " << tcpPort << '\n';
-  std::cout << "UNIX Socket: " << unixSocketPath << '\n';
+  rdws::logger::info("Starting ServiceGateway", "tcp=" + std::to_string(tcpPort) + " unix=" + unixSocketPath);
 
   // Start network listeners
   tcpListener = std::thread(&ServiceGateway::startTcpListener, this);
@@ -98,7 +95,7 @@ bool ServiceGateway::start() {
     }
   });
 
-  std::cout << "ServiceGateway started successfully" << '\n';
+  rdws::logger::info("ServiceGateway started successfully");
   return true;
 }
 
@@ -107,7 +104,7 @@ void ServiceGateway::stop() {
     return;
   }
 
-  std::cout << "Stopping ServiceGateway..." << '\n';
+  rdws::logger::info("Stopping ServiceGateway");
   running.store(false);
 
   // Unblock select()/accept() in listener threads.
@@ -146,13 +143,13 @@ void ServiceGateway::stop() {
   // Clean up UNIX socket file
   unlink(unixSocketPath.c_str());
 
-  std::cout << "ServiceGateway stopped" << '\n';
+  rdws::logger::info("ServiceGateway stopped");
 }
 
 void ServiceGateway::startTcpListener() {
   const int serverFd = createTcpSocket();
   if (serverFd == -1) {
-    std::cerr << "Failed to create TCP socket" << '\n';
+    rdws::logger::error("Failed to create TCP socket");
     return;
   }
 
@@ -162,18 +159,18 @@ void ServiceGateway::startTcpListener() {
   address.sin_port = htons(tcpPort);
 
   if (bind(serverFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-    std::cerr << "TCP bind failed on port " << tcpPort << '\n';
+    rdws::logger::error("TCP bind failed", "port=" + std::to_string(tcpPort));
     close(serverFd);
     return;
   }
 
   if (listen(serverFd, 10) < 0) {
-    std::cerr << "TCP listen failed" << '\n';
+    rdws::logger::error("TCP listen failed");
     close(serverFd);
     return;
   }
 
-  std::cout << "TCP listener started on port " << tcpPort << '\n';
+  rdws::logger::info("TCP listener started", "port=" + std::to_string(tcpPort));
   tcpServerFd = serverFd;
 
   while (running.load()) {
@@ -191,7 +188,7 @@ void ServiceGateway::startTcpListener() {
         accept(serverFd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
     if (clientFd < 0) {
       if (running.load()) {
-        std::cerr << "TCP accept failed" << '\n';
+        rdws::logger::error("TCP accept failed");
       }
       continue;
     }
@@ -213,7 +210,7 @@ void ServiceGateway::startTcpListener() {
 void ServiceGateway::startUnixListener() {
   const int serverFd = createUnixSocket();
   if (serverFd == -1) {
-    std::cerr << "Failed to create UNIX socket" << '\n';
+    rdws::logger::error("Failed to create UNIX socket");
     return;
   }
 
@@ -225,18 +222,18 @@ void ServiceGateway::startUnixListener() {
   unlink(unixSocketPath.c_str());
 
   if (bind(serverFd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-    std::cerr << "UNIX bind failed on " << unixSocketPath << '\n';
+    rdws::logger::error("UNIX bind failed", unixSocketPath);
     close(serverFd);
     return;
   }
 
   if (listen(serverFd, 10) < 0) {
-    std::cerr << "UNIX listen failed" << '\n';
+    rdws::logger::error("UNIX listen failed");
     close(serverFd);
     return;
   }
 
-  std::cout << "UNIX listener started on " << unixSocketPath << '\n';
+  rdws::logger::info("UNIX listener started", unixSocketPath);
   unixServerFd = serverFd;
 
   while (running.load()) {
@@ -251,7 +248,7 @@ void ServiceGateway::startUnixListener() {
     const int clientFd = accept(serverFd, nullptr, nullptr);
     if (clientFd < 0) {
       if (running.load()) {
-        std::cerr << "UNIX accept failed" << '\n';
+        rdws::logger::error("UNIX accept failed");
       }
       continue;
     }
@@ -282,8 +279,7 @@ void ServiceGateway::handleNewConnection(const int clientFd, const std::string& 
 
   activeConnections[clientFd] = {.socketFd = clientFd, .address = address, .connectionType = type};
 
-  std::cout << "New " << type << " connection from " << address << " (fd: " << clientFd << ")"
-            << '\n';
+  rdws::logger::info("New connection", type + " from " + address + " fd=" + std::to_string(clientFd));
 
   // Start listening for messages from this client
   std::thread([this, clientFd]() {
@@ -317,15 +313,14 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
     jsonMessage.Parse(message.c_str());
 
     if (jsonMessage.HasParseError() || !jsonMessage.IsObject()) {
-      std::cerr << "Invalid JSON from client fd=" << clientFd << " raw(" << message.size() << "): ["
-                << message.substr(0, 120) << "]\n";
+      rdws::logger::error("Invalid JSON from client", "fd=" + std::to_string(clientFd) + " raw=" + message.substr(0, 120));
       return;
     }
 
     const auto& messageType = rdws::utils::getString(jsonMessage, "type");
 
     if (!messageType.has_value()) {
-      std::cerr << "Missing message type from client fd=" << clientFd << '\n';
+      rdws::logger::error("Missing message type from client", "fd=" + std::to_string(clientFd));
       return;
     }
 
@@ -336,17 +331,17 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
     } else if (messageType.value() == "RESPONSE") {
       handleResponseMessage(clientFd, jsonMessage);
     } else {
-      std::cerr << "Unknown message type: " << messageType.value() << '\n';
+      rdws::logger::warn("Unknown message type", messageType.value());
     }
   } catch (const std::exception& e) {
-    std::cerr << "Error handling message from fd=" << clientFd << ": " << e.what() << '\n';
+    rdws::logger::error("Error handling message", "fd=" + std::to_string(clientFd) + " " + e.what());
   }
 }
 
 bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::Document& message) {
   try {
     if (rdws::utils::getObject(message, "identity") == nullptr) {
-      std::cerr << "Invalid identification: missing identity object" << '\n';
+      rdws::logger::error("Invalid identification: missing identity object");
       return false;
     }
 
@@ -355,7 +350,7 @@ bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::
 
     // Validate required fields
     if (identity.serviceId.empty() || identity.serviceName.empty()) {
-      std::cerr << "Invalid identification: missing serviceId or serviceName" << '\n';
+      rdws::logger::error("Invalid identification: missing serviceId or serviceName");
       return false;
     }
 
@@ -388,10 +383,7 @@ bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::
 
       sendMessage(clientFd, buffer.GetString());
 
-      std::cout << "Service registered: " << identity.serviceId << " (" << identity.serviceName
-                << ")" << '\n';
-      rdws::logger::serviceConnected(identity.serviceId, identity.serviceName,
-                                     identity.clientAddress);
+      rdws::logger::info("service_connected", identity.serviceId + " (" + identity.serviceName + ") from " + identity.clientAddress);
 
       // Publish lifecycle event
       {
@@ -407,7 +399,7 @@ bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::
       return true;
     }
   } catch (const std::exception& e) {
-    std::cerr << "Error in handleIdentifyMessage: " << e.what() << '\n';
+    rdws::logger::error("Error in handleIdentifyMessage", e.what());
   }
 
   return false;
@@ -464,7 +456,7 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
   const auto& requestId = rdws::utils::getString(message, "requestId");
   if (!requestId.has_value()) {
-    std::cerr << "Received RESPONSE without valid requestId from fd=" << clientFd << '\n';
+    rdws::logger::error("Received RESPONSE without valid requestId", "fd=" + std::to_string(clientFd));
     return false;
   }
 
@@ -473,8 +465,7 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
   std::scoped_lock lock(requestsMutex);
   const auto it = pendingRequests.find(requestId.value());
   if (it == pendingRequests.end()) {
-    std::cerr << "Received response for unknown requestId=" << requestId.value()
-              << " from fd=" << clientFd << '\n';
+    rdws::logger::warn("Received response for unknown requestId", requestId.value() + " fd=" + std::to_string(clientFd));
     return false;
   }
 
@@ -531,8 +522,7 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
     pending.errorMessage.clear();
   }
 
-  std::cout << "Received response for request " << requestId.value() << " from fd=" << clientFd
-            << " state=" << requestStateToString(pending.state) << '\n';
+  rdws::logger::info("Response received", "requestId=" + requestId.value() + " fd=" + std::to_string(clientFd) + " state=" + requestStateToString(pending.state));
 
   // Notify any HTTP thread waiting on this requestId
   auto waiterIt = responseWaiters_.find(requestId.value());
@@ -540,8 +530,7 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
     waiterIt->second->notify_one();
   }
 
-  rdws::logger::responseCorrelated(requestId.value(), pending.targetServiceId,
-                                   requestStateToString(pending.state));
+  rdws::logger::info("response_correlated", requestId.value() + " service=" + pending.targetServiceId + " state=" + requestStateToString(pending.state));
 
   // Publish request lifecycle event (bus_.publish is non-blocking)
   {
@@ -613,7 +602,7 @@ std::string ServiceGateway::sendRequest(const std::string& capability,
   const std::string targetServiceId =
       registry.selectBestService(resolvedCapability, effectiveStrategy);
   if (targetServiceId.empty()) {
-    std::cerr << "No available service for capability: " << resolvedCapability << '\n';
+    rdws::logger::warn("No available service for capability", resolvedCapability);
     return "";
   }
 
@@ -678,7 +667,7 @@ bool ServiceGateway::sendDirectRequest(const std::string& serviceId,
   }
 
   if (targetFd == -1) {
-    std::cerr << "Service not connected: " << serviceId << '\n';
+    rdws::logger::error("Service not connected", serviceId);
     return false;
   }
 
@@ -698,12 +687,11 @@ void ServiceGateway::closeConnection(const int clientFd) {
     std::scoped_lock lock(connectionsMutex);
 
     if (const auto it = activeConnections.find(clientFd); it != activeConnections.end()) {
-      std::cout << "Closing connection fd=" << clientFd << " (" << it->second.address << ")"
-                << '\n';
+      rdws::logger::info("Closing connection", "fd=" + std::to_string(clientFd) + " addr=" + it->second.address);
 
       if (it->second.identified && !it->second.serviceId.empty()) {
         disconnectedServiceId = it->second.serviceId;
-        rdws::logger::serviceDisconnected(it->second.serviceId, "connection closed");
+        rdws::logger::info("service_disconnected", it->second.serviceId + " connection closed");
         registry.unregisterService(it->second.serviceId);
       }
     }

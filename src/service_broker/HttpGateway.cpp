@@ -10,7 +10,6 @@
 #include "Config/GatewayConfig.h"
 
 #include <chrono>
-#include <iostream>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <string_view>
@@ -35,7 +34,7 @@ bool HttpGateway::start() {
   running_.store(true);
 
   serverThread_ = std::thread([this]() {
-    std::cout << "HTTP gateway listening on http://" << host_ << ':' << port_ << '\n';
+    rdws::logger::info("HTTP gateway listening", "http://" + host_ + ":" + std::to_string(port_));
     server_.listen(host_, port_);
     running_.store(false);
   });
@@ -85,15 +84,13 @@ void HttpGateway::registerRoutes() {
 
     const std::string requestId = gateway_.sendRequest(capability, eventDocument);
 
-    rdws::logger::httpRequest(requestId.empty() ? "-" : requestId, capability, request.method,
-                              request.path);
+    rdws::logger::info("http_request", (requestId.empty() ? "-" : requestId) + " " + request.method + " " + capability + " " + request.path);
 
     auto respond = [&](int status, const std::string& body) {
       const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - t0)
                                  .count();
-      rdws::logger::httpResponse(requestId.empty() ? "-" : requestId, capability, status,
-                                 latencyMs);
+      rdws::logger::info("http_response", (requestId.empty() ? "-" : requestId) + " " + capability + " status=" + std::to_string(status) + " latency=" + std::to_string(latencyMs) + "ms");
       gateway_.recordMetric(capability, static_cast<double>(latencyMs), status < 400,
                             status == 504);
       response.status = status;
@@ -173,8 +170,7 @@ void HttpGateway::registerRoutes() {
               [this](const httplib::Request& request, httplib::Response& response) {
                 const std::string requestId = request.matches[1];
                 const rapidjson::Document status = gateway_.getRequestStatus(requestId);
-                const bool found = status.HasMember("found") && status["found"].IsBool() &&
-                                   status["found"].GetBool();
+                const bool found = rdws::utils::getBool(status, "found").value_or(false);
                 response.status = found ? 200 : 404;
                 response.set_content(documentToString(status), "application/json");
               });
@@ -386,22 +382,24 @@ void HttpGateway::registerRoutes() {
 
                 rapidjson::Document body;
                 body.Parse(request.body.c_str());
-                if (body.HasParseError() || !body.IsObject() || !body.HasMember("enabled") ||
-                    !body["enabled"].IsBool()) {
+
+                if (body.HasParseError() || !body.IsObject() || !rdws::utils::getBool(body, "enabled").has_value()) {
                   response.status = 400;
                   response.set_content(
                       ResponseHelper::returnError(R"(Body must be {"enabled": true|false})", 400),
                       "application/json");
                   return;
+
                 }
 
-                gateway_.getConfig().setFeature(name, body["enabled"].GetBool());
+                const auto enabled = rdws::utils::getBool(body, "enabled").value();
+                gateway_.getConfig().setFeature(name, enabled);
 
                 rapidjson::Document resp;
                 resp.SetObject();
                 auto& alloc = resp.GetAllocator();
                 resp.AddMember("feature", rapidjson::Value(name.c_str(), alloc), alloc);
-                resp.AddMember("enabled", body["enabled"].GetBool(), alloc);
+                resp.AddMember("enabled", enabled, alloc);
                 response.status = 200;
                 response.set_content(documentToString(resp), "application/json");
               });
@@ -463,15 +461,13 @@ void HttpGateway::registerRoutes() {
     }
 
     const std::string requestId = gateway_.sendRequest(capability, eventDocument);
-    rdws::logger::httpRequest(requestId.empty() ? "-" : requestId, capability, request.method,
-                              request.path);
+    rdws::logger::info("http_request", (requestId.empty() ? "-" : requestId) + " " + request.method + " " + capability + " " + request.path);
 
     auto respond = [&](int status, const std::string& body) {
       const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - t0)
                                  .count();
-      rdws::logger::httpResponse(requestId.empty() ? "-" : requestId, capability, status,
-                                 latencyMs);
+      rdws::logger::info("http_response", (requestId.empty() ? "-" : requestId) + " " + capability + " status=" + std::to_string(status) + " latency=" + std::to_string(latencyMs) + "ms");
       gateway_.recordMetric(capability, static_cast<double>(latencyMs), status < 400,
                             status == 504);
       response.status = status;

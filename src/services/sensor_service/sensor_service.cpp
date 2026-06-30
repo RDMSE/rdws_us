@@ -12,9 +12,10 @@
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 
+#include "../../shared/utils/logger.h"
+
 #include <atomic>
 #include <csignal>
-#include <iostream>
 #include <memory>
 #include <rapidjson/document.h>
 #include <string>
@@ -82,20 +83,20 @@ public:
 
   void run() {
     running.store(true);
-    std::cout << "[" << identity.serviceId << "] SensorService starting\n";
+    rdws::logger::info("SensorService starting", identity.serviceId);
     while (running.load()) {
       client->run();
       if (!running.load()) {
         break;
       }
-      std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
         return processRequest(req);
       });
     }
-    std::cout << "[" << identity.serviceId << "] SensorService stopped\n";
+    rdws::logger::info("SensorService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -108,7 +109,7 @@ public:
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
-    std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
+    rdws::logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
                                      rdws::utils::CapabilityHandler<rdws::sensor::SensorService>>
@@ -123,7 +124,7 @@ private:
     try {
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
-      std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
+      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
@@ -250,7 +251,7 @@ int main(const int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    std::cerr << "Failed to initialize SensorService\n";
+    rdws::logger::error("Failed to initialize SensorService");
     return 1;
   }
   service.run();

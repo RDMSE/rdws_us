@@ -5,7 +5,6 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
-#include <iostream>
 #include <sstream>
 #include <thread>
 
@@ -65,7 +64,7 @@ static ServiceGateway* g_serviceGateway = nullptr;
 static HttpGateway* g_httpGateway = nullptr;
 
 void signalHandler(const int signal) {
-  std::cout << "\nReceived signal " << signal << ", shutting down gateways..." << '\n';
+  rdws::logger::warn("Received signal, shutting down gateways", std::to_string(signal));
 
   if (g_httpGateway != nullptr) {
     g_httpGateway->stop();
@@ -107,33 +106,23 @@ int main(const int argc, char* argv[]) {
     configFile = argv[6];
   }
 
-  std::cout << "=== ServiceGateway HTTP Bridge ===\n";
-  std::cout << "Broker port: " << brokerPort << '\n';
-  std::cout << "HTTP port:   " << httpPort << '\n';
-  std::cout << "UNIX socket: " << unixSocket << '\n';
-  if (!logFile.empty()) {
-    std::cout << "Log file:    " << logFile << '\n';
-  }
-  if (!routesFile.empty()) {
-    std::cout << "Routes file: " << routesFile << '\n';
-  }
-  if (!configFile.empty()) {
-    std::cout << "Config file: " << configFile << '\n';
-  }
+  rdws::logger::init("rdws-gateway", "info", logFile);
 
   const auto modeLabel = [&]() -> std::string {
     const std::string mode = getenv_str("RDWS_AUTH_MODE");
-    if (mode == "apikey") {
-      return "apikey";
-    }
-    if (mode == "jwt") {
-      return "jwt";
-    }
+    if (mode == "apikey") return "apikey";
+    if (mode == "jwt") return "jwt";
     return "none";
   }();
-  std::cout << "Auth mode:   " << modeLabel << '\n';
 
-  rdws::logger::init("rdws-gateway", "info", logFile);
+  rdws::logger::info("ServiceGateway HTTP Bridge starting",
+    "broker=" + std::to_string(brokerPort) +
+    " http=" + std::to_string(httpPort) +
+    " unix=" + unixSocket +
+    " auth=" + modeLabel +
+    (logFile.empty()    ? "" : " log=" + logFile) +
+    (routesFile.empty() ? "" : " routes=" + routesFile) +
+    (configFile.empty() ? "" : " config=" + configFile));
 
   const AuthConfig authCfg = buildAuthConfig();
 
@@ -148,33 +137,26 @@ int main(const int argc, char* argv[]) {
     std::signal(SIGTERM, signalHandler);
 
     if (!gateway.start()) {
-      std::cerr << "Failed to start ServiceGateway" << '\n';
+      rdws::logger::error("Failed to start ServiceGateway");
       return 1;
     }
 
     if (!httpGateway.start()) {
-      std::cerr << "Failed to start HTTP gateway" << '\n';
+      rdws::logger::error("Failed to start HTTP gateway");
       gateway.stop();
       return 1;
     }
 
-    std::cout << "\nGateway ready:" << '\n';
-    std::cout << "  internal tcp://localhost:" << brokerPort << '\n';
-    std::cout << "  internal unix://" << unixSocket << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /invoke/{capability}" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /status" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /health" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /metrics" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /connections" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /routes" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /events" << '\n';
-    std::cout << "  http://localhost:" << httpPort << " /config" << '\n';
+    rdws::logger::info("Gateway ready",
+      "tcp=localhost:" + std::to_string(brokerPort) +
+      " unix=" + unixSocket +
+      " http=localhost:" + std::to_string(httpPort));
 
     while (gateway.isRunning() || httpGateway.isRunning()) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   } catch (const std::exception& exception) {
-    std::cerr << "Error starting HTTP gateway: " << exception.what() << '\n';
+    rdws::logger::error("Error starting HTTP gateway", exception.what());
     return 1;
   }
 

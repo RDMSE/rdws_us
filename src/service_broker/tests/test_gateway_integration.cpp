@@ -160,8 +160,9 @@ TEST_F(GatewayIntegrationTest, EchoRequest_ServiceResponds_Success) {
   rapidjson::Document resp;
   resp.Parse(result.responsePayload.c_str());
   ASSERT_FALSE(resp.HasParseError());
-  ASSERT_TRUE(resp.HasMember("result") && resp["result"].IsString());
-  EXPECT_STREQ(resp["result"].GetString(), "echo: hello");
+  const auto& responseValue = rdws::utils::getString(resp, "result");
+  ASSERT_TRUE(responseValue.has_value());
+  EXPECT_EQ(responseValue.value(), "echo: hello");
 }
 
 // ---------------------------------------------------------------------------

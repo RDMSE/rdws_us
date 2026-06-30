@@ -4,6 +4,7 @@
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/utils/json_helper.h"
 
 #include <chrono>
 #include <csignal>
@@ -24,20 +25,23 @@ private:
   std::atomic<bool> running{false};
 
   static std::string resolveCommand(const rapidjson::Document& request) {
-    if (request.HasMember("command") && request["command"].IsString()) {
-      return request["command"].GetString();
+    const auto& commandValue = rdws::utils::getString(request, "command");
+    if (commandValue.has_value()) {
+      return commandValue.value();
     }
 
-    if (request.HasMember("capability") && request["capability"].IsString()) {
-      return request["capability"].GetString();
+    const auto& capabilityValue = rdws::utils::getString(request, "capability");
+    if (capabilityValue.has_value()) {
+      return capabilityValue.value();
     }
 
-    if (request.HasMember("lambdaEvent") && request["lambdaEvent"].IsObject()) {
-      const auto& lambdaEvent = request["lambdaEvent"];
-      if (lambdaEvent.HasMember("pathParameters") && lambdaEvent["pathParameters"].IsObject()) {
-        const auto& pathParameters = lambdaEvent["pathParameters"];
-        if (pathParameters.HasMember("capability") && pathParameters["capability"].IsString()) {
-          return pathParameters["capability"].GetString();
+    const auto& lambdaEvent = rdws::utils::getObject(request, "lambdaEvent");
+    if (lambdaEvent != nullptr) {
+      const auto& pathParameters = rdws::utils::getObject(*lambdaEvent, "pathParameters");
+      if (pathParameters != nullptr) {
+        const auto& capabilityValue = rdws::utils::getString(*pathParameters, "capability");
+        if (capabilityValue.has_value()) {
+          return capabilityValue.value();
         }
       }
     }
@@ -96,14 +100,11 @@ private:
 
   static void addMathResponse(const rapidjson::Document& request, rapidjson::Document& response,
                               rapidjson::Document::AllocatorType& allocator) {
-    const double a =
-        (request.HasMember("a") && request["a"].IsNumber()) ? request["a"].GetDouble() : 0.0;
-    const double b =
-        (request.HasMember("b") && request["b"].IsNumber()) ? request["b"].GetDouble() : 0.0;
-    const std::string operation =
-        (request.HasMember("operation") && request["operation"].IsString())
-            ? request["operation"].GetString()
-            : "add";
+    const double a = rdws::utils::getDouble(request, "a").value_or(0.0);
+        // (request.HasMember("a") && request["a"].IsNumber()) ? request["a"].GetDouble() : 0.0;
+    const double b = rdws::utils::getDouble(request, "b").value_or(0.0);
+        // (request.HasMember("b") && request["b"].IsNumber()) ? request["b"].GetDouble() : 0.0;
+    const auto& operation = rdws::utils::getString(request, "operation").value_or("add");
 
     rapidjson::Value result(rapidjson::kObjectType);
     result.AddMember("a", a, allocator);
@@ -242,9 +243,7 @@ private:
     } else if (command == "math") {
       addMathResponse(request, response, allocator);
     } else if (command == "echo") {
-      std::string message = (request.HasMember("message") && request["message"].IsString())
-                                ? request["message"].GetString()
-                                : "";
+      const auto& message = rdws::utils::getString(request, "message").value_or("");
       response.AddMember("result", rapidjson::Value(("echo: " + message).c_str(), allocator),
                          allocator);
       response.AddMember("status", "success", allocator);
@@ -266,9 +265,9 @@ private:
     // Simulate processing time
     std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 50)));
 
-    if (response.HasMember("status") && response["status"].IsString()) {
-      std::cout << "[" << identity.serviceId << "] Response: " << response["status"].GetString()
-                << '\n';
+    const auto& statusValue = rdws::utils::getString(response, "status");
+    if (statusValue.has_value()) {
+        std::cout << "[" << identity.serviceId << "] Response: " << statusValue.value() << '\n';
     }
 
     return response;

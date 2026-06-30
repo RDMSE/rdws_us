@@ -14,9 +14,10 @@
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/profiler.h"
 
+#include "../../shared/utils/logger.h"
+
 #include <atomic>
 #include <csignal>
-#include <iostream>
 #include <memory>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -66,20 +67,20 @@ public:
 
   void run() {
     running.store(true);
-    std::cout << "[" << identity.serviceId << "] DeviceConfigService starting\n";
+    rdws::logger::info("DeviceConfigService starting", identity.serviceId);
     while (running.load()) {
       client->run();
       if (!running.load()) {
         break;
       }
-      std::cerr << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
         return processRequest(req);
       });
     }
-    std::cout << "[" << identity.serviceId << "] DeviceConfigService stopped\n";
+    rdws::logger::info("DeviceConfigService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -93,7 +94,7 @@ private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
 
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
-    std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
+    rdws::logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<
         std::string,
@@ -111,7 +112,7 @@ private:
 
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
-      std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';
+      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
                                                          500);
     }
@@ -247,7 +248,7 @@ int main(int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    std::cerr << "Failed to initialize DeviceConfigService\n";
+    rdws::logger::error("Failed to initialize DeviceConfigService");
     return 1;
   }
   service.run();

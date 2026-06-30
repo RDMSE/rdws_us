@@ -183,17 +183,27 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
   std::unique_lock lock(*mutex_);
 
   auto parseCapCfg = [](const rapidjson::Value& obj) -> CapabilityConfig {
-    CapabilityConfig cfg;
-    if (obj.HasMember("timeoutMs") && obj["timeoutMs"].IsInt64()) {
-      cfg.timeoutMs = std::chrono::milliseconds(obj["timeoutMs"].GetInt64());
-    } else if (obj.HasMember("timeoutMs") && obj["timeoutMs"].IsInt()) {
-      cfg.timeoutMs = std::chrono::milliseconds(obj["timeoutMs"].GetInt());
-    }
-    if (obj.HasMember("loadBalancing") && obj["loadBalancing"].IsString()) {
-      cfg.loadBalancing = GatewayConfig::lbStrategyFromString(obj["loadBalancing"].GetString());
-    }
-    cfg.maxConcurrentRequests = rdws::utils::getInt(obj, "maxConcurrentRequests").value_or(0);
-    return cfg;
+    auto getTimeoutMs = [&]() -> std::chrono::milliseconds {
+      if (const auto val = rdws::utils::getInt64(obj, "timeoutMs")) {
+        return std::chrono::milliseconds(val.value());
+      } else if (const auto val = rdws::utils::getInt(obj, "timeoutMs")) {
+        return std::chrono::milliseconds(val.value());
+      }
+      return std::chrono::milliseconds(0);
+    };
+
+    auto getLoadBalancing = [&]() -> std::optional<LoadBalancingStrategy> {
+      if (const auto loadBalancingVal = rdws::utils::getString(obj, "loadBalancing")) {
+        return GatewayConfig::lbStrategyFromString(loadBalancingVal.value());
+      }
+      return std::nullopt;
+    };
+
+    return (CapabilityConfig){
+      .timeoutMs = getTimeoutMs(),
+      .loadBalancing = getLoadBalancing(),
+      .maxConcurrentRequests = rdws::utils::getInt(obj, "maxConcurrentRequests").value_or(0)
+    };
   };
 
   if (rdws::utils::getObject(doc, "defaults") != nullptr) {

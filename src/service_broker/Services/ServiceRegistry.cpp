@@ -1,8 +1,9 @@
 #include "ServiceRegistry.h"
 
+#include "../../shared/utils/logger.h"
+
 #include <algorithm>
 #include <chrono>
-#include <iostream>
 #include <random>
 #include <ranges>
 
@@ -12,13 +13,13 @@ bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
   std::scoped_lock lock(registryMutex);
 
   if (identity.serviceId.empty()) {
-    std::cerr << "Cannot register service with empty serviceId" << '\n';
+    rdws::logger::error("Cannot register service with empty serviceId");
     return false;
   }
 
   // Check if service already exists
   if (identities.contains(identity.serviceId)) {
-    std::cout << "Service " << identity.serviceId << " already registered, updating..." << '\n';
+    rdws::logger::info("Service already registered, updating", identity.serviceId);
     return updateService(identity);
   }
 
@@ -28,8 +29,7 @@ bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
   // Add to indexes
   addToIndexes(identity);
 
-  std::cout << "Registered service: " << identity.serviceId << " (" << identity.serviceName
-            << ") from " << identity.machineName << '\n';
+  rdws::logger::info("Registered service", identity.serviceId + " (" + identity.serviceName + ") from " + identity.machineName);
 
   return true;
 }
@@ -48,7 +48,7 @@ bool ServiceRegistry::unregisterService(const std::string& serviceId) {
   // Remove from main registry
   identities.erase(it);
 
-  std::cout << "Unregistered service: " << serviceId << '\n';
+  rdws::logger::info("Unregistered service", serviceId);
   return true;
 }
 
@@ -278,7 +278,7 @@ void ServiceRegistry::removeUnhealthyServices(std::chrono::seconds timeout) {
   }
 
   for (const auto& serviceId : toRemove) {
-    std::cout << "Removing unhealthy service: " << serviceId << '\n';
+    rdws::logger::warn("Removing unhealthy service", serviceId);
     unregisterService(serviceId);
   }
 }

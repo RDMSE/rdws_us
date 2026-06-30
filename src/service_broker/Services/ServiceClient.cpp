@@ -1,10 +1,10 @@
 #include "ServiceClient.h"
 
 #include "../../shared/utils/json_helper.h"
+#include "../../shared/utils/logger.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <arpa/inet.h>
-#include <iostream>
 #include <netinet/in.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -30,12 +30,12 @@ bool ServiceClient::connect() {
 
   socketFd = createConnection();
   if (socketFd == -1) {
-    std::cerr << "Failed to create connection to " << gatewayAddress << '\n';
+    rdws::logger::error("Failed to create connection", gatewayAddress);
     return false;
   }
 
   connected.store(true);
-  std::cout << "Connected to broker at " << gatewayAddress << '\n';
+  rdws::logger::info("Connected to broker", gatewayAddress);
 
   return true;
 }
@@ -54,12 +54,12 @@ void ServiceClient::disconnect() {
     socketFd = -1;
   }
 
-  std::cout << "Disconnected from broker" << '\n';
+  rdws::logger::info("Disconnected from broker");
 }
 
 bool ServiceClient::registerService() const {
   if (!connected.load()) {
-    std::cerr << "Not connected to broker" << '\n';
+    rdws::logger::error("Not connected to broker");
     return false;
   }
 
@@ -70,7 +70,7 @@ bool ServiceClient::registerService() const {
   identifyMessage.AddMember("identity", identity.toJsonValue(allocator), allocator);
 
   if (sendMessage(identifyMessage)) {
-    std::cout << "Sent identification for service: " << identity.serviceId << '\n';
+    rdws::logger::info("Sent identification for service", identity.serviceId);
     return true;
   }
 
@@ -147,7 +147,7 @@ void ServiceClient::run() {
   messageThread = std::thread(&ServiceClient::messageLoop, this);
   pingThread = std::thread(&ServiceClient::pingLoop, this);
 
-  std::cout << "Service client running for " << identity.serviceId << '\n';
+  rdws::logger::info("Service client running", identity.serviceId);
 
   // Wait for threads to finish
   if (messageThread.joinable()) {
@@ -170,7 +170,7 @@ int ServiceClient::createConnection() const {
     std::string address = gatewayAddress.substr(6); // Remove "tcp://"
     const size_t colonPos = address.find(':');
     if (colonPos == std::string::npos) {
-      std::cerr << "Invalid TCP address format" << '\n';
+      rdws::logger::error("Invalid TCP address format");
       return -1;
     }
 
@@ -179,7 +179,7 @@ int ServiceClient::createConnection() const {
 
     const int sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockFd == -1) {
-      std::cerr << "Failed to create TCP socket" << '\n';
+      rdws::logger::error("Failed to create TCP socket");
       return -1;
     }
 
@@ -188,14 +188,14 @@ int ServiceClient::createConnection() const {
     serverAddr.sin_port = htons(port);
 
     if (inet_pton(AF_INET, host.c_str(), &serverAddr.sin_addr) <= 0) {
-      std::cerr << "Invalid TCP address: " << host << '\n';
+      rdws::logger::error("Invalid TCP address", host);
       close(sockFd);
       return -1;
     }
 
     if (::connect(sockFd, reinterpret_cast<struct sockaddr*>(&serverAddr), sizeof(serverAddr)) <
         0) {
-      std::cerr << "Failed to connect to TCP " << host << ":" << port << '\n';
+      rdws::logger::error("Failed to connect to TCP", host + ":" + std::to_string(port));
       close(sockFd);
       return -1;
     }
@@ -208,7 +208,7 @@ int ServiceClient::createConnection() const {
 
     const int sockFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sockFd == -1) {
-      std::cerr << "Failed to create UNIX socket" << '\n';
+      rdws::logger::error("Failed to create UNIX socket");
       return -1;
     }
 
@@ -217,7 +217,7 @@ int ServiceClient::createConnection() const {
     strncpy(serverAddr.sun_path, socketPath.c_str(), sizeof(serverAddr.sun_path) - 1);
 
     if (::connect(sockFd, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) < 0) {
-      std::cerr << "Failed to connect to UNIX socket " << socketPath << '\n';
+      rdws::logger::error("Failed to connect to UNIX socket", socketPath);
       close(sockFd);
       return -1;
     }
@@ -225,7 +225,7 @@ int ServiceClient::createConnection() const {
     return sockFd;
   }
 
-  std::cerr << "Unknown address format: " << gatewayAddress << '\n';
+  rdws::logger::error("Unknown address format", gatewayAddress);
   return -1;
 }
 
@@ -251,7 +251,7 @@ void ServiceClient::messageLoop() {
     const ssize_t bytesRead = recv(socketFd, buffer, sizeof(buffer) - 1, 0);
     if (bytesRead <= 0) {
       if (connected.load()) {
-        std::cerr << "Connection lost to broker" << '\n';
+        rdws::logger::error("Connection lost to broker");
       }
       break;
     }
@@ -297,61 +297,54 @@ void ServiceClient::handleMessage(const std::string& message) {
     jsonMessage.Parse(message.c_str());
 
     if (jsonMessage.HasParseError() || !jsonMessage.IsObject()) {
-      std::cerr << "Invalid JSON from broker" << '\n';
+      rdws::logger::error("Invalid JSON from broker");
       return;
     }
 
     const auto& messageType = rdws::utils::getString(jsonMessage, "type");
 
     if (!messageType.has_value()) {
-      std::cout << "Unknown message without type from broker" << '\n';
+      rdws::logger::warn("Unknown message without type from broker");
       return;
     }
 
     if (messageType.value() == "ACKNOWLEDGED") {
       registered.store(true);
       const auto& serviceId = rdws::utils::getString(jsonMessage, "serviceId");
-      if (serviceId.has_value()) {
-        std::cout << "Service registered successfully: " << serviceId.value() << '\n';
-      } else {
-        std::cout << "Service registered successfully" << '\n';
-      }
+      rdws::logger::info("Service registered successfully", serviceId.value_or(""));
     } else if (messageType.value() == "REQUEST") {
       handleRequest(jsonMessage);
     } else if (messageType.value() == "PONG") {
       handlePong(jsonMessage);
     } else {
-      std::cout << "Unknown message type from broker: " << messageType.value() << '\n';
+      rdws::logger::warn("Unknown message type from broker", messageType.value());
     }
 
   } catch (const std::exception& e) {
-    std::cerr << "Error handling broker message: " << e.what() << '\n';
+    rdws::logger::error("Error handling broker message", e.what());
   }
 }
 
 void ServiceClient::handleRequest(const rapidjson::Document& message) {
   if (!requestHandler) {
-    std::cerr << "No request handler set for service" << '\n';
+    rdws::logger::error("No request handler set for service");
     return;
   }
 
   const auto& requestId = rdws::utils::getString(message, "requestId");
 
   if (!requestId.has_value() || !message.HasMember("data")) {
-    std::cerr << "Invalid REQUEST message from broker" << '\n';
+    rdws::logger::error("Invalid REQUEST message from broker");
     return;
   }
 
   rapidjson::Document requestData;
   requestData.CopyFrom(message["data"], requestData.GetAllocator());
 
-  std::cout << "Processing request " << requestId.value() << '\n';
+  rdws::logger::info("Processing request", requestId.value());
 
   try {
-    // Process request
-    std::cout << "[ServiceClient] Request data: " << rdws::utils::ResponseHelper::toString(requestData) << std::endl;
     rapidjson::Document response = requestHandler(requestData);
-    std::cout << "[ServiceClient] Response data: " << rdws::utils::ResponseHelper::toString(response) << std::endl;
 
     // Send response back to broker
     (void)sendResponse(requestId.value(), response);
@@ -361,7 +354,7 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
     identity.currentLoad = std::max(0, static_cast<int>(identity.currentLoad) - 1);
 
   } catch (const std::exception& e) {
-    std::cerr << "Error processing request " << requestId.value() << ": " << e.what() << '\n';
+    rdws::logger::error("Error processing request", requestId.value() + ": " + e.what());
 
     // Send error response
     rapidjson::Document errorResponse;
@@ -376,8 +369,7 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
 }
 
 void ServiceClient::handlePong(const rapidjson::Document& message) {
-  // Just log that we received a pong
-  std::cout << "Received PONG from broker" << '\n';
+  rdws::logger::info("Received PONG from broker");
 }
 
 } // namespace servicegateway

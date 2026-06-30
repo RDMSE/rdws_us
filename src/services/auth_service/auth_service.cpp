@@ -12,10 +12,11 @@
 
 #include <atomic>
 #include <chrono>
+#include "../../shared/utils/logger.h"
+
 #include <csignal>
 #include <cstdlib>
 #include <fmt/core.h>
-#include <iostream>
 #include <memory>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -102,20 +103,19 @@ public:
 
   void run() {
     running.store(true);
-    std::cout << "[" << identity.serviceId << "] AuthService starting on " << gatewayAddress
-              << '\n';
+    rdws::logger::info("AuthService starting", identity.serviceId + " on " + gatewayAddress);
     while (running.load()) {
       client->run();
       if (!running.load()) {
         break;
       }
-      std::cout << "[" << identity.serviceId << "] Reconnecting in 3s...\n";
+      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<servicegateway::ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler(
           [this](const rapidjson::Document& req) { return processRequest(req); });
     }
-    std::cout << "[" << identity.serviceId << "] AuthService stopped\n";
+    rdws::logger::info("AuthService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -128,7 +128,7 @@ public:
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const {
     const auto& cap = rdws::utils::getString(request, "capability").value_or("");
-    std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
+    rdws::logger::info("Dispatching capability", cap);
 
     if (cap == "auth.login") {
       rdws::utils::Profiler profiler(identity.serviceId);
@@ -140,7 +140,7 @@ private:
   }
 
   [[nodiscard]] rapidjson::Document handleLogin(const rapidjson::Document& request) const {
-    std::cout << "[auth] request: " << rdws::utils::ResponseHelper::toString(request) << std::endl;
+    rdws::logger::info("auth.login request received");
     // Extract credentials from top-level body fields (spread by HttpGateway)
     std::string username = rdws::utils::getString(request, "username").value_or("");
     std::string password = rdws::utils::getString(request, "password").value_or("");
@@ -191,7 +191,7 @@ private:
       return doc;
 
     } catch (const std::exception& e) {
-      std::cerr << "[" << identity.serviceId << "] DB error: " << e.what() << std::endl;
+      rdws::logger::error("DB error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
@@ -225,7 +225,7 @@ int main(const int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    std::cerr << "Failed to initialize AuthService\n";
+    rdws::logger::error("Failed to initialize AuthService");
     return 1;
   }
   service.run();
