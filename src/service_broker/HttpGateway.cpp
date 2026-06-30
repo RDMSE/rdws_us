@@ -5,6 +5,7 @@
 #include "../shared/types/service_result.h"
 #include "../shared/utils/json_helper.h"
 #include "../shared/utils/logger.h"
+#include "../shared/utils/profiler.h"
 #include "../shared/utils/response_helper.h"
 #include "Config/GatewayConfig.h"
 
@@ -125,18 +126,24 @@ void HttpGateway::registerRoutes() {
   });
 
   server_.Get("/status", [this](const httplib::Request&, httplib::Response& response) {
+    rdws::utils::Profiler profiler("gateway");
+    auto t = profiler.scoped("GET /status");
     const rapidjson::Document status = gateway_.getGatewayStatus();
     response.status = 200;
     response.set_content(documentToString(status), "application/json");
   });
 
   server_.Get("/metrics", [this](const httplib::Request&, httplib::Response& response) {
+    rdws::utils::Profiler profiler("gateway");
+    auto t = profiler.scoped("GET /metrics");
     const rapidjson::Document metrics = gateway_.getMetrics();
     response.status = 200;
     response.set_content(documentToString(metrics), "application/json");
   });
 
   server_.Get("/health", [this](const httplib::Request&, httplib::Response& response) {
+    rdws::utils::Profiler profiler("gateway");
+    auto t = profiler.scoped("GET /health");
     const rapidjson::Document health = gateway_.getHealth();
     const bool healthy =
         health.HasMember("status") && std::string(health["status"].GetString()) == "healthy";
@@ -145,6 +152,8 @@ void HttpGateway::registerRoutes() {
   });
 
   server_.Get("/connections", [this](const httplib::Request&, httplib::Response& response) {
+    rdws::utils::Profiler profiler("gateway");
+    auto t = profiler.scoped("GET /connections");
     rapidjson::Document connections;
     connections.SetObject();
     auto& allocator = connections.GetAllocator();
@@ -174,6 +183,8 @@ void HttpGateway::registerRoutes() {
 
   // GET /routes — list all routing rules
   server_.Get("/routes", [this](const httplib::Request&, httplib::Response& response) {
+    rdws::utils::Profiler profiler("gateway");
+    auto t = profiler.scoped("GET /routes");
     const auto rules = gateway_.getEventRouter().listRules();
 
     rapidjson::Document doc;

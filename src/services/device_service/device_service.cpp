@@ -7,9 +7,10 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceRepository.h"
 #include "../../shared/service/DeviceService.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
-#include "../../shared/utils/capability_router.h"
+#include "../../shared/utils/profiler.h"
 #include "../../shared/utils/response_helper.h"
 
 #include <atomic>
@@ -114,7 +115,7 @@ private:
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     static const std::unordered_map<std::string,
-                                     rdws::utils::CapabilityHandler<rdws::device::DeviceService>>
+                                    rdws::utils::CapabilityHandler<rdws::device::DeviceService>>
         handlers = {
             {"device.list", handleList},
             {"device.get", handleGet},
@@ -124,6 +125,8 @@ private:
         };
 
     try {
+      rdws::utils::Profiler profiler(identity.serviceId);
+      auto t = profiler.scoped(cap);
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';

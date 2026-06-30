@@ -8,6 +8,7 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/response_helper.h"
+#include "../../shared/utils/profiler.h"
 
 #include <atomic>
 #include <chrono>
@@ -130,6 +131,8 @@ private:
     std::cout << "[" << identity.serviceId << "] capability=" << cap << '\n';
 
     if (cap == "auth.login") {
+      rdws::utils::Profiler profiler(identity.serviceId);
+      auto t = profiler.scoped(cap);
       return handleLogin(request);
     }
 

@@ -11,6 +11,7 @@
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
+#include "../../shared/utils/profiler.h"
 
 #include <atomic>
 #include <csignal>
@@ -110,6 +111,8 @@ private:
         };
 
     try {
+      rdws::utils::Profiler profiler(identity.serviceId);
+      auto t = profiler.scoped(cap);
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       std::cerr << "[" << identity.serviceId << "] error: " << e.what() << '\n';

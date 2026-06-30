@@ -253,5 +253,25 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
+### Fase 12 - Segurança: prevenção de IDOR
+
+**Contexto:** os IDs expostos na API são `BIGSERIAL` sequenciais, permitindo enumeração trivial de recursos (IDOR — Insecure Direct Object Reference).
+
+**Decisão de design proposta:**
+- Adicionar coluna `public_id UUID DEFAULT gen_random_uuid()` nas tabelas expostas (`farms`, `fields`, `devices`, `sensors`, `sensor_readings`, `device_configurations`).
+- A API passa a expor e receber `public_id` em vez do `id` interno.
+- Repositórios fazem lookup por `public_id` nas queries.
+- Complementar com validação de ownership pelo `sub` do JWT nos handlers (filtrar por tenant/usuário).
+
+- ⬜ Migration adicionando `public_id UUID` nas tabelas afetadas (com índice único).
+- ⬜ Atualizar repositórios para buscar/retornar `public_id`.
+- ⬜ Atualizar serialização (`xToJson`) para expor `public_id` como `id`.
+- ⬜ Atualizar handlers para receber `public_id` nos path params.
+- ⬜ Atualizar seed de dados fake.
+- ⬜ Validação de ownership nos handlers usando `lambdaContext.identity.claims`.
+- Critério de aceite: nenhum `BIGSERIAL` interno exposto na API; acesso cruzado entre usuários retorna 403.
+
+---
+
 ## Próximo passo sugerido
 Concluir a **Fase 5** com testes HTTP end-to-end: levantar um service mock via socket, disparar requests HTTP reais ao gateway e validar respostas — cobrindo cenários de sucesso, timeout e auth rejeitada. Isso fecha o único gap de cobertura antes de avançar para Fase 10.
