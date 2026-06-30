@@ -133,7 +133,7 @@ TEST_F(GatewayIntegrationTest, EchoRequest_ServiceResponds_Success) {
     rapidjson::Document resp;
     resp.SetObject();
     auto& alloc = resp.GetAllocator();
-    const std::string msg = rdws::utils::getString(req, "message").value_or("");
+    const std::string msg = rdws::utils::json::getString(req, "message").value_or("");
     const std::string result = "echo: " + msg;
     resp.AddMember("result", rapidjson::Value(result.c_str(), alloc), alloc);
     resp.AddMember("status", "success", alloc);
@@ -160,7 +160,7 @@ TEST_F(GatewayIntegrationTest, EchoRequest_ServiceResponds_Success) {
   rapidjson::Document resp;
   resp.Parse(result.responsePayload.c_str());
   ASSERT_FALSE(resp.HasParseError());
-  const auto& responseValue = rdws::utils::getString(resp, "result");
+  const auto& responseValue = rdws::utils::json::getString(resp, "result");
   ASSERT_TRUE(responseValue.has_value());
   EXPECT_EQ(responseValue.value(), "echo: hello");
 }

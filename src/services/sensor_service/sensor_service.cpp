@@ -108,7 +108,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
+    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
     rdws::logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -161,9 +161,9 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
-    const std::string deviceId = rdws::utils::getString(req, "device_id").value_or(std::string{});
-    const std::string type = rdws::utils::getString(req, "type").value_or(std::string{});
-    const std::string unit = rdws::utils::getString(req, "unit").value_or(std::string{});
+    const auto deviceId = rdws::utils::json::getString(req, "device_id").value_or(std::string{});
+    const auto type = rdws::utils::json::getString(req, "type").value_or(std::string{});
+    const auto unit = rdws::utils::json::getString(req, "unit").value_or(std::string{});
 
     if (deviceId.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: device_id");
@@ -192,8 +192,8 @@ private:
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    const std::string type = rdws::utils::getString(req, "type").value_or(std::string{});
-    const std::string unit = rdws::utils::getString(req, "unit").value_or(std::string{});
+    const std::string type = rdws::utils::json::getString(req, "type").value_or(std::string{});
+    const std::string unit = rdws::utils::json::getString(req, "unit").value_or(std::string{});
 
     if (id.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");

@@ -291,28 +291,28 @@ rapidjson::Document EventRouter::ruleToJson(const RoutingRule& rule) {
 
 RoutingRule EventRouter::ruleFromJson(const rapidjson::Value& obj) {
   RoutingRule rule;
-  const auto& condition = rdws::utils::getObject(obj, "condition");
+  const auto& condition = rdws::utils::json::getObject(obj, "condition");
 
-  rule.id = rdws::utils::getString(obj, "id").value_or(std::string{});
-  rule.name = rdws::utils::getString(obj, "name").value_or(std::string{});
-  rule.inputCapability = rdws::utils::getString(obj, "inputCapability").value_or(std::string{});
-  rule.outputCapability = rdws::utils::getString(obj, "outputCapability").value_or(std::string{});
-  rule.priority = rdws::utils::getInt(obj, "priority").value_or(0);
-  rule.enabled = rdws::utils::getBool(obj, "enabled").value_or(true);
-  rule.createdAt = rdws::utils::getString(obj, "createdAt").value_or(std::string{});
-  rule.updatedAt = rdws::utils::getString(obj, "updatedAt").value_or(std::string{});
+  rule.id = rdws::utils::json::getString(obj, "id").value_or(std::string{});
+  rule.name = rdws::utils::json::getString(obj, "name").value_or(std::string{});
+  rule.inputCapability = rdws::utils::json::getString(obj, "inputCapability").value_or(std::string{});
+  rule.outputCapability = rdws::utils::json::getString(obj, "outputCapability").value_or(std::string{});
+  rule.priority = rdws::utils::json::getInt(obj, "priority").value_or(0);
+  rule.enabled = rdws::utils::json::getBool(obj, "enabled").value_or(true);
+  rule.createdAt = rdws::utils::json::getString(obj, "createdAt").value_or(std::string{});
+  rule.updatedAt = rdws::utils::json::getString(obj, "updatedAt").value_or(std::string{});
 
   if (condition != nullptr) {
     rule.condition = {
-    .field = rdws::utils::getString(*condition, "field").value_or(std::string{}),
-    .op = rdws::utils::getString(*condition, "op").value_or(std::string{}),
-    .value = rdws::utils::getString(*condition, "value").value_or(std::string{}),
+    .field = rdws::utils::json::getString(*condition, "field").value_or(std::string{}),
+    .op = rdws::utils::json::getString(*condition, "op").value_or(std::string{}),
+    .value = rdws::utils::json::getString(*condition, "value").value_or(std::string{}),
     };
   }
 
-  rule.fallbackCapability = rdws::utils::getString(obj, "fallbackCapability");
-  rule.httpMethod = rdws::utils::getString(obj, "httpMethod");
-  rule.httpPath = rdws::utils::getString(obj, "httpPath");
+  rule.fallbackCapability = rdws::utils::json::getString(obj, "fallbackCapability");
+  rule.httpMethod = rdws::utils::json::getString(obj, "httpMethod");
+  rule.httpPath = rdws::utils::json::getString(obj, "httpPath");
 
   return rule;
 }

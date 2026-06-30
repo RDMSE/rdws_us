@@ -170,7 +170,7 @@ void HttpGateway::registerRoutes() {
               [this](const httplib::Request& request, httplib::Response& response) {
                 const std::string requestId = request.matches[1];
                 const rapidjson::Document status = gateway_.getRequestStatus(requestId);
-                const bool found = rdws::utils::getBool(status, "found").value_or(false);
+                const bool found = rdws::utils::json::getBool(status, "found").value_or(false);
                 response.status = found ? 200 : 404;
                 response.set_content(documentToString(status), "application/json");
               });
@@ -338,12 +338,12 @@ void HttpGateway::registerRoutes() {
 
     // Read existing config for this capability and apply partial updates.
     CapabilityConfig cfg = gateway_.getConfig().forCapability(cap);
-    cfg.timeoutMs = std::chrono::milliseconds{rdws::utils::getInt(body, "timeoutMs").value_or(0)};
-    if (auto lb = rdws::utils::getString(body, "loadBalancing"); lb != std::nullopt) {
+    cfg.timeoutMs = std::chrono::milliseconds{rdws::utils::json::getInt(body, "timeoutMs").value_or(0)};
+    if (auto lb = rdws::utils::json::getString(body, "loadBalancing"); lb != std::nullopt) {
       cfg.loadBalancing = GatewayConfig::lbStrategyFromString(*lb);
     }
     cfg.maxConcurrentRequests =
-        rdws::utils::getInt(body, "maxConcurrentRequests").value_or(cfg.maxConcurrentRequests);
+        rdws::utils::json::getInt(body, "maxConcurrentRequests").value_or(cfg.maxConcurrentRequests);
 
     gateway_.getConfig().setCapabilityConfig(cap, cfg);
 
@@ -383,7 +383,7 @@ void HttpGateway::registerRoutes() {
                 rapidjson::Document body;
                 body.Parse(request.body.c_str());
 
-                if (body.HasParseError() || !body.IsObject() || !rdws::utils::getBool(body, "enabled").has_value()) {
+                if (body.HasParseError() || !body.IsObject() || !rdws::utils::json::getBool(body, "enabled").has_value()) {
                   response.status = 400;
                   response.set_content(
                       ResponseHelper::returnError(R"(Body must be {"enabled": true|false})", 400),
@@ -392,7 +392,7 @@ void HttpGateway::registerRoutes() {
 
                 }
 
-                const auto enabled = rdws::utils::getBool(body, "enabled").value();
+                const auto enabled = rdws::utils::json::getBool(body, "enabled").value();
                 gateway_.getConfig().setFeature(name, enabled);
 
                 rapidjson::Document resp;
@@ -444,7 +444,7 @@ void HttpGateway::registerRoutes() {
 
     // Merge extracted path params into pathParameters
     if (!match->pathParams.empty()) {
-      if (rdws::utils::getObject(eventDocument, "pathParameters") == nullptr) {
+      if (rdws::utils::json::getObject(eventDocument, "pathParameters") == nullptr) {
         eventDocument.AddMember("pathParameters", rapidjson::Value(rapidjson::kObjectType), alloc);
       }
       auto& pp = eventDocument["pathParameters"];

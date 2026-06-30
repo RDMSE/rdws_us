@@ -301,7 +301,7 @@ void ServiceClient::handleMessage(const std::string& message) {
       return;
     }
 
-    const auto& messageType = rdws::utils::getString(jsonMessage, "type");
+    const auto& messageType = rdws::utils::json::getString(jsonMessage, "type");
 
     if (!messageType.has_value()) {
       rdws::logger::warn("Unknown message without type from broker");
@@ -310,7 +310,7 @@ void ServiceClient::handleMessage(const std::string& message) {
 
     if (messageType.value() == "ACKNOWLEDGED") {
       registered.store(true);
-      const auto& serviceId = rdws::utils::getString(jsonMessage, "serviceId");
+      const auto& serviceId = rdws::utils::json::getString(jsonMessage, "serviceId");
       rdws::logger::info("Service registered successfully", serviceId.value_or(""));
     } else if (messageType.value() == "REQUEST") {
       handleRequest(jsonMessage);
@@ -331,7 +331,7 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
     return;
   }
 
-  const auto& requestId = rdws::utils::getString(message, "requestId");
+  const auto& requestId = rdws::utils::json::getString(message, "requestId");
 
   if (!requestId.has_value() || !message.HasMember("data")) {
     rdws::logger::error("Invalid REQUEST message from broker");

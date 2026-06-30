@@ -57,7 +57,7 @@ bool ServiceGateway::start() {
   // Bridge request.completed → persistence.save.request (fire-and-forget)
   bus_.subscribe("request.completed", [this](const std::string&, const rapidjson::Document& ev) {
     // Skip forwarding persistence-internal requests to avoid loops
-    const auto& capability = rdws::utils::getString(ev, "capability");
+    const auto& capability = rdws::utils::json::getString(ev, "capability");
     if (capability.has_value() && capability.value().rfind("persistence.", 0) == 0) {
       return;
     }
@@ -317,7 +317,7 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
       return;
     }
 
-    const auto& messageType = rdws::utils::getString(jsonMessage, "type");
+    const auto& messageType = rdws::utils::json::getString(jsonMessage, "type");
 
     if (!messageType.has_value()) {
       rdws::logger::error("Missing message type from client", "fd=" + std::to_string(clientFd));
@@ -340,7 +340,7 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
 
 bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::Document& message) {
   try {
-    if (rdws::utils::getObject(message, "identity") == nullptr) {
+    if (rdws::utils::json::getObject(message, "identity") == nullptr) {
       rdws::logger::error("Invalid identification: missing identity object");
       return false;
     }
@@ -419,7 +419,7 @@ bool ServiceGateway::handlePingMessage(const int clientFd, const rapidjson::Docu
 
   if (!serviceId.empty()) {
     // Update stats if provided
-    if (rdws::utils::getObject(message, "stats") != nullptr) {
+    if (rdws::utils::json::getObject(message, "stats") != nullptr) {
       const auto& stats = message["stats"];
       if (stats.HasMember("currentLoad") && stats["currentLoad"].IsUint()) {
         const uint32_t load = stats["currentLoad"].GetUint();
@@ -454,7 +454,7 @@ bool ServiceGateway::handlePingMessage(const int clientFd, const rapidjson::Docu
 
 bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::Document& message) {
 
-  const auto& requestId = rdws::utils::getString(message, "requestId");
+  const auto& requestId = rdws::utils::json::getString(message, "requestId");
   if (!requestId.has_value()) {
     rdws::logger::error("Received RESPONSE without valid requestId", "fd=" + std::to_string(clientFd));
     return false;
@@ -477,21 +477,21 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
   }
 
   bool isError = false;
-  std::string errorMessage = rdws::utils::getString(message, "error").value_or("");
+  std::string errorMessage = rdws::utils::json::getString(message, "error").value_or("");
 
-  if (rdws::utils::getObject(message, "data") != nullptr) {
+  if (rdws::utils::json::getObject(message, "data") != nullptr) {
     const auto& data = message["data"];
-    const auto& status = rdws::utils::getString(data, "status");
+    const auto& status = rdws::utils::json::getString(data, "status");
     if (status.has_value() && status.value() == "error") {
       isError = true;
     }
 
-    const auto& dataError = rdws::utils::getString(data, "error");
+    const auto& dataError = rdws::utils::json::getString(data, "error");
     if (dataError.has_value()) {
       isError = true;
       errorMessage = dataError.value();
     }
-    const auto& dataMessage = rdws::utils::getString(data, "message");
+    const auto& dataMessage = rdws::utils::json::getString(data, "message");
     if (isError && errorMessage.empty() && dataMessage.has_value()) {
       errorMessage = dataMessage.value();
     }
@@ -504,9 +504,9 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
   if (isError) {
     pending.state = RequestState::FAILED;
     // Propagate statusCode from payload if available
-    const auto& dataObj = rdws::utils::getObject(message, "data");
+    const auto& dataObj = rdws::utils::json::getObject(message, "data");
     if (dataObj != nullptr) {
-      const auto& statusCode = rdws::utils::getInt(*dataObj, "statusCode");
+      const auto& statusCode = rdws::utils::json::getInt(*dataObj, "statusCode");
       if (statusCode.has_value()) {
         pending.statusCode = statusCode.value();
       } else {
@@ -820,7 +820,7 @@ rapidjson::Document ServiceGateway::getHealth() const {
     std::map<std::string, rapidjson::Value*> capMetrics;
     if (metricsDoc.HasMember("capabilities") && metricsDoc["capabilities"].IsArray()) {
       for (auto& entry : metricsDoc["capabilities"].GetArray()) {
-        const auto& cap = rdws::utils::getString(entry, "capability");
+        const auto& cap = rdws::utils::json::getString(entry, "capability");
         if (cap.has_value()) {
           capMetrics[cap.value()] = &entry;
         }

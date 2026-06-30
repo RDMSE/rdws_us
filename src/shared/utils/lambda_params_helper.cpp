@@ -35,9 +35,9 @@ tl::expected<bool, std::string> LambdaParamsHelper::checkParams(const int argc, 
 std::string LambdaParamsHelper::getPathParam(const rapidjson::Document& req,
                                              const std::string& key) {
 
-  const auto& pathParams = rdws::utils::getObject(req, "pathParameters");
+  const auto& pathParams = rdws::utils::json::getObject(req, "pathParameters");
   if (pathParams != nullptr) {
-    const auto& keyValue = rdws::utils::getString(*pathParams, key);
+    const auto& keyValue = rdws::utils::json::getString(*pathParams, key);
     return keyValue.value_or(std::string{});
   }
 
@@ -46,9 +46,9 @@ std::string LambdaParamsHelper::getPathParam(const rapidjson::Document& req,
 
 std::string LambdaParamsHelper::getStringQueryParam(const rapidjson::Document& req,
                                                     const std::string& key) {
-  const auto& queryParams = rdws::utils::getObject(req, "queryStringParameters");
+  const auto& queryParams = rdws::utils::json::getObject(req, "queryStringParameters");
   if (queryParams != nullptr) {
-    const auto& keyValue = rdws::utils::getString(*queryParams, key);
+    const auto& keyValue = rdws::utils::json::getString(*queryParams, key);
     return keyValue.value_or(std::string{});
   }
   return {};

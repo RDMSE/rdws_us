@@ -148,7 +148,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
+    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
 
     const std::unordered_map<std::string,
                               rdws::utils::CapabilityHandler<PersistenceService>>
@@ -176,11 +176,11 @@ private:
   // Enqueue a single request.completed event
   rapidjson::Document handleSaveRequest(const rapidjson::Document& req) {
     RequestRecord r{
-        .requestId = rdws::utils::getString(req, "requestId").value_or(std::string{}),
-        .capability = rdws::utils::getString(req, "capability").value_or(std::string{}),
-        .serviceId = rdws::utils::getString(req, "serviceId").value_or(std::string{}),
-        .success = rdws::utils::getBool(req, "success").value_or(false),
-        .latencyMs = rdws::utils::getInt(req, "latencyMs").value_or(0),
+        .requestId = rdws::utils::json::getString(req, "requestId").value_or(std::string{}),
+        .capability = rdws::utils::json::getString(req, "capability").value_or(std::string{}),
+        .serviceId = rdws::utils::json::getString(req, "serviceId").value_or(std::string{}),
+        .success = rdws::utils::json::getBool(req, "success").value_or(false),
+        .latencyMs = rdws::utils::json::getInt(req, "latencyMs").value_or(0),
     };
 
     if (r.requestId.empty()) {
@@ -200,7 +200,7 @@ private:
   // Enqueue a metrics.snapshot event
   rapidjson::Document handleSaveMetrics(const rapidjson::Document& req) {
     MetricsRecord m;
-    m.snapshotAt = rdws::utils::getString(req, "snapshotAt").value_or("");
+    m.snapshotAt = rdws::utils::json::getString(req, "snapshotAt").value_or("");
     m.metricsJson = docToString(req);
 
     {
@@ -289,11 +289,11 @@ private:
 
           const auto& stats = it->value;
           auto getNum = [&](const char* k) -> std::string {
-            if (auto val = rdws::utils::getInt(stats, k); val.has_value()) {
+            if (auto val = rdws::utils::json::getInt(stats, k); val.has_value()) {
               return std::to_string(val.value());
-            } else if (auto val = rdws::utils::getInt64(stats, k); val.has_value()) {
+            } else if (auto val = rdws::utils::json::getInt64(stats, k); val.has_value()) {
               return std::to_string(val.value());
-            } else if (auto val = rdws::utils::getDouble(stats, k); val.has_value()) {
+            } else if (auto val = rdws::utils::json::getDouble(stats, k); val.has_value()) {
               return std::to_string(val.value());
             }
             return "0";

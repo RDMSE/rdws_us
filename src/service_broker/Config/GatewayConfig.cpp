@@ -184,16 +184,16 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
 
   auto parseCapCfg = [](const rapidjson::Value& obj) -> CapabilityConfig {
     auto getTimeoutMs = [&]() -> std::chrono::milliseconds {
-      if (const auto val = rdws::utils::getInt64(obj, "timeoutMs")) {
+      if (const auto val = rdws::utils::json::getInt64(obj, "timeoutMs")) {
         return std::chrono::milliseconds(val.value());
-      } else if (const auto val = rdws::utils::getInt(obj, "timeoutMs")) {
+      } else if (const auto val = rdws::utils::json::getInt(obj, "timeoutMs")) {
         return std::chrono::milliseconds(val.value());
       }
       return std::chrono::milliseconds(0);
     };
 
     auto getLoadBalancing = [&]() -> std::optional<LoadBalancingStrategy> {
-      if (const auto loadBalancingVal = rdws::utils::getString(obj, "loadBalancing")) {
+      if (const auto loadBalancingVal = rdws::utils::json::getString(obj, "loadBalancing")) {
         return GatewayConfig::lbStrategyFromString(loadBalancingVal.value());
       }
       return std::nullopt;
@@ -202,15 +202,15 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
     return (CapabilityConfig){
       .timeoutMs = getTimeoutMs(),
       .loadBalancing = getLoadBalancing(),
-      .maxConcurrentRequests = rdws::utils::getInt(obj, "maxConcurrentRequests").value_or(0)
+      .maxConcurrentRequests = rdws::utils::json::getInt(obj, "maxConcurrentRequests").value_or(0)
     };
   };
 
-  if (rdws::utils::getObject(doc, "defaults") != nullptr) {
+  if (rdws::utils::json::getObject(doc, "defaults") != nullptr) {
     defaults_ = parseCapCfg(doc["defaults"]);
   }
 
-  if (rdws::utils::getObject(doc, "capabilities") != nullptr) {
+  if (rdws::utils::json::getObject(doc, "capabilities") != nullptr) {
     for (auto it = doc["capabilities"].MemberBegin(); it != doc["capabilities"].MemberEnd(); ++it) {
       if (it->value.IsObject()) {
         capabilities_[it->name.GetString()] = parseCapCfg(it->value);
@@ -218,7 +218,7 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
     }
   }
 
-  if (rdws::utils::getObject(doc, "features") != nullptr) {
+  if (rdws::utils::json::getObject(doc, "features") != nullptr) {
     for (auto it = doc["features"].MemberBegin(); it != doc["features"].MemberEnd(); ++it) {
       if (it->value.IsBool()) {
         features_[it->name.GetString()] = it->value.GetBool();

@@ -51,19 +51,19 @@ rapidjson::Value ServiceIdentity::toJsonValue(rapidjson::Document::AllocatorType
 ServiceIdentity ServiceIdentity::fromJson(const rapidjson::Value& json) {
   ServiceIdentity identity;
 
-  identity.machineName = rdws::utils::getString(json, "machineName").value_or("");
-  identity.serviceName = rdws::utils::getString(json, "serviceName").value_or("");
-  identity.serviceId = rdws::utils::getString(json, "serviceId").value_or("");
-  identity.version = rdws::utils::getString(json, "version").value_or("");
-  identity.environment = rdws::utils::getString(json, "environment").value_or("dev");
-  identity.maxConcurrent = rdws::utils::getInt(json, "maxConcurrent").value_or(10);
-  identity.connectionType = rdws::utils::getString(json, "connectionType").value_or("");
-  identity.clientAddress = rdws::utils::getString(json, "clientAddress").value_or("");
-  identity.currentLoad = rdws::utils::getInt(json, "currentLoad").value_or(0);
-  identity.totalRequests = rdws::utils::getInt(json, "totalRequests").value_or(0);
-  identity.errorCount = rdws::utils::getInt(json, "errorCount").value_or(0);
+  identity.machineName = rdws::utils::json::getString(json, "machineName").value_or("");
+  identity.serviceName = rdws::utils::json::getString(json, "serviceName").value_or("");
+  identity.serviceId = rdws::utils::json::getString(json, "serviceId").value_or("");
+  identity.version = rdws::utils::json::getString(json, "version").value_or("");
+  identity.environment = rdws::utils::json::getString(json, "environment").value_or("dev");
+  identity.maxConcurrent = rdws::utils::json::getInt(json, "maxConcurrent").value_or(10);
+  identity.connectionType = rdws::utils::json::getString(json, "connectionType").value_or("");
+  identity.clientAddress = rdws::utils::json::getString(json, "clientAddress").value_or("");
+  identity.currentLoad = rdws::utils::json::getInt(json, "currentLoad").value_or(0);
+  identity.totalRequests = rdws::utils::json::getInt(json, "totalRequests").value_or(0);
+  identity.errorCount = rdws::utils::json::getInt(json, "errorCount").value_or(0);
   identity.avgResponseTime =
-      std::chrono::milliseconds(rdws::utils::getInt(json, "avgResponseTimeMs").value_or(0));
+      std::chrono::milliseconds(rdws::utils::json::getInt(json, "avgResponseTimeMs").value_or(0));
 
   // Read capabilities
   if (json.HasMember("capabilities") && json["capabilities"].IsArray()) {

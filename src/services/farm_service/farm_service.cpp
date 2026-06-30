@@ -105,7 +105,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = rdws::utils::getString(request, "capability").value_or(std::string{});
+    const auto& cap = rdws::utils::json::getString(request, "capability").value_or(std::string{});
     rdws::logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -157,17 +157,17 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::farm::FarmService& svc) {
-    const auto& name = rdws::utils::getString(req, "name").value_or(std::string{});
+    const auto& name = rdws::utils::json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FarmCreate data;
     data.name = name;
-    if (const auto location = rdws::utils::getObject(req, "location"); location != nullptr) {
+    if (const auto location = rdws::utils::json::getObject(req, "location"); location != nullptr) {
       const auto& loc = *location;
-      const auto lat = rdws::utils::getDouble(loc, "lat");
-      const auto lng = rdws::utils::getDouble(loc, "lng");
+      const auto lat = rdws::utils::json::getDouble(loc, "lat");
+      const auto lng = rdws::utils::json::getDouble(loc, "lng");
       if (lat.has_value() && lng.has_value()) {
         data.locationWkt =
             "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";
@@ -195,17 +195,17 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    const auto& name = rdws::utils::getString(req, "name").value_or(std::string{});
+    const auto& name = rdws::utils::json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FarmUpdate data;
     data.name = name;
-    if (const auto location = rdws::utils::getObject(req, "location"); location != nullptr) {
+    if (const auto location = rdws::utils::json::getObject(req, "location"); location != nullptr) {
       const auto& loc = *location;
-      const auto lat = rdws::utils::getDouble(loc, "lat");
-      const auto lng = rdws::utils::getDouble(loc, "lng");
+      const auto lat = rdws::utils::json::getDouble(loc, "lat");
+      const auto lng = rdws::utils::json::getDouble(loc, "lng");
       if (lat.has_value() && lng.has_value()) {
         data.locationWkt =
             "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";

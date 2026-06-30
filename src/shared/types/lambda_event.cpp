@@ -66,63 +66,59 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
     throw std::runtime_error("Invalid JSON in LambdaEvent constructor");
   }
 
-  httpRequest_.method = rdws::utils::getString(doc, "httpMethod").value_or("");
-  httpRequest_.path = rdws::utils::getString(doc, "path").value_or("");
-  httpRequest_.resource = rdws::utils::getString(doc, "resource").value_or(httpRequest_.path);
-  httpRequest_.body = rdws::utils::getString(doc, "body").value_or("");
-  httpRequest_.isBase64Encoded = rdws::utils::getBool(doc, "isBase64Encoded").value_or(false);
+  httpRequest_.method = rdws::utils::json::getString(doc, "httpMethod").value_or("");
+  httpRequest_.path = rdws::utils::json::getString(doc, "path").value_or("");
+  httpRequest_.resource = rdws::utils::json::getString(doc, "resource").value_or(httpRequest_.path);
+  httpRequest_.body = rdws::utils::json::getString(doc, "body").value_or("");
+  httpRequest_.isBase64Encoded = rdws::utils::json::getBool(doc, "isBase64Encoded").value_or(false);
 
-  if (doc.HasMember("headers") && doc["headers"].IsObject()) {
-    for (auto it = doc["headers"].MemberBegin(); it != doc["headers"].MemberEnd(); ++it) {
+  if (const auto headers = rdws::utils::json::getObject(doc, "headers"); headers != nullptr) {
+    for (auto it = headers->MemberBegin(); it != headers->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         httpRequest_.headers[it->name.GetString()] = it->value.GetString();
       }
     }
   }
 
-  if (doc.HasMember("queryStringParameters") && doc["queryStringParameters"].IsObject()) {
-    for (auto it = doc["queryStringParameters"].MemberBegin();
-         it != doc["queryStringParameters"].MemberEnd(); ++it) {
+  if (const auto queryParams = rdws::utils::json::getObject(doc, "queryStringParameters"); queryParams != nullptr) {
+    for (auto it = queryParams->MemberBegin(); it != queryParams->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         httpRequest_.queryStringParameters[it->name.GetString()] = it->value.GetString();
       }
     }
   }
 
-  if (doc.HasMember("pathParameters") && doc["pathParameters"].IsObject()) {
-    for (auto it = doc["pathParameters"].MemberBegin(); it != doc["pathParameters"].MemberEnd();
-         ++it) {
+  if (const auto pathParams = rdws::utils::json::getObject(doc, "pathParameters"); pathParams != nullptr) {
+    for (auto it = pathParams->MemberBegin(); it != pathParams->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         httpRequest_.pathParameters[it->name.GetString()] = it->value.GetString();
       }
     }
   }
 
-  const auto requestContext = rdws::utils::getObject(doc, "requestContext");
-  if (requestContext != nullptr) {
+  if (const auto requestContext = rdws::utils::json::getObject(doc, "requestContext"); requestContext != nullptr) {
     requestContext_.requestId =
-        rdws::utils::getString(*requestContext, "requestId").value_or(generateRequestId());
-    requestContext_.stage = rdws::utils::getString(*requestContext, "stage").value_or("prod");
+        rdws::utils::json::getString(*requestContext, "requestId").value_or(generateRequestId());
+    requestContext_.stage = rdws::utils::json::getString(*requestContext, "stage").value_or("prod");
     requestContext_.httpMethod =
-        rdws::utils::getString(*requestContext, "httpMethod").value_or(httpRequest_.method);
+        rdws::utils::json::getString(*requestContext, "httpMethod").value_or(httpRequest_.method);
     requestContext_.resourcePath =
-        rdws::utils::getString(*requestContext, "resourcePath").value_or(httpRequest_.resource);
+        rdws::utils::json::getString(*requestContext, "resourcePath").value_or(httpRequest_.resource);
     requestContext_.protocol =
-        rdws::utils::getString(*requestContext, "protocol").value_or("HTTP/1.1");
+        rdws::utils::json::getString(*requestContext, "protocol").value_or("HTTP/1.1");
     requestContext_.sourceIp =
-        rdws::utils::getString(*requestContext, "sourceIp").value_or("127.0.0.1");
+        rdws::utils::json::getString(*requestContext, "sourceIp").value_or("127.0.0.1");
     requestContext_.userAgent =
-        rdws::utils::getString(*requestContext, "userAgent").value_or("rdws-gateway/1.0");
+        rdws::utils::json::getString(*requestContext, "userAgent").value_or("rdws-gateway/1.0");
     requestContext_.requestTimeEpoch =
-        rdws::utils::getInt64(*requestContext, "requestTimeEpoch")
+        rdws::utils::json::getInt64(*requestContext, "requestTimeEpoch")
             .value_or(std::chrono::duration_cast<std::chrono::milliseconds>(
                           std::chrono::system_clock::now().time_since_epoch())
                           .count());
   }
 
-  if (doc.HasMember("stageVariables") && doc["stageVariables"].IsObject()) {
-    for (auto it = doc["stageVariables"].MemberBegin(); it != doc["stageVariables"].MemberEnd();
-         ++it) {
+  if (const auto stageVars = rdws::utils::json::getObject(doc, "stageVariables"); stageVars != nullptr) {
+    for (auto it = stageVars->MemberBegin(); it != stageVars->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         stageVariables_[it->name.GetString()] = it->value.GetString();
       }

@@ -29,16 +29,6 @@ using namespace rdws::database;
 
 namespace {
 
-rapidjson::Document makeSuccess(rapidjson::Value data, rapidjson::Document::AllocatorType& alloc) {
-  rapidjson::Document doc;
-  doc.SetObject();
-  doc.GetAllocator(); // force init
-  doc.AddMember("status", "success", alloc);
-  doc.AddMember("statusCode", 200, alloc);
-  doc.AddMember("data", data, alloc);
-  return doc;
-}
-
 std::string buildJwt(const std::string& userId, const std::string& username,
                      const std::string& role, const std::string& secret) {
   using namespace std::chrono;
@@ -127,7 +117,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const {
-    const auto& cap = rdws::utils::getString(request, "capability").value_or("");
+    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
     rdws::logger::info("Dispatching capability", cap);
 
     if (cap == "auth.login") {
@@ -142,8 +132,8 @@ private:
   [[nodiscard]] rapidjson::Document handleLogin(const rapidjson::Document& request) const {
     rdws::logger::info("auth.login request received");
     // Extract credentials from top-level body fields (spread by HttpGateway)
-    std::string username = rdws::utils::getString(request, "username").value_or("");
-    std::string password = rdws::utils::getString(request, "password").value_or("");
+    std::string username = rdws::utils::json::getString(request, "username").value_or("");
+    std::string password = rdws::utils::json::getString(request, "password").value_or("");
 
     if (username.empty() || password.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("username and password are required", 400);

@@ -110,7 +110,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = rdws::utils::getString(request, "capability").value_or(std::string{});
+    const std::string cap = rdws::utils::json::getString(request, "capability").value_or(std::string{});
     rdws::logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -165,8 +165,8 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::field::FieldService& svc) {
-    std::string farmId = rdws::utils::getString(req, "farm_id").value_or(std::string{});
-    std::string name = rdws::utils::getString(req, "name").value_or(std::string{});
+    std::string farmId = rdws::utils::json::getString(req, "farm_id").value_or(std::string{});
+    std::string name = rdws::utils::json::getString(req, "name").value_or(std::string{});
 
     if (farmId.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: farm_id");
@@ -176,9 +176,9 @@ private:
     }
 
     auto getArea = [&]() -> std::string {
-      if (auto val = rdws::utils::getDouble(req, "area")) {
+      if (auto val = rdws::utils::json::getDouble(req, "area")) {
         return std::to_string(val.value());
-      } else if (auto val = rdws::utils::getString(req, "area")) {
+      } else if (auto val = rdws::utils::json::getString(req, "area")) {
         return val.value();
       }
       return "";
@@ -211,7 +211,7 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    std::string name = rdws::utils::getString(req, "name").value_or(std::string{});
+    std::string name = rdws::utils::json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
       return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
     }

@@ -1,6 +1,6 @@
 #include "json_helper.h"
 
-namespace rdws::utils {
+namespace rdws::utils::json {
 
 static bool hasField(const rapidjson::Value& doc, const std::string& field) {
   return doc.IsObject() && !field.empty() && doc.HasMember(field.c_str());
@@ -55,4 +55,4 @@ const rapidjson::Value* getArray(const rapidjson::Value& doc, const std::string&
   return nullptr;
 }
 
-} // namespace rdws::utils
+} // namespace rdws::utils::json
