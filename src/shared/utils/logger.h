@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-namespace rdws::logger {
+namespace rdws::utils::logger {
 
 /// Initialize the logger. Call once at startup.
 /// @param name      Logger name, also used to derive the log file path
@@ -29,4 +29,4 @@ void warn(std::string_view message, std::string_view context = "");
 /// Generic error.
 void error(std::string_view message, std::string_view context = "");
 
-} // namespace rdws::logger
+} // namespace rdws::utils::logger

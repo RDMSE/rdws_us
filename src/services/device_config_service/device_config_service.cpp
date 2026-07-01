@@ -28,6 +28,7 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device_config;
+namespace logger = rdws::utils::logger;
 
 namespace {} // namespace
 
@@ -67,20 +68,20 @@ public:
 
   void run() {
     running.store(true);
-    rdws::logger::info("DeviceConfigService starting", identity.serviceId);
+    logger::info("DeviceConfigService starting", identity.serviceId);
     while (running.load()) {
       client->run();
       if (!running.load()) {
         break;
       }
-      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
+      logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
         return processRequest(req);
       });
     }
-    rdws::logger::info("DeviceConfigService stopped", identity.serviceId);
+    logger::info("DeviceConfigService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -94,7 +95,7 @@ private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
 
     const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
-    rdws::logger::info("Dispatching capability", cap);
+    logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<
         std::string,
@@ -112,7 +113,7 @@ private:
 
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
-      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
+      logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
                                                          500);
     }
@@ -242,7 +243,7 @@ int main(int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
-  rdws::logger::init("device_config_service", "info", serviceId);
+  logger::init("device_config_service", "info", serviceId);
 
   AppDeviceConfigService service(serviceId, machineName, gatewayAddress);
   gService = &service;
@@ -250,7 +251,7 @@ int main(int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    rdws::logger::error("Failed to initialize DeviceConfigService");
+    logger::error("Failed to initialize DeviceConfigService");
     return 1;
   }
   service.run();

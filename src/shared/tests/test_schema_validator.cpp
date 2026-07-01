@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 
-using namespace rdws::validation;
+using namespace rdws::utils::validator;
 
 class SchemaValidatorTest : public ::testing::Test {
 protected:

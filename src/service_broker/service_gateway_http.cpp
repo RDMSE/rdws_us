@@ -9,6 +9,7 @@
 #include <thread>
 
 using namespace servicegateway;
+namespace logger = rdws::utils::logger;
 
 namespace {
 
@@ -64,7 +65,7 @@ static ServiceGateway* g_serviceGateway = nullptr;
 static HttpGateway* g_httpGateway = nullptr;
 
 void signalHandler(const int signal) {
-  rdws::logger::warn("Received signal, shutting down gateways", std::to_string(signal));
+  logger::warn("Received signal, shutting down gateways", std::to_string(signal));
 
   if (g_httpGateway != nullptr) {
     g_httpGateway->stop();
@@ -103,7 +104,7 @@ int main(const int argc, char* argv[]) {
   }
 
   // Logs to logs/rdws-gateway.log automatically — no CLI argument needed.
-  rdws::logger::init("rdws-gateway", "info");
+  logger::init("rdws-gateway", "info");
 
   const auto modeLabel = [&]() -> std::string {
     const std::string mode = getenv_str("RDWS_AUTH_MODE");
@@ -112,7 +113,7 @@ int main(const int argc, char* argv[]) {
     return "none";
   }();
 
-  rdws::logger::info("ServiceGateway HTTP Bridge starting",
+  logger::info("ServiceGateway HTTP Bridge starting",
     "broker=" + std::to_string(brokerPort) +
     " http=" + std::to_string(httpPort) +
     " unix=" + unixSocket +
@@ -133,17 +134,17 @@ int main(const int argc, char* argv[]) {
     std::signal(SIGTERM, signalHandler);
 
     if (!gateway.start()) {
-      rdws::logger::error("Failed to start ServiceGateway");
+      logger::error("Failed to start ServiceGateway");
       return 1;
     }
 
     if (!httpGateway.start()) {
-      rdws::logger::error("Failed to start HTTP gateway");
+      logger::error("Failed to start HTTP gateway");
       gateway.stop();
       return 1;
     }
 
-    rdws::logger::info("Gateway ready",
+    logger::info("Gateway ready",
       "tcp=localhost:" + std::to_string(brokerPort) +
       " unix=" + unixSocket +
       " http=localhost:" + std::to_string(httpPort));
@@ -152,7 +153,7 @@ int main(const int argc, char* argv[]) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   } catch (const std::exception& exception) {
-    rdws::logger::error("Error starting HTTP gateway", exception.what());
+    logger::error("Error starting HTTP gateway", exception.what());
     return 1;
   }
 

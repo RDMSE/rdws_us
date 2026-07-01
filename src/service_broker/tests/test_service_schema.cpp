@@ -5,7 +5,7 @@
 #include <memory>
 #include <rapidjson/document.h>
 
-using namespace rdws::validation;
+using namespace rdws::utils::validator;
 using namespace servicegateway::schemas;
 
 class ServiceSchemaTest : public ::testing::Test {

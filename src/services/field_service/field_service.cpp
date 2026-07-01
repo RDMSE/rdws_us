@@ -24,6 +24,7 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::field;
+namespace logger = rdws::utils::logger;
 
 namespace {
 
@@ -85,20 +86,20 @@ public:
 
   void run() {
     running.store(true);
-    rdws::logger::info("FieldService starting", identity.serviceId);
+    logger::info("FieldService starting", identity.serviceId);
     while (running.load()) {
       client->run();
       if (!running.load()) {
         break;
       }
-      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
+      logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
         return processRequest(req);
       });
     }
-    rdws::logger::info("FieldService stopped", identity.serviceId);
+    logger::info("FieldService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -111,7 +112,7 @@ public:
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
     const std::string cap = rdws::utils::json::getString(request, "capability").value_or(std::string{});
-    rdws::logger::info("Dispatching capability", cap);
+    logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
                                      rdws::utils::CapabilityHandler<rdws::field::FieldService>>
@@ -128,7 +129,7 @@ private:
       auto t = profiler.scoped(cap);
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
-      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
+      logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
                                                          500);
     }
@@ -256,7 +257,7 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
-  rdws::logger::init("field_service", "info", serviceId);
+  logger::init("field_service", "info", serviceId);
 
   AppFieldService service(serviceId, machineName, gatewayAddress);
   gService = &service;
@@ -264,7 +265,7 @@ int main(const int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    rdws::logger::error("Failed to initialize FieldService");
+    logger::error("Failed to initialize FieldService");
     return 1;
   }
   service.run();

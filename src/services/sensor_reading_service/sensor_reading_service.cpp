@@ -25,6 +25,7 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor_reading;
+namespace logger = rdws::utils::logger;
 
 namespace {
 
@@ -75,20 +76,20 @@ public:
 
   void run() {
     running.store(true);
-    rdws::logger::info("SensorReadingService starting", identity.serviceId);
+    logger::info("SensorReadingService starting", identity.serviceId);
     while (running.load()) {
       client->run();
       if (!running.load()) {
         break;
       }
-      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
+      logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
         return processRequest(req);
       });
     }
-    rdws::logger::info("SensorReadingService stopped", identity.serviceId);
+    logger::info("SensorReadingService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -101,7 +102,7 @@ public:
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
     const std::string cap = rdws::utils::json::getString(request, "capability").value_or("");
-    rdws::logger::info("Dispatching capability", cap);
+    logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<
         std::string,
@@ -116,7 +117,7 @@ private:
       auto t = profiler.scoped(cap);
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
-      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
+      logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
@@ -185,7 +186,7 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
-  rdws::logger::init("sensor_reading_service", "info", serviceId);
+  logger::init("sensor_reading_service", "info", serviceId);
 
   AppSensorReadingService service(serviceId, machineName, gatewayAddress);
   gService = &service;
@@ -193,7 +194,7 @@ int main(const int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    rdws::logger::error("Failed to initialize SensorReadingService");
+    logger::error("Failed to initialize SensorReadingService");
     return 1;
   }
   service.run();

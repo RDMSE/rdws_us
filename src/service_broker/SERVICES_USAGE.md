@@ -118,7 +118,7 @@ Error loading service: [detalhes específicos]
 
 ```cpp
 // A classe usa automaticamente:
-auto validator = rdws::validation::SchemaValidator::fromString(
+auto validator = rdws::utils::validator::SchemaValidator::fromString(
     "services_array", 
     loader::schemas::SERVICES_ARRAY_SCHEMA
 );

@@ -1,20 +1,17 @@
+
 #include "schema_validator.h"
 
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <sstream>
 #include <utility>
-#include <valijson/adapters/rapidjson_adapter.hpp>
-#include <valijson/schema.hpp>
 #include <valijson/schema_parser.hpp>
 #include <valijson/validation_results.hpp>
-#include <valijson/validator.hpp>
 
-namespace rdws::validation {
+namespace rdws::utils::validator {
 
 // Static factory method for string-based schemas
 SchemaValidator SchemaValidator::fromString(const std::string& name,
@@ -162,4 +159,4 @@ std::string SchemaValidator::getErrorsAsJson(const std::vector<ValidationError>&
   return buffer.GetString();
 }
 
-}; // namespace rdws::validation
+}; // namespace rdws::utils::validator

@@ -33,7 +33,7 @@ Classe para validação de JSON usando schemas JSON Schema Draft 7.
 #include "validator/schema_validator.h"
 
 // Criar validator a partir de schema string
-auto validator = rdws::validation::SchemaValidator::fromString("my_schema", schemaJson);
+auto validator = rdws::utils::validator::SchemaValidator::fromString("my_schema", schemaJson);
 
 // Validar JSON
 Json::Value data = /* seu JSON */;
@@ -89,7 +89,7 @@ ctest --test-dir build -R shared_validation_tests
 
 ## 💡 Convenções
 
-- Namespace: `rdws::*` (e.g., `rdws::validation`)
+- Namespace: `rdws::*` (e.g., `rdws::utils::validator`)
 - Headers com `.h`, implementações com `.cpp`
 - Testes prefixados com `test_`
 - Use factory methods para construção complexa

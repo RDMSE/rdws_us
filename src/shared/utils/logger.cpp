@@ -8,7 +8,7 @@
 #include <spdlog/spdlog.h>
 #include <sstream>
 
-namespace rdws::logger {
+namespace rdws::utils::logger {
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -142,4 +142,4 @@ void error(const std::string_view message, const std::string_view context) {
       "error", {kv("service_id", g_serviceId), kv("message", message), kv("context", context)}));
 }
 
-} // namespace rdws::logger
+} // namespace rdws::utils::logger

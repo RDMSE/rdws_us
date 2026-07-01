@@ -37,7 +37,7 @@ Valida arrays de serviços (como `services.json`):
 #include "validator/schema_validator.h"
 #include "schemas/service.h"
 
-using namespace rdws::validation;
+using namespace rdws::utils::validator;
 using namespace loader::schemas;
 
 // Validar um arquivo services.json

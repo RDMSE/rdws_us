@@ -21,6 +21,7 @@ using rdws::types::LambdaContext;
 using rdws::types::LambdaEvent;
 using rdws::types::ServiceResult;
 using rdws::utils::ResponseHelper;
+using rdws::utils::logger;
 
 HttpGateway::HttpGateway(ServiceGateway& gateway, int port, std::string host, AuthConfig authConfig)
     : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig)) {}
@@ -34,7 +35,7 @@ bool HttpGateway::start() {
   running_.store(true);
 
   serverThread_ = std::thread([this]() {
-    rdws::logger::info("HTTP gateway listening", "http://" + host_ + ":" + std::to_string(port_));
+    logger::info("HTTP gateway listening", "http://" + host_ + ":" + std::to_string(port_));
     server_.listen(host_, port_);
     running_.store(false);
   });
@@ -84,13 +85,13 @@ void HttpGateway::registerRoutes() {
 
     const std::string requestId = gateway_.sendRequest(capability, eventDocument);
 
-    rdws::logger::info("http_request", (requestId.empty() ? "-" : requestId) + " " + request.method + " " + capability + " " + request.path);
+    logger::info("http_request", (requestId.empty() ? "-" : requestId) + " " + request.method + " " + capability + " " + request.path);
 
     auto respond = [&](int status, const std::string& body) {
       const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - t0)
                                  .count();
-      rdws::logger::info("http_response", (requestId.empty() ? "-" : requestId) + " " + capability + " status=" + std::to_string(status) + " latency=" + std::to_string(latencyMs) + "ms");
+      logger::info("http_response", (requestId.empty() ? "-" : requestId) + " " + capability + " status=" + std::to_string(status) + " latency=" + std::to_string(latencyMs) + "ms");
       gateway_.recordMetric(capability, static_cast<double>(latencyMs), status < 400,
                             status == 504);
       response.status = status;
@@ -461,13 +462,13 @@ void HttpGateway::registerRoutes() {
     }
 
     const std::string requestId = gateway_.sendRequest(capability, eventDocument);
-    rdws::logger::info("http_request", (requestId.empty() ? "-" : requestId) + " " + request.method + " " + capability + " " + request.path);
+    logger::info("http_request", (requestId.empty() ? "-" : requestId) + " " + request.method + " " + capability + " " + request.path);
 
     auto respond = [&](int status, const std::string& body) {
       const auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - t0)
                                  .count();
-      rdws::logger::info("http_response", (requestId.empty() ? "-" : requestId) + " " + capability + " status=" + std::to_string(status) + " latency=" + std::to_string(latencyMs) + "ms");
+      logger::info("http_response", (requestId.empty() ? "-" : requestId) + " " + capability + " status=" + std::to_string(status) + " latency=" + std::to_string(latencyMs) + "ms");
       gateway_.recordMetric(capability, static_cast<double>(latencyMs), status < 400,
                             status == 504);
       response.status = status;

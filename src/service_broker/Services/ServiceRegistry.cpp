@@ -7,19 +7,21 @@
 #include <random>
 #include <ranges>
 
+namespace logger = rdws::utils::logger;
+
 namespace servicegateway {
 
 bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
   std::scoped_lock lock(registryMutex);
 
   if (identity.serviceId.empty()) {
-    rdws::logger::error("Cannot register service with empty serviceId");
+    logger::error("Cannot register service with empty serviceId");
     return false;
   }
 
   // Check if service already exists
   if (identities.contains(identity.serviceId)) {
-    rdws::logger::info("Service already registered, updating", identity.serviceId);
+    logger::info("Service already registered, updating", identity.serviceId);
     return updateService(identity);
   }
 
@@ -29,7 +31,7 @@ bool ServiceRegistry::registerService(const ServiceIdentity& identity) {
   // Add to indexes
   addToIndexes(identity);
 
-  rdws::logger::info("Registered service", identity.serviceId + " (" + identity.serviceName + ") from " + identity.machineName);
+  logger::info("Registered service", identity.serviceId + " (" + identity.serviceName + ") from " + identity.machineName);
 
   return true;
 }
@@ -48,7 +50,7 @@ bool ServiceRegistry::unregisterService(const std::string& serviceId) {
   // Remove from main registry
   identities.erase(it);
 
-  rdws::logger::info("Unregistered service", serviceId);
+  logger::info("Unregistered service", serviceId);
   return true;
 }
 
@@ -278,7 +280,7 @@ void ServiceRegistry::removeUnhealthyServices(std::chrono::seconds timeout) {
   }
 
   for (const auto& serviceId : toRemove) {
-    rdws::logger::warn("Removing unhealthy service", serviceId);
+    logger::warn("Removing unhealthy service", serviceId);
     unregisterService(serviceId);
   }
 }

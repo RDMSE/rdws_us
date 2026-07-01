@@ -9,6 +9,7 @@
 #include <thread>
 
 namespace fs = std::filesystem;
+namespace logger = rdws::utils::logger;
 
 // ---------------------------------------------------------------------------
 // Fixture: isolates spdlog global state and temp files across test cases.
@@ -24,7 +25,7 @@ protected:
     fs::remove(logPath);
 
     spdlog::drop_all();
-    rdws::logger::init("test-logger", "info", "", logPath);
+    logger::init("test-logger", "info", "", logPath);
   }
 
   void TearDown() override {
@@ -49,7 +50,7 @@ TEST_F(LoggerTest, InitCreatesLogFile) {
 }
 
 TEST_F(LoggerTest, InfoEmitsCorrectFields) {
-  rdws::logger::info("service_connected", "svc_001 (my_service) from /tmp/test.sock");
+  logger::info("service_connected", "svc_001 (my_service) from /tmp/test.sock");
 
   const std::string content = readLog();
   EXPECT_NE(content.find(R"("event":"info")"), std::string::npos);
@@ -59,7 +60,7 @@ TEST_F(LoggerTest, InfoEmitsCorrectFields) {
 }
 
 TEST_F(LoggerTest, WarnEmitsCorrectFields) {
-  rdws::logger::warn("service_disconnected", "svc_002 connection_reset");
+  logger::warn("service_disconnected", "svc_002 connection_reset");
 
   const std::string content = readLog();
   EXPECT_NE(content.find(R"("event":"warn")"), std::string::npos);
@@ -68,7 +69,7 @@ TEST_F(LoggerTest, WarnEmitsCorrectFields) {
 }
 
 TEST_F(LoggerTest, ErrorEmitsCorrectFields) {
-  rdws::logger::error("fatal error", "stack trace here");
+  logger::error("fatal error", "stack trace here");
 
   const std::string content = readLog();
   EXPECT_NE(content.find(R"("event":"error")"), std::string::npos);
@@ -77,8 +78,8 @@ TEST_F(LoggerTest, ErrorEmitsCorrectFields) {
 }
 
 TEST_F(LoggerTest, MultipleEventsAreOnSeparateLines) {
-  rdws::logger::info("http_request", "req_1 POST ping /invoke/ping");
-  rdws::logger::info("http_response", "req_1 ping status=200 latency=10ms");
+  logger::info("http_request", "req_1 POST ping /invoke/ping");
+  logger::info("http_response", "req_1 ping status=200 latency=10ms");
 
   const std::string content = readLog();
   const long lineCount = std::count(content.begin(), content.end(), '\n');
@@ -86,15 +87,15 @@ TEST_F(LoggerTest, MultipleEventsAreOnSeparateLines) {
 }
 
 TEST_F(LoggerTest, JsonEscapesSpecialCharactersInValues) {
-  rdws::logger::warn("service_disconnected", R"(svc_003 err "test" path\file)");
+  logger::warn("service_disconnected", R"(svc_003 err "test" path\file)");
 
   const std::string content = readLog();
   EXPECT_NE(content.find(R"(err \"test\" path\\file)"), std::string::npos);
 }
 
 TEST_F(LoggerTest, WarnAndErrorDoNotCrash) {
-  EXPECT_NO_THROW(rdws::logger::warn("something odd happened", "context_info"));
-  EXPECT_NO_THROW(rdws::logger::error("fatal error", "stack trace here"));
+  EXPECT_NO_THROW(logger::warn("something odd happened", "context_info"));
+  EXPECT_NO_THROW(logger::error("fatal error", "stack trace here"));
 
   const std::string content = readLog();
   EXPECT_NE(content.find("something odd happened"), std::string::npos);

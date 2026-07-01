@@ -1,14 +1,15 @@
 #pragma once
 
 #include <memory>
-#include <rapidjson/document.h>
 #include <string>
 #include <utility>
+#include <valijson/adapters/rapidjson_adapter.hpp>
+#include <rapidjson/document.h>
 #include <valijson/schema.hpp>
 #include <valijson/validator.hpp>
 #include <vector>
 
-namespace rdws::validation {
+namespace rdws::utils::validator {
 
 struct ValidationError {
   std::string field;
@@ -64,4 +65,4 @@ public:
   }
 };
 
-}; // namespace rdws::validation
+}; // namespace rdws::utils::validator

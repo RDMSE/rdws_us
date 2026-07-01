@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <utility>
 
+namespace logger = rdws::utils::logger;
+
 namespace servicegateway {
 
 ServiceClient::ServiceClient(ServiceIdentity serviceIdentity, std::string address)
@@ -30,12 +32,12 @@ bool ServiceClient::connect() {
 
   socketFd = createConnection();
   if (socketFd == -1) {
-    rdws::logger::error("Failed to create connection", gatewayAddress);
+    logger::error("Failed to create connection", gatewayAddress);
     return false;
   }
 
   connected.store(true);
-  rdws::logger::info("Connected to broker", gatewayAddress);
+  logger::info("Connected to broker", gatewayAddress);
 
   return true;
 }
@@ -54,12 +56,12 @@ void ServiceClient::disconnect() {
     socketFd = -1;
   }
 
-  rdws::logger::info("Disconnected from broker");
+  logger::info("Disconnected from broker");
 }
 
 bool ServiceClient::registerService() const {
   if (!connected.load()) {
-    rdws::logger::error("Not connected to broker");
+    logger::error("Not connected to broker");
     return false;
   }
 
@@ -70,7 +72,7 @@ bool ServiceClient::registerService() const {
   identifyMessage.AddMember("identity", identity.toJsonValue(allocator), allocator);
 
   if (sendMessage(identifyMessage)) {
-    rdws::logger::info("Sent identification for service", identity.serviceId);
+    logger::info("Sent identification for service", identity.serviceId);
     return true;
   }
 
@@ -147,7 +149,7 @@ void ServiceClient::run() {
   messageThread = std::thread(&ServiceClient::messageLoop, this);
   pingThread = std::thread(&ServiceClient::pingLoop, this);
 
-  rdws::logger::info("Service client running", identity.serviceId);
+  logger::info("Service client running", identity.serviceId);
 
   // Wait for threads to finish
   if (messageThread.joinable()) {
@@ -170,7 +172,7 @@ int ServiceClient::createConnection() const {
     std::string address = gatewayAddress.substr(6); // Remove "tcp://"
     const size_t colonPos = address.find(':');
     if (colonPos == std::string::npos) {
-      rdws::logger::error("Invalid TCP address format");
+      logger::error("Invalid TCP address format");
       return -1;
     }
 
@@ -179,7 +181,7 @@ int ServiceClient::createConnection() const {
 
     const int sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockFd == -1) {
-      rdws::logger::error("Failed to create TCP socket");
+      logger::error("Failed to create TCP socket");
       return -1;
     }
 
@@ -188,14 +190,14 @@ int ServiceClient::createConnection() const {
     serverAddr.sin_port = htons(port);
 
     if (inet_pton(AF_INET, host.c_str(), &serverAddr.sin_addr) <= 0) {
-      rdws::logger::error("Invalid TCP address", host);
+      logger::error("Invalid TCP address", host);
       close(sockFd);
       return -1;
     }
 
     if (::connect(sockFd, reinterpret_cast<struct sockaddr*>(&serverAddr), sizeof(serverAddr)) <
         0) {
-      rdws::logger::error("Failed to connect to TCP", host + ":" + std::to_string(port));
+      logger::error("Failed to connect to TCP", host + ":" + std::to_string(port));
       close(sockFd);
       return -1;
     }
@@ -208,7 +210,7 @@ int ServiceClient::createConnection() const {
 
     const int sockFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sockFd == -1) {
-      rdws::logger::error("Failed to create UNIX socket");
+      logger::error("Failed to create UNIX socket");
       return -1;
     }
 
@@ -217,7 +219,7 @@ int ServiceClient::createConnection() const {
     strncpy(serverAddr.sun_path, socketPath.c_str(), sizeof(serverAddr.sun_path) - 1);
 
     if (::connect(sockFd, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) < 0) {
-      rdws::logger::error("Failed to connect to UNIX socket", socketPath);
+      logger::error("Failed to connect to UNIX socket", socketPath);
       close(sockFd);
       return -1;
     }
@@ -225,7 +227,7 @@ int ServiceClient::createConnection() const {
     return sockFd;
   }
 
-  rdws::logger::error("Unknown address format", gatewayAddress);
+  logger::error("Unknown address format", gatewayAddress);
   return -1;
 }
 
@@ -251,7 +253,7 @@ void ServiceClient::messageLoop() {
     const ssize_t bytesRead = recv(socketFd, buffer, sizeof(buffer) - 1, 0);
     if (bytesRead <= 0) {
       if (connected.load()) {
-        rdws::logger::error("Connection lost to broker");
+        logger::error("Connection lost to broker");
       }
       break;
     }
@@ -297,51 +299,51 @@ void ServiceClient::handleMessage(const std::string& message) {
     jsonMessage.Parse(message.c_str());
 
     if (jsonMessage.HasParseError() || !jsonMessage.IsObject()) {
-      rdws::logger::error("Invalid JSON from broker");
+      logger::error("Invalid JSON from broker");
       return;
     }
 
     const auto& messageType = rdws::utils::json::getString(jsonMessage, "type");
 
     if (!messageType.has_value()) {
-      rdws::logger::warn("Unknown message without type from broker");
+      logger::warn("Unknown message without type from broker");
       return;
     }
 
     if (messageType.value() == "ACKNOWLEDGED") {
       registered.store(true);
       const auto& serviceId = rdws::utils::json::getString(jsonMessage, "serviceId");
-      rdws::logger::info("Service registered successfully", serviceId.value_or(""));
+      logger::info("Service registered successfully", serviceId.value_or(""));
     } else if (messageType.value() == "REQUEST") {
       handleRequest(jsonMessage);
     } else if (messageType.value() == "PONG") {
       handlePong(jsonMessage);
     } else {
-      rdws::logger::warn("Unknown message type from broker", messageType.value());
+      logger::warn("Unknown message type from broker", messageType.value());
     }
 
   } catch (const std::exception& e) {
-    rdws::logger::error("Error handling broker message", e.what());
+    logger::error("Error handling broker message", e.what());
   }
 }
 
 void ServiceClient::handleRequest(const rapidjson::Document& message) {
   if (!requestHandler) {
-    rdws::logger::error("No request handler set for service");
+    logger::error("No request handler set for service");
     return;
   }
 
   const auto& requestId = rdws::utils::json::getString(message, "requestId");
 
   if (!requestId.has_value() || !message.HasMember("data")) {
-    rdws::logger::error("Invalid REQUEST message from broker");
+    logger::error("Invalid REQUEST message from broker");
     return;
   }
 
   rapidjson::Document requestData;
   requestData.CopyFrom(message["data"], requestData.GetAllocator());
 
-  rdws::logger::info("Processing request", requestId.value());
+  logger::info("Processing request", requestId.value());
 
   try {
     rapidjson::Document response = requestHandler(requestData);
@@ -354,7 +356,7 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
     identity.currentLoad = std::max(0, static_cast<int>(identity.currentLoad) - 1);
 
   } catch (const std::exception& e) {
-    rdws::logger::error("Error processing request", requestId.value() + ": " + e.what());
+    logger::error("Error processing request", requestId.value() + ": " + e.what());
 
     // Send error response
     rapidjson::Document errorResponse;
@@ -369,7 +371,7 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
 }
 
 void ServiceClient::handlePong(const rapidjson::Document& message) {
-  rdws::logger::info("Received PONG from broker");
+  logger::info("Received PONG from broker");
 }
 
 } // namespace servicegateway

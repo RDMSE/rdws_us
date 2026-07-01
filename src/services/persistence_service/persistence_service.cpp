@@ -30,6 +30,7 @@
 
 using namespace servicegateway;
 using namespace rdws::database;
+namespace logger = rdws::utils::logger;
 
 namespace {
 
@@ -108,7 +109,7 @@ public:
 
   void run() {
     running.store(true);
-    rdws::logger::info("PersistenceService starting", identity.serviceId);
+    logger::info("PersistenceService starting", identity.serviceId);
 
     flushThread_ = std::thread([this]() {
       while (running.load()) {
@@ -125,7 +126,7 @@ public:
       if (!running.load()) {
         break;
       }
-      rdws::logger::warn("Reconnecting in 3s", identity.serviceId);
+      logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
       client = std::make_unique<ServiceClient>(identity, gatewayAddress);
       client->setRequestHandler([this](const rapidjson::Document& req) -> rapidjson::Document {
@@ -133,7 +134,7 @@ public:
       });
     }
 
-    rdws::logger::info("PersistenceService stopped", identity.serviceId);
+    logger::info("PersistenceService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -168,7 +169,7 @@ private:
       auto t = profiler.scoped(cap);
       return rdws::utils::dispatchCapability(cap, request, *this, handlers);
     } catch (const std::exception& e) {
-      rdws::logger::error("Request error", identity.serviceId + " " + e.what());
+      logger::error("Request error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
@@ -245,9 +246,9 @@ private:
                        {r.requestId, r.capability, r.serviceId, r.success ? "true" : "false",
                         std::to_string(r.latencyMs)});
       }
-      rdws::logger::info("Flushed request records", identity.serviceId + " count=" + std::to_string(batch.size()));
+      logger::info("Flushed request records", identity.serviceId + " count=" + std::to_string(batch.size()));
     } catch (const std::exception& e) {
-      rdws::logger::error("Flush error", identity.serviceId + " " + e.what());
+      logger::error("Flush error", identity.serviceId + " " + e.what());
     }
   }
 
@@ -308,9 +309,9 @@ private:
                           getNum("p99LatencyMs"), getNum("minLatencyMs"), getNum("maxLatencyMs")});
         }
       }
-      rdws::logger::info("Flushed metrics snapshots", identity.serviceId + " count=" + std::to_string(batch.size()));
+      logger::info("Flushed metrics snapshots", identity.serviceId + " count=" + std::to_string(batch.size()));
     } catch (const std::exception& e) {
-      rdws::logger::error("Metrics flush error", identity.serviceId + " " + e.what());
+      logger::error("Metrics flush error", identity.serviceId + " " + e.what());
     }
   }
 };
@@ -337,7 +338,7 @@ int main(const int argc, char* argv[]) {
     machineName = "dev-machine";
   }
 
-  rdws::logger::init("persistence_service", "info", serviceId);
+  logger::init("persistence_service", "info", serviceId);
 
   PersistenceService service(serviceId, machineName, gatewayAddress);
   gService = &service;
@@ -345,7 +346,7 @@ int main(const int argc, char* argv[]) {
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    rdws::logger::error("Failed to initialize PersistenceService");
+    logger::error("Failed to initialize PersistenceService");
     return 1;
   }
   service.run();
