@@ -30,13 +30,13 @@ namespace logger = rdws::utils::logger;
 namespace {
 
 rapidjson::Value readingToJson(const SensorReading& r, rapidjson::Document::AllocatorType& alloc) {
-  rapidjson::Value obj(rapidjson::kObjectType);
-  obj.AddMember("id", rapidjson::Value(r.id.c_str(), alloc), alloc);
-  obj.AddMember("sensor_id", rapidjson::Value(r.sensorId.c_str(), alloc), alloc);
-  obj.AddMember("timestamp", rapidjson::Value(r.timestamp.c_str(), alloc), alloc);
-  obj.AddMember("value", rapidjson::Value(r.value.c_str(), alloc), alloc);
-  obj.AddMember("created_at", rapidjson::Value(r.createdAt.c_str(), alloc), alloc);
-  return obj;
+  return rdws::utils::json::JsonObj(alloc)
+      .set("id", r.id)
+      .set("sensor_id", r.sensorId)
+      .set("timestamp", r.timestamp)
+      .set("value", r.value)
+      .set("created_at", r.createdAt)
+      .take();
 }
 
 } // namespace
@@ -160,7 +160,7 @@ private:
     }
 
     return rdws::utils::ResponseHelper::returnDataDoc(
-        [&](auto& alloc) { return readingToJson(*reading, alloc); });
+        [&](auto& alloc) { return readingToJson(reading.value(), alloc); });
   }
 };
 

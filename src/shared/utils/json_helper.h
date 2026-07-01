@@ -41,6 +41,20 @@ public:
     return *this;
   }
 
+  JsonObj& setJsonOrString(const char* key, const std::string& raw) {
+    if (!raw.empty()) {
+      rapidjson::Document parsed;
+      if (!parsed.Parse(raw.c_str()).HasParseError()) {
+        rapidjson::Value copy;
+        copy.CopyFrom(parsed, alloc_);
+        value_.AddMember(rapidjson::StringRef(key), copy, alloc_);
+        return *this;
+      }
+    }
+    value_.AddMember(rapidjson::StringRef(key), rapidjson::Value(raw.c_str(), alloc_), alloc_);
+    return *this;
+  }
+
   rapidjson::Value take() {
     return std::move(value_);
   }

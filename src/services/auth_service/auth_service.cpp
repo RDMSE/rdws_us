@@ -173,28 +173,6 @@ private:
             .set("role", role))
           .take();
       });
-
-      /* implementacao anterior
-      rapidjson::Document doc;
-      doc.SetObject();
-      auto& alloc = doc.GetAllocator();
-
-      rapidjson::Value data(rapidjson::kObjectType);
-      data.AddMember("token", rapidjson::Value(token.c_str(), alloc), alloc);
-      data.AddMember("tokenType", "Bearer", alloc);
-      data.AddMember("expiresIn", 86400, alloc);
-      rapidjson::Value userObj(rapidjson::kObjectType);
-      userObj.AddMember("id", rapidjson::Value(userId.c_str(), alloc), alloc);
-      userObj.AddMember("username", rapidjson::Value(uname.c_str(), alloc), alloc);
-      userObj.AddMember("role", rapidjson::Value(role.c_str(), alloc), alloc);
-      data.AddMember("user", userObj, alloc);
-
-      doc.AddMember("status", "success", alloc);
-      doc.AddMember("statusCode", 200, alloc);
-      doc.AddMember("data", data, alloc);
-      return doc;
-      */
-
     } catch (const std::exception& e) {
       logger::error("DB error", identity.serviceId + " " + e.what());
       return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);

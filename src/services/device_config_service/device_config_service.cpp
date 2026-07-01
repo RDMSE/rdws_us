@@ -132,24 +132,15 @@ private:
     }
 
     return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
-      rapidjson::Value data(rapidjson::kObjectType);
-      data.AddMember("id", rapidjson::Value(cfg->id.c_str(), alloc), alloc);
-      data.AddMember("device_id", rapidjson::Value(cfg->deviceId.c_str(), alloc), alloc);
-
-      rapidjson::Document configDoc;
-      if (!cfg->config.empty() && !configDoc.Parse(cfg->config.c_str()).HasParseError()) {
-        rapidjson::Value configVal;
-        configVal.CopyFrom(configDoc, alloc);
-        data.AddMember("config", configVal, alloc);
-      } else {
-        data.AddMember("config", rapidjson::Value(cfg->config.c_str(), alloc), alloc);
-      }
-
-      data.AddMember("created_at", rapidjson::Value(cfg->createdAt.c_str(), alloc), alloc);
+      rdws::utils::json::JsonObj obj(alloc);
+      obj.set("id", cfg->id)
+          .set("deviceId", cfg->deviceId)
+          .setJsonOrString("config", cfg->config)
+          .set("createdAt", cfg->createdAt);
       if (!cfg->updatedAt.empty()) {
-        data.AddMember("updated_at", rapidjson::Value(cfg->updatedAt.c_str(), alloc), alloc);
+        obj.set("updatedAt", cfg->updatedAt);
       }
-      return data;
+      return obj.take();
     });
   }
 
@@ -176,13 +167,10 @@ private:
       return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
-        [&](auto& alloc) {
-          rapidjson::Value data(rapidjson::kObjectType);
-          data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-          return data;
-        },
-        201);
+
+    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc){
+      return rdws::utils::json::JsonObj(alloc).set("id", id).take();
+    }, 201);
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,

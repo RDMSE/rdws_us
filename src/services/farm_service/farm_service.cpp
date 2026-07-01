@@ -31,18 +31,18 @@ namespace logger = rdws::utils::logger;
 namespace {
 
 rapidjson::Value farmToJson(const Farm& f, rapidjson::Document::AllocatorType& alloc) {
-  rapidjson::Value obj(rapidjson::kObjectType);
-  obj.AddMember("id", rapidjson::Value(f.id.c_str(), alloc), alloc);
-  obj.AddMember("name", rapidjson::Value(f.name.c_str(), alloc), alloc);
-  obj.AddMember("location", rapidjson::Value(f.location.c_str(), alloc), alloc);
-  obj.AddMember("created_at", rapidjson::Value(f.createdAt.c_str(), alloc), alloc);
+  rdws::utils::json::JsonObj obj(alloc);
+  obj.set("id", f.id)
+    .set("name", f.name)
+    .set("location", f.location)
+    .set("created_at", f.createdAt);
   if (!f.updatedAt.empty()) {
-    obj.AddMember("updated_at", rapidjson::Value(f.updatedAt.c_str(), alloc), alloc);
+    obj.set("updated_at", f.updatedAt);
   }
   if (!f.updatedBy.empty()) {
-    obj.AddMember("updated_by", rapidjson::Value(f.updatedBy.c_str(), alloc), alloc);
+    obj.set("updated_by", f.updatedBy);
   }
-  return obj;
+  return obj.take();
 }
 
 } // namespace
@@ -153,7 +153,7 @@ private:
     }
 
     return rdws::utils::ResponseHelper::returnDataDoc(
-        [&](auto& alloc) { return farmToJson(*farm, alloc); });
+        [&](auto& alloc) { return farmToJson(farm.value(), alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
@@ -182,9 +182,7 @@ private:
 
     return rdws::utils::ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          rapidjson::Value obj(rapidjson::kObjectType);
-          obj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-          return obj;
+          return rdws::utils::json::JsonObj(alloc).set("id", id).take();
         },
         201);
   }

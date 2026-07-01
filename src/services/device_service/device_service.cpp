@@ -30,25 +30,25 @@ namespace logger = rdws::utils::logger;
 namespace {
 
 rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
-  rapidjson::Value obj(rapidjson::kObjectType);
-  obj.AddMember("id", rapidjson::Value(d.id.c_str(), alloc), alloc);
-  obj.AddMember("field_id", rapidjson::Value(d.fieldId.c_str(), alloc), alloc);
-  obj.AddMember("type", rapidjson::Value(d.type.c_str(), alloc), alloc);
-  obj.AddMember("status", rapidjson::Value(d.status.c_str(), alloc), alloc);
+  rdws::utils::json::JsonObj obj(alloc);
+  obj.set("id", d.id)
+      .set("field_id", d.fieldId)
+      .set("type", d.type)
+      .set("status", d.status);
   if (!d.installationDate.empty()) {
-    obj.AddMember("installation_date", rapidjson::Value(d.installationDate.c_str(), alloc), alloc);
+    obj.set("installation_date", d.installationDate);
   }
   if (!d.location.empty()) {
-    obj.AddMember("location", rapidjson::Value(d.location.c_str(), alloc), alloc);
+    obj.set("location", d.location);
   }
-  obj.AddMember("created_at", rapidjson::Value(d.createdAt.c_str(), alloc), alloc);
+  obj.set("created_at", d.createdAt);
   if (!d.updatedAt.empty()) {
-    obj.AddMember("updated_at", rapidjson::Value(d.updatedAt.c_str(), alloc), alloc);
+    obj.set("updated_at", d.updatedAt); 
   }
   if (!d.updatedBy.empty()) {
-    obj.AddMember("updated_by", rapidjson::Value(d.updatedBy.c_str(), alloc), alloc);
+    obj.set("updated_by", d.updatedBy);
   }
-  return obj;
+  return obj.take();
 }
 
 } // namespace
@@ -164,7 +164,7 @@ private:
     }
 
     return rdws::utils::ResponseHelper::returnDataDoc(
-        [&](auto& alloc) { return deviceToJson(*device, alloc); });
+        [&](auto& alloc) { return deviceToJson(device.value(), alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
@@ -187,9 +187,7 @@ private:
 
     return rdws::utils::ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          rapidjson::Value data(rapidjson::kObjectType);
-          data.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-          return data;
+          return rdws::utils::json::JsonObj(alloc).set("id", id).take();
         },
         201);
   }

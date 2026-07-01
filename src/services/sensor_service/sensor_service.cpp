@@ -29,22 +29,22 @@ namespace logger = rdws::utils::logger;
 namespace {
 
 rapidjson::Value sensorToJson(const Sensor& s, rapidjson::Document::AllocatorType& alloc) {
-  rapidjson::Value obj(rapidjson::kObjectType);
-  obj.AddMember("id", rapidjson::Value(s.id.c_str(), alloc), alloc);
-  obj.AddMember("device_id", rapidjson::Value(s.deviceId.c_str(), alloc), alloc);
-  obj.AddMember("type", rapidjson::Value(s.type.c_str(), alloc), alloc);
-  obj.AddMember("unit", rapidjson::Value(s.unit.c_str(), alloc), alloc);
+  rdws::utils::json::JsonObj obj(alloc);
+  obj.set("id", s.id)
+      .set("device_id", s.deviceId)
+      .set("type", s.type)
+      .set("unit", s.unit)
+      .set("created_at", s.createdAt);
   if (!s.location.empty()) {
-    obj.AddMember("location", rapidjson::Value(s.location.c_str(), alloc), alloc);
+    obj.set("location", s.location);
   }
-  obj.AddMember("created_at", rapidjson::Value(s.createdAt.c_str(), alloc), alloc);
   if (!s.updatedAt.empty()) {
-    obj.AddMember("updated_at", rapidjson::Value(s.updatedAt.c_str(), alloc), alloc);
+    obj.set("updated_at", s.updatedAt);
   }
   if (!s.updatedBy.empty()) {
-    obj.AddMember("updated_by", rapidjson::Value(s.updatedBy.c_str(), alloc), alloc);
+    obj.set("updated_by", s.updatedBy);
   }
-  return obj;
+  return obj.take();
 }
 
 } // namespace

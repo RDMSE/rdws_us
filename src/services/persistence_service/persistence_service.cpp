@@ -35,14 +35,6 @@ namespace logger = rdws::utils::logger;
 namespace {
 
 
-rapidjson::Document makeOk() {
-  rapidjson::Document doc;
-  doc.SetObject();
-  auto& a = doc.GetAllocator();
-  doc.AddMember("status", "success", a);
-  doc.AddMember("statusCode", 200, a);
-  return doc;
-}
 
 std::string docToString(const rapidjson::Value& v) {
   rapidjson::StringBuffer buf;
@@ -195,7 +187,7 @@ private:
         flushRequestBuffer();
       }
     }
-    return makeOk();
+    return rdws::utils::ResponseHelper::returnSuccessDoc();
   }
 
   // Enqueue a metrics.snapshot event
@@ -211,7 +203,7 @@ private:
         flushMetricsBuffer();
       }
     }
-    return makeOk();
+    return rdws::utils::ResponseHelper::returnSuccessDoc();
   }
 
   // Called by flush thread (already holds bufferMutex_ when called from handlers,
