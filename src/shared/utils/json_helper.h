@@ -41,6 +41,16 @@ public:
     return *this;
   }
 
+  JsonObj& setValue(const char* key, ::rapidjson::Value&& v) {
+    value_.AddMember(rapidjson::StringRef(key), v, alloc_);
+    return *this;
+  }
+
+  JsonObj& setValue(const std::string& key, ::rapidjson::Value&& v) {
+    value_.AddMember(rapidjson::Value(key.c_str(), alloc_), v, alloc_);
+    return *this;
+  }
+
   JsonObj& setJsonOrString(const char* key, const std::string& raw) {
     if (!raw.empty()) {
       rapidjson::Document parsed;

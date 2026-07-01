@@ -1,24 +1,13 @@
 #include "response_helper.h"
 
+#include "json_helper.h"
+
 #include <ctime>
 
 namespace rdws::utils {
 
 std::string ResponseHelper::returnSuccess(const std::string& message, int statusCode) {
-  ::rapidjson::Document doc;
-  doc.SetObject();
-  auto& allocator = doc.GetAllocator();
-
-  doc.AddMember("success", ::rapidjson::Value(true), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
-  if (!message.empty()) {
-    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
-  }
-
-  addMetadata(doc, allocator);
-
-  return documentToString(doc);
+  return documentToString(returnSuccessDoc(statusCode, message));
 }
 
 ::rapidjson::Document ResponseHelper::returnSuccessDoc(int statusCode,
@@ -27,12 +16,13 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   doc.SetObject();
   auto& allocator = doc.GetAllocator();
 
-  doc.AddMember("success", ::rapidjson::Value(true), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
+  json::JsonObj obj(allocator);
+  obj.set("success", true).set("statusCode", statusCode);
   if (!message.empty()) {
-    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+    obj.set("message", message);
   }
+  ::rapidjson::Value result = obj.take();
+  result.Swap(doc);
 
   addMetadata(doc, allocator);
   return doc;
@@ -44,17 +34,18 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   doc.SetObject();
   auto& allocator = doc.GetAllocator();
 
-  doc.AddMember("success", ::rapidjson::Value(true), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
+  json::JsonObj obj(allocator);
+  obj.set("success", true).set("statusCode", statusCode);
   if (!message.empty()) {
-    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+    obj.set("message", message);
   }
 
   ::rapidjson::Value dataCopy;
   dataCopy.CopyFrom(data, allocator);
-  doc.AddMember("data", dataCopy, allocator);
+  obj.setValue("data", std::move(dataCopy));
 
+  ::rapidjson::Value result = obj.take();
+  result.Swap(doc);
   addMetadata(doc, allocator);
   return doc;
 }
@@ -65,15 +56,16 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   doc.SetObject();
   auto& allocator = doc.GetAllocator();
 
-  doc.AddMember("success", ::rapidjson::Value(false), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-  doc.AddMember("error", ::rapidjson::Value(message.c_str(), allocator), allocator);
+  json::JsonObj obj(allocator);
+  obj.set("success", false).set("statusCode", statusCode).set("error", message);
 
   if (details != nullptr) {
     ::rapidjson::Value detailsCopy(*details, allocator);
-    doc.AddMember("details", detailsCopy, allocator);
+    obj.setValue("details", std::move(detailsCopy));
   }
 
+  ::rapidjson::Value result = obj.take();
+  result.Swap(doc);
   addMetadata(doc, allocator);
 
   return doc;
@@ -86,23 +78,7 @@ std::string ResponseHelper::returnError(const std::string& message, int statusCo
 
 std::string ResponseHelper::returnData(const ::rapidjson::Value& data, const std::string& message,
                                        int statusCode) {
-  ::rapidjson::Document doc;
-  doc.SetObject();
-  auto& allocator = doc.GetAllocator();
-
-  doc.AddMember("success", ::rapidjson::Value(true), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
-  if (!message.empty()) {
-    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
-  }
-
-  ::rapidjson::Value dataCopy(data, allocator);
-  doc.AddMember("data", dataCopy, allocator);
-
-  addMetadata(doc, allocator);
-
-  return documentToString(doc);
+  return documentToString(returnDataDoc(data, statusCode, message));
 }
 
 void ResponseHelper::addMetadata(::rapidjson::Document& doc,

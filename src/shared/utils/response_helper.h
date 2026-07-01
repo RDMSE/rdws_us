@@ -1,5 +1,7 @@
 #pragma once
 
+#include "json_helper.h"
+
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <string>
@@ -30,16 +32,17 @@ public:
     doc.SetObject();
     auto& allocator = doc.GetAllocator();
 
-    doc.AddMember("success", ::rapidjson::Value(true), allocator);
-    doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
+    json::JsonObj obj(allocator);
+    obj.set("success", true).set("statusCode", statusCode);
     if (!message.empty()) {
-      doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+      obj.set("message", message);
     }
 
     ::rapidjson::Value data = builder(allocator);
-    doc.AddMember("data", data, allocator);
+    obj.setValue("data", std::move(data));
 
+    ::rapidjson::Value result = obj.take();
+    result.Swap(doc);
     addMetadata(doc, allocator);
     return doc;
   }
@@ -74,15 +77,15 @@ std::string ResponseHelper::returnEntity(const T& entity, const std::string& ent
 
   ::rapidjson::Value entityObj = entity.toJsonValue(allocator);
 
-  doc.AddMember("success", ::rapidjson::Value(true), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
+  json::JsonObj obj(allocator);
+  obj.set("success", true).set("statusCode", statusCode);
   if (!message.empty()) {
-    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+    obj.set("message", message);
   }
+  obj.setValue(entityName, std::move(entityObj));
 
-  doc.AddMember(::rapidjson::Value(entityName.c_str(), allocator), entityObj, allocator);
-
+  ::rapidjson::Value result = obj.take();
+  result.Swap(doc);
   addMetadata(doc, allocator);
 
   return documentToString(doc);
@@ -102,16 +105,16 @@ std::string ResponseHelper::returnEntities(const std::vector<T>& entities,
     entitiesArray.PushBack(entityObj, allocator);
   }
 
-  doc.AddMember("success", ::rapidjson::Value(true), allocator);
-  doc.AddMember("statusCode", ::rapidjson::Value(statusCode), allocator);
-
+  json::JsonObj obj(allocator);
+  obj.set("success", true).set("statusCode", statusCode);
   if (!message.empty()) {
-    doc.AddMember("message", ::rapidjson::Value(message.c_str(), allocator), allocator);
+    obj.set("message", message);
   }
+  obj.setValue(entitiesName, std::move(entitiesArray));
+  obj.set("total", static_cast<int>(entities.size()));
 
-  doc.AddMember(::rapidjson::Value(entitiesName.c_str(), allocator), entitiesArray, allocator);
-  doc.AddMember("total", ::rapidjson::Value(static_cast<int>(entities.size())), allocator);
-
+  ::rapidjson::Value result = obj.take();
+  result.Swap(doc);
   addMetadata(doc, allocator);
 
   return documentToString(doc);
