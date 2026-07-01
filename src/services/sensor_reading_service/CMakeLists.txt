@@ -1,4 +1,4 @@
-add_executable(sensor_reading_service sensor_reading_service.cpp
+add_executable(sensor_reading_service AppSensorReadingService.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/SensorReadingRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/SensorReadingService.cpp
 )

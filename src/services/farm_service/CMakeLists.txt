@@ -1,4 +1,4 @@
-add_executable(farm_service farm_service.cpp
+add_executable(farm_service AppFarmService.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/FarmRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/FarmService.cpp
 )

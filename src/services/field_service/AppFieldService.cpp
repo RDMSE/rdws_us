@@ -1,17 +1,16 @@
 //
-// DeviceService — capabilities: device.list, device.get, device.create, device.update,
-// device.delete
+// FieldService — capabilities: field.list, field.get, field.create, field.update, field.delete
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
-#include "../../shared/repository/DeviceRepository.h"
-#include "../../shared/service/DeviceService.h"
-#include "../../shared/utils/capability_router.h"
+#include "../../shared/repository/FieldRepository.h"
+#include "../../shared/service/FieldService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
-#include "../../shared/utils/profiler.h"
+#include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
+#include "../../shared/utils/profiler.h"
 
 #include "../../shared/utils/logger.h"
 
@@ -26,37 +25,37 @@ namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
 using namespace servicegateway;
 using namespace rdws::database;
-using namespace rdws::device;
+using namespace rdws::field;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 
 namespace {
 
-rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
+rapidjson::Value fieldToJson(const Field& f, rapidjson::Document::AllocatorType& alloc) {
   JsonObj obj(alloc);
-  obj.set("id", d.id)
-      .set("field_id", d.fieldId)
-      .set("type", d.type)
-      .set("status", d.status);
-  if (!d.installationDate.empty()) {
-    obj.set("installation_date", d.installationDate);
+  obj.set("id", f.id)
+    .set("farm_id", f.farmId)
+    .set("name", f.name)
+    .set("created_at", f.createdAt);
+  if (!f.area.empty()) {
+    obj.set("area", f.area);
   }
-  if (!d.location.empty()) {
-    obj.set("location", d.location);
+  if (!f.geometry.empty()) {
+    obj.set("geometry", f.geometry);
   }
-  obj.set("created_at", d.createdAt);
-  if (!d.updatedAt.empty()) {
-    obj.set("updated_at", d.updatedAt);
+  if (!f.updatedAt.empty()) {
+    obj.set("updated_at", f.updatedAt);
   }
-  if (!d.updatedBy.empty()) {
-    obj.set("updated_by", d.updatedBy);
+  if (!f.updatedBy.empty()) {
+    obj.set("updated_by", f.updatedBy);
   }
   return obj.take();
 }
 
+
 } // namespace
 
-class AppDeviceService {
+class AppFieldService {
 private:
   ServiceIdentity identity;
   std::unique_ptr<ServiceClient> client;
@@ -65,20 +64,20 @@ private:
 
   // DB/repo/svc — declared in dependency order
   PostgreSQLDatabase db_;
-  DeviceRepository repo_;
-  rdws::device::DeviceService svc_;
+  FieldRepository repo_;
+  rdws::field::FieldService svc_;
 
 public:
-  AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker)
+  AppFieldService(const std::string& serviceId, const std::string& machineName, std::string broker)
       : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
     identity.machineName = machineName;
-    identity.serviceName = "device_service";
+    identity.serviceName = "field_service";
     identity.serviceId = serviceId;
     identity.version = "v1.0.0";
     identity.environment = "prod";
     identity.maxConcurrent = 20;
-    identity.capabilities = {"device.list", "device.get", "device.create", "device.update",
-                             "device.delete"};
+    identity.capabilities = {"field.list", "field.get", "field.create", "field.update",
+                             "field.delete"};
   }
 
   bool initialize() {
@@ -91,7 +90,7 @@ public:
 
   void run() {
     running.store(true);
-    logger::info("DeviceService starting", identity.serviceId);
+    logger::info("FieldService starting", identity.serviceId);
     while (running.load()) {
       client->run();
       if (!running.load()) {
@@ -104,7 +103,7 @@ public:
         return processRequest(req);
       });
     }
-    logger::info("DeviceService stopped", identity.serviceId);
+    logger::info("FieldService stopped", identity.serviceId);
   }
 
   void shutdown() {
@@ -116,17 +115,17 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = json::getString(request, "capability").value_or("");
+    const std::string cap = json::getString(request, "capability").value_or(std::string{});
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
-                                    rdws::utils::CapabilityHandler<rdws::device::DeviceService>>
+                                     rdws::utils::CapabilityHandler<rdws::field::FieldService>>
         handlers = {
-            {"device.list", handleList},
-            {"device.get", handleGet},
-            {"device.create", handleCreate},
-            {"device.update", handleUpdate},
-            {"device.delete", handleDelete},
+            {"field.list",   handleList},
+            {"field.get",    handleGet},
+            {"field.create", handleCreate},
+            {"field.update", handleUpdate},
+            {"field.delete", handleDelete},
         };
 
     try {
@@ -141,51 +140,65 @@ private:
   }
 
   static rapidjson::Document handleList(const rapidjson::Document& req,
-                                        rdws::device::DeviceService& svc) {
-    const std::string fieldId =
-        rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
-    const auto devices = svc.findAll(fieldId);
+                                        rdws::field::FieldService& svc) {
+    const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
+    const auto fields = svc.findAll(farmId);
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
-      for (const auto& d : devices) {
-        arr.PushBack(deviceToJson(d, alloc), alloc);
+      for (const auto& f : fields) {
+        arr.PushBack(fieldToJson(f, alloc), alloc);
       }
       return arr;
     });
   }
 
   static rapidjson::Document handleGet(const rapidjson::Document& req,
-                                       rdws::device::DeviceService& svc) {
+                                       rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    const auto device = svc.findById(id);
-    if (!device) {
-      return ResponseHelper::returnErrorDoc("Device not found", 404);
+    const auto field = svc.findById(id);
+    if (!field) {
+      return ResponseHelper::returnErrorDoc("Field not found", 404);
     }
 
     return ResponseHelper::returnDataDoc(
-        [&](auto& alloc) { return deviceToJson(device.value(), alloc); });
+        [&](auto& alloc) { return fieldToJson(field.value(), alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
-                                          rdws::device::DeviceService& svc) {
-    const auto& fieldId = json::getString(req, "field_id").value_or(std::string{});
-    const auto& type = json::getString(req, "type").value_or(std::string{});
-    const auto& status = json::getString(req, "status").value_or(std::string{});
+                                          rdws::field::FieldService& svc) {
+    std::string farmId = json::getString(req, "farm_id").value_or(std::string{});
+    std::string name = json::getString(req, "name").value_or(std::string{});
 
-    if (fieldId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: field_id");
+    if (farmId.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing field: farm_id");
     }
-    if (type.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: type");
+    if (name.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
-    const std::string id = svc.create({fieldId, type, status});
+    auto getArea = [&]() -> std::string {
+      if (const auto valDouble = json::getDouble(req, "area")) {
+        return std::to_string(valDouble.value());
+      }
+      if (const auto valStr = json::getString(req, "area")) {
+        return valStr.value();
+      }
+      return "";
+    };
+
+    const FieldCreate data {
+      .farmId = farmId,
+      .name = name,
+      .area = getArea()
+    };
+
+    const std::string id = svc.create(data);
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Failed to create device", 500);
+      return ResponseHelper::returnErrorDoc("Failed to create field", 500);
     }
 
     return ResponseHelper::returnDataDoc(
@@ -196,28 +209,24 @@ private:
   }
 
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
-                                          rdws::device::DeviceService& svc) {
+                                          rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    const std::string type = json::getString(req, "type").value_or(std::string{});
-    const std::string status = json::getString(req, "status").value_or(std::string{});
-
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
-    if (type.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: type");
-    }
-    if (status.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: status");
+
+    std::string name = json::getString(req, "name").value_or(std::string{});
+    if (name.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
-    const bool ok = svc.update(id, {type, status});
+    const bool ok = svc.update(id, {name});
     return ok ? ResponseHelper::returnSuccessDoc()
-              : ResponseHelper::returnErrorDoc("Failed to update device", 500);
+              : ResponseHelper::returnErrorDoc("Failed to update field", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
-                                          rdws::device::DeviceService& svc) {
+                                          rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
@@ -225,20 +234,20 @@ private:
 
     const bool ok = svc.remove(id);
     return ok ? ResponseHelper::returnSuccessDoc(204)
-              : ResponseHelper::returnErrorDoc("Failed to delete device", 500);
+              : ResponseHelper::returnErrorDoc("Failed to delete field", 500);
   }
 };
 
-static AppDeviceService* gService = nullptr;
+static AppFieldService* gService = nullptr;
 
-void signalHandler(int sig) {
+void signalHandler(const int sig) {
   if (gService && (sig == SIGTERM || sig == SIGINT)) {
     gService->shutdown();
   }
 }
 
-int main(int argc, char* argv[]) {
-  std::string serviceId = "device_001";
+int main(const int argc, char* argv[]) {
+  std::string serviceId = "field_001";
   std::string machineName = "localhost";
   std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
 
@@ -247,19 +256,19 @@ int main(int argc, char* argv[]) {
     machineName = argv[2];
     gatewayAddress = argv[3];
   } else if (argc >= 2 && std::string(argv[1]) == "--dev") {
-    serviceId = "device_dev";
+    serviceId = "field_dev";
     machineName = "dev-machine";
   }
 
-  logger::init("device_service", "info", serviceId);
+  logger::init("field_service", "info", serviceId);
 
-  AppDeviceService service(serviceId, machineName, gatewayAddress);
+  AppFieldService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);
 
   if (!service.initialize()) {
-    logger::error("Failed to initialize DeviceService");
+    logger::error("Failed to initialize FieldService");
     return 1;
   }
   service.run();

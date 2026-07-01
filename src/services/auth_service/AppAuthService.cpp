@@ -7,15 +7,13 @@
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/utils/json_helper.h"
-#include "../../shared/utils/response_helper.h"
+#include "../../shared/utils/logger.h"
 #include "../../shared/utils/profiler.h"
+#include "../../shared/utils/response_helper.h"
 
 #include <atomic>
 #include <chrono>
-#include "../../shared/utils/logger.h"
-
 #include <csignal>
-#include <cstdlib>
 #include <fmt/core.h>
 #include <memory>
 #include <rapidjson/document.h>
@@ -71,7 +69,7 @@ std::string buildJwt(const std::string& userId, const std::string& username,
 
 } // namespace
 
-class AuthService {
+class AppAuthService {
 private:
   ServiceIdentity identity;
   std::unique_ptr<ServiceClient> client;
@@ -79,7 +77,7 @@ private:
   std::atomic<bool> running{false};
 
 public:
-  AuthService(const std::string& serviceId, const std::string& machineName, std::string broker)
+  AppAuthService(const std::string& serviceId, const std::string& machineName, std::string broker)
       : gatewayAddress(std::move(broker)) {
     identity.machineName = machineName;
     identity.serviceName = "auth_service";
@@ -186,7 +184,7 @@ private:
   }
 };
 
-static AuthService* gService = nullptr;
+static AppAuthService* gService = nullptr;
 
 void signalHandler(int sig) {
   if ((gService != nullptr) && (sig == SIGTERM || sig == SIGINT)) {
@@ -210,7 +208,7 @@ int main(const int argc, char* argv[]) {
 
   logger::init("auth_service", "info", serviceId);
 
-  AuthService service(serviceId, machineName, gatewayAddress);
+  AppAuthService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);

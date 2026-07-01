@@ -1,4 +1,4 @@
-add_executable(device_config_service device_config_service.cpp
+add_executable(device_config_service AppDeviceConfigService.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceConfigRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceConfigService.cpp
 )

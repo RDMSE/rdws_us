@@ -165,7 +165,7 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: config");
     }
 
-    const std::string id = svc.create({deviceId, configJson});
+    const std::string id = svc.create({.deviceId=deviceId, .configJson=configJson});
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
     }

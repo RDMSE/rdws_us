@@ -1,4 +1,4 @@
-add_executable(auth_service auth_service.cpp)
+add_executable(auth_service AppAuthService.cpp)
 
 target_link_libraries(auth_service PRIVATE
     service_gateway_core

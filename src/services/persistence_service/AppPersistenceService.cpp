@@ -62,7 +62,7 @@ struct MetricsRecord {
 
 // ─── PersistenceService ───────────────────────────────────────────────────────
 
-class PersistenceService {
+class AppPersistenceService {
 private:
   ServiceIdentity identity;
   std::unique_ptr<ServiceClient> client;
@@ -79,7 +79,7 @@ private:
   static constexpr int kFlushIntervalSec = 10;
 
 public:
-  PersistenceService(const std::string& serviceId, const std::string& machineName,
+  AppPersistenceService(const std::string& serviceId, const std::string& machineName,
                      std::string broker)
       : gatewayAddress(std::move(broker)) {
     identity.machineName = machineName;
@@ -144,14 +144,14 @@ private:
     const auto& cap = json::getString(request, "capability").value_or("");
 
     const std::unordered_map<std::string,
-                              rdws::utils::CapabilityHandler<PersistenceService>>
+                              rdws::utils::CapabilityHandler<AppPersistenceService>>
         handlers = {
             {"persistence.save.request",
-             [this](const rapidjson::Document& req, PersistenceService&) {
+             [this](const rapidjson::Document& req, AppPersistenceService&) {
                return handleSaveRequest(req);
              }},
             {"persistence.save.metrics",
-             [this](const rapidjson::Document& req, PersistenceService&) {
+             [this](const rapidjson::Document& req, AppPersistenceService&) {
                return handleSaveMetrics(req);
              }},
         };
@@ -260,16 +260,16 @@ private:
     try {
       PostgreSQLDatabase db;
       db.connect();
-      for (const auto& m : batch) {
+      for (const auto& [metricsJson, snapshotAt] : batch) {
         // Parse the metrics JSON and insert per-capability rows
         rapidjson::Document doc;
-        doc.Parse(m.metricsJson.c_str());
+        doc.Parse(metricsJson.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
           continue;
         }
 
         const std::string windowStart =
-            m.snapshotAt.empty() ? "now()" : ("to_timestamp(" + m.snapshotAt + ")");
+            snapshotAt.empty() ? "now()" : ("to_timestamp(" + snapshotAt + ")");
 
         for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {
           const std::string key = it->name.GetString();
@@ -282,12 +282,14 @@ private:
 
           const auto& stats = it->value;
           auto getNum = [&](const char* k) -> std::string {
-            if (auto val = json::getInt(stats, k); val.has_value()) {
-              return std::to_string(val.value());
-            } else if (auto val = json::getInt64(stats, k); val.has_value()) {
-              return std::to_string(val.value());
-            } else if (auto val = json::getDouble(stats, k); val.has_value()) {
-              return std::to_string(val.value());
+            if (const auto valInt = json::getInt(stats, k); valInt.has_value()) {
+              return std::to_string(valInt.value());
+            }
+            if (const auto valInt64 = json::getInt64(stats, k); valInt64.has_value()) {
+              return std::to_string(valInt64.value());
+            }
+            if (const auto valDouble = json::getDouble(stats, k); valDouble.has_value()) {
+              return std::to_string(valDouble.value());
             }
             return "0";
           };
@@ -296,7 +298,7 @@ private:
                          "(capability, window_start, request_count, error_count, timeout_count, "
                          " avg_latency_ms, p99_latency_ms, min_latency_ms, max_latency_ms) "
                          "VALUES ($1, to_timestamp($2::bigint), $3, $4, $5, $6, $7, $8, $9)",
-                         {key, m.snapshotAt.empty() ? "0" : m.snapshotAt, getNum("requestCount"),
+                         {key, snapshotAt.empty() ? "0" : snapshotAt, getNum("requestCount"),
                           getNum("errorCount"), getNum("timeoutCount"), getNum("avgLatencyMs"),
                           getNum("p99LatencyMs"), getNum("minLatencyMs"), getNum("maxLatencyMs")});
         }
@@ -308,7 +310,7 @@ private:
   }
 };
 
-static PersistenceService* gService = nullptr;
+static AppPersistenceService* gService = nullptr;
 
 void signalHandler(const int sig) {
   if ((gService != nullptr) && (sig == SIGTERM || sig == SIGINT)) {
@@ -332,7 +334,7 @@ int main(const int argc, char* argv[]) {
 
   logger::init("persistence_service", "info", serviceId);
 
-  PersistenceService service(serviceId, machineName, gatewayAddress);
+  AppPersistenceService service(serviceId, machineName, gatewayAddress);
   gService = &service;
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);

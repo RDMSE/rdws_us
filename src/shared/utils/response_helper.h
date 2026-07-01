@@ -11,22 +11,22 @@ namespace rdws::utils {
 
 class ResponseHelper {
 public:
-  static std::string returnSuccess(const std::string& message = "", int statusCode = 200);
+  [[nodiscard]] static std::string returnSuccess(const std::string& message = "", int statusCode = 200);
 
-  static std::string returnError(const std::string& message, int statusCode = 500,
+  [[nodiscard]] static std::string returnError(const std::string& message, int statusCode = 500,
                                  const ::rapidjson::Value* details = nullptr);
 
-  static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode = 500,
+  [[nodiscard]] static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode = 500,
                                               const ::rapidjson::Value* details = nullptr);
 
-  static ::rapidjson::Document returnSuccessDoc(int statusCode = 200,
+  [[nodiscard]] static ::rapidjson::Document returnSuccessDoc(int statusCode = 200,
                                                 const std::string& message = "");
 
-  static ::rapidjson::Document returnDataDoc(const ::rapidjson::Value& data, int statusCode = 200,
+  [[nodiscard]] static ::rapidjson::Document returnDataDoc(const ::rapidjson::Value& data, int statusCode = 200,
                                              const std::string& message = "");
 
   template <typename Builder>
-  static ::rapidjson::Document returnDataDoc(Builder&& builder, int statusCode = 200,
+  [[nodiscard]] static ::rapidjson::Document returnDataDoc(Builder&& builder, int statusCode = 200,
                                              const std::string& message = "") {
     ::rapidjson::Document doc;
     doc.SetObject();
@@ -47,24 +47,24 @@ public:
     return doc;
   }
 
-  static std::string returnData(const ::rapidjson::Value& data, const std::string& message = "",
+  [[nodiscard]] static std::string returnData(const ::rapidjson::Value& data, const std::string& message = "",
                                 int statusCode = 200);
 
   template <typename T>
-  static std::string returnEntity(const T& entity, const std::string& entityName,
+  [[nodiscard]] static std::string returnEntity(const T& entity, const std::string& entityName,
                                   const std::string& message = "", int statusCode = 200);
 
   template <typename T>
-  static std::string returnEntities(const std::vector<T>& entities, const std::string& entitiesName,
+  [[nodiscard]] static std::string returnEntities(const std::vector<T>& entities, const std::string& entitiesName,
                                     const std::string& message = "", int statusCode = 200);
 
-  static std::string toString(const ::rapidjson::Value& value);
+  [[nodiscard]] static std::string toString(const ::rapidjson::Value& value);
 
 private:
   static void addMetadata(::rapidjson::Document& doc,
                           ::rapidjson::Document::AllocatorType& allocator);
 
-  static std::string documentToString(const ::rapidjson::Document& doc);
+  [[nodiscard]] static std::string documentToString(const ::rapidjson::Document& doc);
 };
 
 // Template implementations must be in header

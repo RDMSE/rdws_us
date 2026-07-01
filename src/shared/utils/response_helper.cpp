@@ -6,7 +6,7 @@
 
 namespace rdws::utils {
 
-std::string ResponseHelper::returnSuccess(const std::string& message, int statusCode) {
+std::string ResponseHelper::returnSuccess(const std::string& message, const int statusCode) {
   return documentToString(returnSuccessDoc(statusCode, message));
 }
 
@@ -71,13 +71,13 @@ std::string ResponseHelper::returnSuccess(const std::string& message, int status
   return doc;
 }
 
-std::string ResponseHelper::returnError(const std::string& message, int statusCode,
+std::string ResponseHelper::returnError(const std::string& message, const int statusCode,
                                         const ::rapidjson::Value* details) {
   return documentToString(returnErrorDoc(message, statusCode, details));
 }
 
 std::string ResponseHelper::returnData(const ::rapidjson::Value& data, const std::string& message,
-                                       int statusCode) {
+                                       const int statusCode) {
   return documentToString(returnDataDoc(data, statusCode, message));
 }
 

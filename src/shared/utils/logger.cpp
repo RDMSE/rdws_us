@@ -34,7 +34,7 @@ std::string utcNow() {
 }
 
 /// Escape a string for safe embedding in JSON.
-static std::string jsonEscape(std::string_view s) {
+std::string jsonEscape(std::string_view s) {
   std::string out;
   out.reserve(s.size() + 4);
   for (const char c : s) {
@@ -65,7 +65,8 @@ static std::string jsonEscape(std::string_view s) {
 /// Build a one-liner JSON object from key-value pairs already serialized.
 /// @param event  Event type label (no quotes needed — caller passes plain string).
 /// @param fields  Pre-formatted "\"key\":value" fragments.
-static std::string buildJson(std::string_view event, std::initializer_list<std::string> fields) {
+std::string buildJson(const std::string_view event,
+                      const std::initializer_list<std::string> fields) {
   std::ostringstream oss;
   oss << R"({"ts":")" << utcNow() << R"(","event":")" << event << '"';
   for (const auto& f : fields) {
@@ -108,7 +109,7 @@ void init(
   if (const auto parent = std::filesystem::path(filePath).parent_path(); !parent.empty()) {
     std::filesystem::create_directories(parent);
   }
-  constexpr std::size_t maxBytes = static_cast<const std::size_t>(10 * 1024 * 1024); // 10 MB
+  constexpr auto maxBytes = static_cast<const std::size_t>(10 * 1024 * 1024); // 10 MB
   constexpr std::size_t maxFiles = 3;
   sinks.push_back(
       std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, maxBytes, maxFiles));
