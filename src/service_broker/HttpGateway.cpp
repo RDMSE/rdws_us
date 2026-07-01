@@ -21,7 +21,7 @@ using rdws::types::LambdaContext;
 using rdws::types::LambdaEvent;
 using rdws::types::ServiceResult;
 using rdws::utils::ResponseHelper;
-using rdws::utils::logger;
+namespace logger = rdws::utils::logger;
 
 HttpGateway::HttpGateway(ServiceGateway& gateway, int port, std::string host, AuthConfig authConfig)
     : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig)) {}

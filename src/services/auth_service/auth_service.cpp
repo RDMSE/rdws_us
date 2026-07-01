@@ -162,6 +162,19 @@ private:
           (secretEnv != nullptr) ? secretEnv : "rdws-default-secret-change-me";
       const std::string token = buildJwt(userId, uname, role, secret);
 
+      return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+        return rdws::utils::json::JsonObj(alloc)
+          .set("token", token)
+          .set("tokenType", "Bearer")
+          .set("expiresIn", 86400)
+          .set("user", rdws::utils::json::JsonObj(alloc)
+            .set("id", userId)
+            .set("username", uname)
+            .set("role", role))
+          .take();
+      });
+
+      /* implementacao anterior
       rapidjson::Document doc;
       doc.SetObject();
       auto& alloc = doc.GetAllocator();
@@ -180,6 +193,7 @@ private:
       doc.AddMember("statusCode", 200, alloc);
       doc.AddMember("data", data, alloc);
       return doc;
+      */
 
     } catch (const std::exception& e) {
       logger::error("DB error", identity.serviceId + " " + e.what());
