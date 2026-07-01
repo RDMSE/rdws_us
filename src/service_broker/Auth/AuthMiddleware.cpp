@@ -9,6 +9,8 @@
 #include <rapidjson/document.h>
 #include <string_view>
 
+namespace json = rdws::utils::json;
+
 namespace servicegateway {
 
 // ─── AuthHttpRequest helpers ──────────────────────────────────────────────────
@@ -125,7 +127,7 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
       return {.authorized = false, .statusCode = 401, .message = "Malformed JWT header"};
     }
 
-    const auto& alg = rdws::utils::json::getString(hdr, "alg");
+    const auto& alg = json::getString(hdr, "alg");
     if (alg.has_value() && alg.value() != "HS256") {
       return {.authorized = false,
               .statusCode = 401,
@@ -183,7 +185,7 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
 
   // ── Validate issuer ───────────────────────────────────────────────────
   if (!config_.jwtIssuer.empty()) {
-    const auto& iss = rdws::utils::json::getString(doc, "iss");
+    const auto& iss = json::getString(doc, "iss");
     if (!iss.has_value() || iss.value() != config_.jwtIssuer) {
       return {.authorized = false, .statusCode = 401, .message = "JWT issuer mismatch"};
     }
@@ -212,8 +214,8 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
 
   // ── Build identity ────────────────────────────────────────────────────
   AuthIdentity id;
-  id.subject = rdws::utils::json::getString(doc, "sub").value_or(std::string{});
-  id.issuer = rdws::utils::json::getString(doc, "iss").value_or(std::string{});
+  id.subject = json::getString(doc, "sub").value_or(std::string{});
+  id.issuer = json::getString(doc, "iss").value_or(std::string{});
 
   // Collect all string-valued claims as identity metadata.
   for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {

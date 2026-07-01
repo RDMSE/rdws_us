@@ -24,8 +24,11 @@
 #include <string>
 #include <utility>
 
+namespace json = rdws::utils::json;
 using namespace servicegateway;
 using namespace rdws::database;
+using rdws::utils::ResponseHelper;
+using json::JsonObj;
 namespace logger = rdws::utils::logger;
 
 namespace {
@@ -118,7 +121,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const {
-    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
+    const auto& cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
     if (cap == "auth.login") {
@@ -127,17 +130,17 @@ private:
       return handleLogin(request);
     }
 
-    return rdws::utils::ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
+    return ResponseHelper::returnErrorDoc("Unknown capability: " + cap, 404);
   }
 
   [[nodiscard]] rapidjson::Document handleLogin(const rapidjson::Document& request) const {
     logger::info("auth.login request received");
     // Extract credentials from top-level body fields (spread by HttpGateway)
-    std::string username = rdws::utils::json::getString(request, "username").value_or("");
-    std::string password = rdws::utils::json::getString(request, "password").value_or("");
+    std::string username = json::getString(request, "username").value_or("");
+    std::string password = json::getString(request, "password").value_or("");
 
     if (username.empty() || password.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("username and password are required", 400);
+      return ResponseHelper::returnErrorDoc("username and password are required", 400);
     }
 
     try {
@@ -150,7 +153,7 @@ private:
           {username, password});
 
       if (!rs->next()) {
-        return rdws::utils::ResponseHelper::returnErrorDoc("Invalid credentials", 401);
+        return ResponseHelper::returnErrorDoc("Invalid credentials", 401);
       }
 
       const std::string userId = rs->getString("id");
@@ -162,12 +165,12 @@ private:
           (secretEnv != nullptr) ? secretEnv : "rdws-default-secret-change-me";
       const std::string token = buildJwt(userId, uname, role, secret);
 
-      return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
-        return rdws::utils::json::JsonObj(alloc)
+      return ResponseHelper::returnDataDoc([&](auto& alloc) {
+        return JsonObj(alloc)
           .set("token", token)
           .set("tokenType", "Bearer")
           .set("expiresIn", 86400)
-          .set("user", rdws::utils::json::JsonObj(alloc)
+          .set("user", JsonObj(alloc)
             .set("id", userId)
             .set("username", uname)
             .set("role", role))
@@ -175,7 +178,7 @@ private:
       });
     } catch (const std::exception& e) {
       logger::error("DB error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 };

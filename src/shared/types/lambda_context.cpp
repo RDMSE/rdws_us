@@ -12,6 +12,8 @@
 #include <sstream>
 #include <stdexcept>
 
+namespace json = rdws::utils::json;
+
 namespace rdws::types {
 
 LambdaContext::LambdaContext(std::string requestId, std::string functionName,
@@ -30,11 +32,11 @@ LambdaContext::LambdaContext(const std::string& jsonString)
     throw std::runtime_error("Invalid JSON in LambdaContext constructor");
   }
 
-  requestId_ = rdws::utils::json::getString(doc, "requestId").value_or("unknown");
-  functionName_ = rdws::utils::json::getString(doc, "functionName").value_or("unknown");
-  functionVersion_ = rdws::utils::json::getString(doc, "functionVersion").value_or("1.0");
-  timeoutMs_ = std::chrono::milliseconds(rdws::utils::json::getInt64(doc, "timeoutMs").value_or(30000));
-  memoryLimitMB_ = rdws::utils::json::getInt(doc, "memoryLimitMB").value_or(128);
+  requestId_ = json::getString(doc, "requestId").value_or("unknown");
+  functionName_ = json::getString(doc, "functionName").value_or("unknown");
+  functionVersion_ = json::getString(doc, "functionVersion").value_or("1.0");
+  timeoutMs_ = std::chrono::milliseconds(json::getInt64(doc, "timeoutMs").value_or(30000));
+  memoryLimitMB_ = json::getInt(doc, "memoryLimitMB").value_or(128);
 }
 
 LambdaContext LambdaContext::fromJson(const std::string& jsonString) {

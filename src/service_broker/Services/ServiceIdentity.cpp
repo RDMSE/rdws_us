@@ -4,6 +4,8 @@
 
 #include <algorithm>
 
+namespace json = rdws::utils::json;
+
 namespace servicegateway {
 
 rapidjson::Document ServiceIdentity::toJson() const {
@@ -51,19 +53,19 @@ rapidjson::Value ServiceIdentity::toJsonValue(rapidjson::Document::AllocatorType
 ServiceIdentity ServiceIdentity::fromJson(const rapidjson::Value& json) {
   ServiceIdentity identity;
 
-  identity.machineName = rdws::utils::json::getString(json, "machineName").value_or("");
-  identity.serviceName = rdws::utils::json::getString(json, "serviceName").value_or("");
-  identity.serviceId = rdws::utils::json::getString(json, "serviceId").value_or("");
-  identity.version = rdws::utils::json::getString(json, "version").value_or("");
-  identity.environment = rdws::utils::json::getString(json, "environment").value_or("dev");
-  identity.maxConcurrent = rdws::utils::json::getInt(json, "maxConcurrent").value_or(10);
-  identity.connectionType = rdws::utils::json::getString(json, "connectionType").value_or("");
-  identity.clientAddress = rdws::utils::json::getString(json, "clientAddress").value_or("");
-  identity.currentLoad = rdws::utils::json::getInt(json, "currentLoad").value_or(0);
-  identity.totalRequests = rdws::utils::json::getInt(json, "totalRequests").value_or(0);
-  identity.errorCount = rdws::utils::json::getInt(json, "errorCount").value_or(0);
+  identity.machineName = json::getString(json, "machineName").value_or("");
+  identity.serviceName = json::getString(json, "serviceName").value_or("");
+  identity.serviceId = json::getString(json, "serviceId").value_or("");
+  identity.version = json::getString(json, "version").value_or("");
+  identity.environment = json::getString(json, "environment").value_or("dev");
+  identity.maxConcurrent = json::getInt(json, "maxConcurrent").value_or(10);
+  identity.connectionType = json::getString(json, "connectionType").value_or("");
+  identity.clientAddress = json::getString(json, "clientAddress").value_or("");
+  identity.currentLoad = json::getInt(json, "currentLoad").value_or(0);
+  identity.totalRequests = json::getInt(json, "totalRequests").value_or(0);
+  identity.errorCount = json::getInt(json, "errorCount").value_or(0);
   identity.avgResponseTime =
-      std::chrono::milliseconds(rdws::utils::json::getInt(json, "avgResponseTimeMs").value_or(0));
+      std::chrono::milliseconds(json::getInt(json, "avgResponseTimeMs").value_or(0));
 
   // Read capabilities
   if (json.HasMember("capabilities") && json["capabilities"].IsArray()) {

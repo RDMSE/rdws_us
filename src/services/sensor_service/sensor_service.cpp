@@ -24,12 +24,14 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor;
+using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
+namespace json = rdws::utils::json;
 
 namespace {
 
 rapidjson::Value sensorToJson(const Sensor& s, rapidjson::Document::AllocatorType& alloc) {
-  rdws::utils::json::JsonObj obj(alloc);
+  json::JsonObj obj(alloc);
   obj.set("id", s.id)
       .set("device_id", s.deviceId)
       .set("type", s.type)
@@ -109,7 +111,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
+    const auto& cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -126,7 +128,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
@@ -135,7 +137,7 @@ private:
     const std::string deviceId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
     const auto sensors = svc.findAll(deviceId);
-    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& s : sensors) {
         arr.PushBack(sensorToJson(s, alloc), alloc);
@@ -148,40 +150,40 @@ private:
                                        rdws::sensor::SensorService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto sensor = svc.findById(id);
     if (!sensor) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Sensor not found", 404);
+      return ResponseHelper::returnErrorDoc("Sensor not found", 404);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return sensorToJson(*sensor, alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
-    const auto deviceId = rdws::utils::json::getString(req, "device_id").value_or(std::string{});
-    const auto type = rdws::utils::json::getString(req, "type").value_or(std::string{});
-    const auto unit = rdws::utils::json::getString(req, "unit").value_or(std::string{});
+    const auto deviceId = json::getString(req, "device_id").value_or(std::string{});
+    const auto type = json::getString(req, "type").value_or(std::string{});
+    const auto unit = json::getString(req, "unit").value_or(std::string{});
 
     if (deviceId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: device_id");
+      return ResponseHelper::returnErrorDoc("Missing field: device_id");
     }
     if (type.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type");
     }
     if (unit.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: unit");
+      return ResponseHelper::returnErrorDoc("Missing field: unit");
     }
 
     const std::string id = svc.create({deviceId, type, unit});
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
+      return ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
           rapidjson::Value obj(rapidjson::kObjectType);
           obj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
@@ -193,34 +195,34 @@ private:
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    const std::string type = rdws::utils::json::getString(req, "type").value_or(std::string{});
-    const std::string unit = rdws::utils::json::getString(req, "unit").value_or(std::string{});
+    const std::string type = json::getString(req, "type").value_or(std::string{});
+    const std::string unit = json::getString(req, "unit").value_or(std::string{});
 
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
     if (type.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type");
     }
     if (unit.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: unit");
+      return ResponseHelper::returnErrorDoc("Missing field: unit");
     }
 
     const bool ok = svc.update(id, {type, unit});
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update sensor", 500);
+    return ok ? ResponseHelper::returnSuccessDoc()
+              : ResponseHelper::returnErrorDoc("Failed to update sensor", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::sensor::SensorService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete sensor", 500);
+    return ok ? ResponseHelper::returnSuccessDoc(204)
+              : ResponseHelper::returnErrorDoc("Failed to delete sensor", 500);
   }
 };
 

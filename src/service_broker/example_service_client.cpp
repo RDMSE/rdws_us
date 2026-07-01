@@ -7,11 +7,12 @@
 #include <random>
 
 using namespace servicegateway;
+namespace json = rdws::utils::json;
 
 // Example service that provides greeting capabilities
 rapidjson::Document processGreeting(const rapidjson::Document& request) {
-    std::string name = rdws::utils::json::getString(request, "name").value_or("World");
-    std::string language = rdws::utils::json::getString(request, "language").value_or("en");
+    std::string name = json::getString(request, "name").value_or("World");
+    std::string language = json::getString(request, "language").value_or("en");
 
     rapidjson::Document response;
     response.SetObject();

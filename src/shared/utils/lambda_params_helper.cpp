@@ -3,6 +3,8 @@
 #include "logger.h"
 #include <rapidjson/document.h>
 
+namespace json = rdws::utils::json;
+
 namespace rdws::utils {
 
 static constexpr char kJsonParseError[] = "JSON Parse error";
@@ -34,9 +36,9 @@ tl::expected<bool, std::string> LambdaParamsHelper::checkParams(const int argc, 
 std::string LambdaParamsHelper::getPathParam(const rapidjson::Document& req,
                                              const std::string& key) {
 
-  if (const auto& pathParams = rdws::utils::json::getObject(req, "pathParameters");
+  if (const auto& pathParams = json::getObject(req, "pathParameters");
         pathParams != nullptr) {
-    const auto& keyValue = rdws::utils::json::getString(*pathParams, key);
+    const auto& keyValue = json::getString(*pathParams, key);
     return keyValue.value_or(std::string{});
   }
 
@@ -45,9 +47,9 @@ std::string LambdaParamsHelper::getPathParam(const rapidjson::Document& req,
 
 std::string LambdaParamsHelper::getStringQueryParam(const rapidjson::Document& req,
                                                     const std::string& key) {
-  if (const auto& queryParams = rdws::utils::json::getObject(req, "queryStringParameters");
+  if (const auto& queryParams = json::getObject(req, "queryStringParameters");
         queryParams != nullptr) {
-    const auto& keyValue = rdws::utils::json::getString(*queryParams, key);
+    const auto& keyValue = json::getString(*queryParams, key);
     return keyValue.value_or(std::string{});
   }
   return {};

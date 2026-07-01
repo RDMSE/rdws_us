@@ -30,11 +30,11 @@
 
 using namespace servicegateway;
 using namespace rdws::database;
+using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
+namespace json = rdws::utils::json;
 
 namespace {
-
-
 
 std::string docToString(const rapidjson::Value& v) {
   rapidjson::StringBuffer buf;
@@ -141,7 +141,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
+    const auto& cap = json::getString(request, "capability").value_or("");
 
     const std::unordered_map<std::string,
                               rdws::utils::CapabilityHandler<PersistenceService>>
@@ -162,22 +162,22 @@ private:
       return rdws::utils::dispatchCapability(cap, request, *this, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
   // Enqueue a single request.completed event
   rapidjson::Document handleSaveRequest(const rapidjson::Document& req) {
     RequestRecord r{
-        .requestId = rdws::utils::json::getString(req, "requestId").value_or(std::string{}),
-        .capability = rdws::utils::json::getString(req, "capability").value_or(std::string{}),
-        .serviceId = rdws::utils::json::getString(req, "serviceId").value_or(std::string{}),
-        .success = rdws::utils::json::getBool(req, "success").value_or(false),
-        .latencyMs = rdws::utils::json::getInt(req, "latencyMs").value_or(0),
+        .requestId = json::getString(req, "requestId").value_or(std::string{}),
+        .capability = json::getString(req, "capability").value_or(std::string{}),
+        .serviceId = json::getString(req, "serviceId").value_or(std::string{}),
+        .success = json::getBool(req, "success").value_or(false),
+        .latencyMs = json::getInt(req, "latencyMs").value_or(0),
     };
 
     if (r.requestId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing requestId");
+      return ResponseHelper::returnErrorDoc("Missing requestId");
     }
 
     {
@@ -187,13 +187,13 @@ private:
         flushRequestBuffer();
       }
     }
-    return rdws::utils::ResponseHelper::returnSuccessDoc();
+    return ResponseHelper::returnSuccessDoc();
   }
 
   // Enqueue a metrics.snapshot event
   rapidjson::Document handleSaveMetrics(const rapidjson::Document& req) {
     MetricsRecord m;
-    m.snapshotAt = rdws::utils::json::getString(req, "snapshotAt").value_or("");
+    m.snapshotAt = json::getString(req, "snapshotAt").value_or("");
     m.metricsJson = docToString(req);
 
     {
@@ -203,7 +203,7 @@ private:
         flushMetricsBuffer();
       }
     }
-    return rdws::utils::ResponseHelper::returnSuccessDoc();
+    return ResponseHelper::returnSuccessDoc();
   }
 
   // Called by flush thread (already holds bufferMutex_ when called from handlers,
@@ -282,11 +282,11 @@ private:
 
           const auto& stats = it->value;
           auto getNum = [&](const char* k) -> std::string {
-            if (auto val = rdws::utils::json::getInt(stats, k); val.has_value()) {
+            if (auto val = json::getInt(stats, k); val.has_value()) {
               return std::to_string(val.value());
-            } else if (auto val = rdws::utils::json::getInt64(stats, k); val.has_value()) {
+            } else if (auto val = json::getInt64(stats, k); val.has_value()) {
               return std::to_string(val.value());
-            } else if (auto val = rdws::utils::json::getDouble(stats, k); val.has_value()) {
+            } else if (auto val = json::getDouble(stats, k); val.has_value()) {
               return std::to_string(val.value());
             }
             return "0";

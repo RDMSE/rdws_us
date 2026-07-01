@@ -21,15 +21,18 @@
 #include <string>
 #include <utility>
 
+namespace json = rdws::utils::json;
+namespace logger = rdws::utils::logger;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::field;
-namespace logger = rdws::utils::logger;
+using rdws::utils::ResponseHelper;
+using json::JsonObj;
 
 namespace {
 
 rapidjson::Value fieldToJson(const Field& f, rapidjson::Document::AllocatorType& alloc) {
-  rdws::utils::json::JsonObj obj(alloc);
+  JsonObj obj(alloc);
   obj.set("id", f.id)
     .set("farm_id", f.farmId)
     .set("name", f.name)
@@ -112,7 +115,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const std::string cap = rdws::utils::json::getString(request, "capability").value_or(std::string{});
+    const std::string cap = json::getString(request, "capability").value_or(std::string{});
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -131,7 +134,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
                                                          500);
     }
   }
@@ -140,7 +143,7 @@ private:
                                         rdws::field::FieldService& svc) {
     const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
     const auto fields = svc.findAll(farmId);
-    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& f : fields) {
         arr.PushBack(fieldToJson(f, alloc), alloc);
@@ -153,34 +156,34 @@ private:
                                        rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto field = svc.findById(id);
     if (!field) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Field not found", 404);
+      return ResponseHelper::returnErrorDoc("Field not found", 404);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return fieldToJson(field.value(), alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::field::FieldService& svc) {
-    std::string farmId = rdws::utils::json::getString(req, "farm_id").value_or(std::string{});
-    std::string name = rdws::utils::json::getString(req, "name").value_or(std::string{});
+    std::string farmId = json::getString(req, "farm_id").value_or(std::string{});
+    std::string name = json::getString(req, "name").value_or(std::string{});
 
     if (farmId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: farm_id");
+      return ResponseHelper::returnErrorDoc("Missing field: farm_id");
     }
     if (name.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
+      return ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     auto getArea = [&]() -> std::string {
-      if (auto val = rdws::utils::json::getDouble(req, "area")) {
+      if (auto val = json::getDouble(req, "area")) {
         return std::to_string(val.value());
-      } else if (auto val = rdws::utils::json::getString(req, "area")) {
+      } else if (auto val = json::getString(req, "area")) {
         return val.value();
       }
       return "";
@@ -194,12 +197,12 @@ private:
 
     const std::string id = svc.create(data);
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create field", 500);
+      return ResponseHelper::returnErrorDoc("Failed to create field", 500);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          return rdws::utils::json::JsonObj(alloc).set("id", id).take();
+          return JsonObj(alloc).set("id", id).take();
         },
         201);
   }
@@ -208,29 +211,29 @@ private:
                                           rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    std::string name = rdws::utils::json::getString(req, "name").value_or(std::string{});
+    std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: name");
+      return ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     const bool ok = svc.update(id, {name});
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update field", 500);
+    return ok ? ResponseHelper::returnSuccessDoc()
+              : ResponseHelper::returnErrorDoc("Failed to update field", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete field", 500);
+    return ok ? ResponseHelper::returnSuccessDoc(204)
+              : ResponseHelper::returnErrorDoc("Failed to delete field", 500);
   }
 };
 

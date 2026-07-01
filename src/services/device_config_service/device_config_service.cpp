@@ -25,9 +25,12 @@
 #include <string>
 #include <utility>
 
+namespace json = rdws::utils::json;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device_config;
+using rdws::utils::ResponseHelper;
+using json::JsonObj;
 namespace logger = rdws::utils::logger;
 
 namespace {} // namespace
@@ -94,7 +97,7 @@ public:
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
 
-    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
+    const auto& cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<
@@ -114,7 +117,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
                                                          500);
     }
   }
@@ -123,16 +126,16 @@ private:
                                        rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto cfg = svc.findByDeviceId(deviceId);
     if (!cfg) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Configuration not found", 404);
+      return ResponseHelper::returnErrorDoc("Configuration not found", 404);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
-      rdws::utils::json::JsonObj obj(alloc);
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      JsonObj obj(alloc);
       obj.set("id", cfg->id)
           .set("deviceId", cfg->deviceId)
           .setJsonOrString("config", cfg->config)
@@ -148,7 +151,7 @@ private:
                                           rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     std::string configJson;
@@ -159,17 +162,17 @@ private:
       configJson = buf.GetString();
     }
     if (configJson.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: config");
+      return ResponseHelper::returnErrorDoc("Missing field: config");
     }
 
     const std::string id = svc.create({deviceId, configJson});
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
+      return ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
     }
 
 
-    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc){
-      return rdws::utils::json::JsonObj(alloc).set("id", id).take();
+    return ResponseHelper::returnDataDoc([&](auto& alloc){
+      return JsonObj(alloc).set("id", id).take();
     }, 201);
   }
 
@@ -177,7 +180,7 @@ private:
                                           rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     std::string configJson;
@@ -188,24 +191,24 @@ private:
       configJson = buf.GetString();
     }
     if (configJson.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: config");
+      return ResponseHelper::returnErrorDoc("Missing field: config");
     }
 
     const bool ok = svc.update(deviceId, {configJson});
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update configuration", 500);
+    return ok ? ResponseHelper::returnSuccessDoc()
+              : ResponseHelper::returnErrorDoc("Failed to update configuration", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(deviceId);
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete configuration", 500);
+    return ok ? ResponseHelper::returnSuccessDoc(204)
+              : ResponseHelper::returnErrorDoc("Failed to delete configuration", 500);
   }
 };
 

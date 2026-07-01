@@ -15,6 +15,7 @@
 #include <utility>
 
 using namespace servicegateway;
+namespace json = rdws::utils::json;
 
 class ExampleService {
 private:
@@ -25,21 +26,21 @@ private:
   std::atomic<bool> running{false};
 
   static std::string resolveCommand(const rapidjson::Document& request) {
-    const auto& commandValue = rdws::utils::json::getString(request, "command");
+    const auto& commandValue = json::getString(request, "command");
     if (commandValue.has_value()) {
       return commandValue.value();
     }
 
-    const auto& capabilityValue = rdws::utils::json::getString(request, "capability");
+    const auto& capabilityValue = json::getString(request, "capability");
     if (capabilityValue.has_value()) {
       return capabilityValue.value();
     }
 
-    const auto& lambdaEvent = rdws::utils::json::getObject(request, "lambdaEvent");
+    const auto& lambdaEvent = json::getObject(request, "lambdaEvent");
     if (lambdaEvent != nullptr) {
-      const auto& pathParameters = rdws::utils::json::getObject(*lambdaEvent, "pathParameters");
+      const auto& pathParameters = json::getObject(*lambdaEvent, "pathParameters");
       if (pathParameters != nullptr) {
-        const auto& capabilityValue = rdws::utils::json::getString(*pathParameters, "capability");
+        const auto& capabilityValue = json::getString(*pathParameters, "capability");
         if (capabilityValue.has_value()) {
           return capabilityValue.value();
         }
@@ -100,11 +101,11 @@ private:
 
   static void addMathResponse(const rapidjson::Document& request, rapidjson::Document& response,
                               rapidjson::Document::AllocatorType& allocator) {
-    const double a = rdws::utils::json::getDouble(request, "a").value_or(0.0);
+    const double a = json::getDouble(request, "a").value_or(0.0);
         // (request.HasMember("a") && request["a"].IsNumber()) ? request["a"].GetDouble() : 0.0;
-    const double b = rdws::utils::json::getDouble(request, "b").value_or(0.0);
+    const double b = json::getDouble(request, "b").value_or(0.0);
         // (request.HasMember("b") && request["b"].IsNumber()) ? request["b"].GetDouble() : 0.0;
-    const auto& operation = rdws::utils::json::getString(request, "operation").value_or("add");
+    const auto& operation = json::getString(request, "operation").value_or("add");
 
     rapidjson::Value result(rapidjson::kObjectType);
     result.AddMember("a", a, allocator);
@@ -243,7 +244,7 @@ private:
     } else if (command == "math") {
       addMathResponse(request, response, allocator);
     } else if (command == "echo") {
-      const auto& message = rdws::utils::json::getString(request, "message").value_or("");
+      const auto& message = json::getString(request, "message").value_or("");
       response.AddMember("result", rapidjson::Value(("echo: " + message).c_str(), allocator),
                          allocator);
       response.AddMember("status", "success", allocator);
@@ -265,7 +266,7 @@ private:
     // Simulate processing time
     std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 50)));
 
-    const auto& statusValue = rdws::utils::json::getString(response, "status");
+    const auto& statusValue = json::getString(response, "status");
     if (statusValue.has_value()) {
         std::cout << "[" << identity.serviceId << "] Response: " << statusValue.value() << '\n';
     }

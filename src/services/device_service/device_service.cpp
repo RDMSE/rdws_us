@@ -22,15 +22,18 @@
 #include <string>
 #include <utility>
 
+namespace json = rdws::utils::json;
+namespace logger = rdws::utils::logger;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device;
-namespace logger = rdws::utils::logger;
+using rdws::utils::ResponseHelper;
+using json::JsonObj;
 
 namespace {
 
 rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
-  rdws::utils::json::JsonObj obj(alloc);
+  JsonObj obj(alloc);
   obj.set("id", d.id)
       .set("field_id", d.fieldId)
       .set("type", d.type)
@@ -43,7 +46,7 @@ rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorTyp
   }
   obj.set("created_at", d.createdAt);
   if (!d.updatedAt.empty()) {
-    obj.set("updated_at", d.updatedAt); 
+    obj.set("updated_at", d.updatedAt);
   }
   if (!d.updatedBy.empty()) {
     obj.set("updated_by", d.updatedBy);
@@ -113,7 +116,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = rdws::utils::json::getString(request, "capability").value_or("");
+    const auto& cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -132,7 +135,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
                                                          500);
     }
   }
@@ -142,7 +145,7 @@ private:
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
     const auto devices = svc.findAll(fieldId);
-    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& d : devices) {
         arr.PushBack(deviceToJson(d, alloc), alloc);
@@ -155,39 +158,39 @@ private:
                                        rdws::device::DeviceService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const auto device = svc.findById(id);
     if (!device) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Device not found", 404);
+      return ResponseHelper::returnErrorDoc("Device not found", 404);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return deviceToJson(device.value(), alloc); });
   }
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
-    const auto& fieldId = rdws::utils::json::getString(req, "field_id").value_or(std::string{});
-    const auto& type = rdws::utils::json::getString(req, "type").value_or(std::string{});
-    const auto& status = rdws::utils::json::getString(req, "status").value_or(std::string{});
+    const auto& fieldId = json::getString(req, "field_id").value_or(std::string{});
+    const auto& type = json::getString(req, "type").value_or(std::string{});
+    const auto& status = json::getString(req, "status").value_or(std::string{});
 
     if (fieldId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: field_id");
+      return ResponseHelper::returnErrorDoc("Missing field: field_id");
     }
     if (type.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type");
     }
 
     const std::string id = svc.create({fieldId, type, status});
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Failed to create device", 500);
+      return ResponseHelper::returnErrorDoc("Failed to create device", 500);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          return rdws::utils::json::JsonObj(alloc).set("id", id).take();
+          return JsonObj(alloc).set("id", id).take();
         },
         201);
   }
@@ -195,34 +198,34 @@ private:
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    const std::string type = rdws::utils::json::getString(req, "type").value_or(std::string{});
-    const std::string status = rdws::utils::json::getString(req, "status").value_or(std::string{});
+    const std::string type = json::getString(req, "type").value_or(std::string{});
+    const std::string status = json::getString(req, "status").value_or(std::string{});
 
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
     if (type.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type");
     }
     if (status.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing field: status");
+      return ResponseHelper::returnErrorDoc("Missing field: status");
     }
 
     const bool ok = svc.update(id, {type, status});
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc()
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to update device", 500);
+    return ok ? ResponseHelper::returnSuccessDoc()
+              : ResponseHelper::returnErrorDoc("Failed to update device", 500);
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const bool ok = svc.remove(id);
-    return ok ? rdws::utils::ResponseHelper::returnSuccessDoc(204)
-              : rdws::utils::ResponseHelper::returnErrorDoc("Failed to delete device", 500);
+    return ok ? ResponseHelper::returnSuccessDoc(204)
+              : ResponseHelper::returnErrorDoc("Failed to delete device", 500);
   }
 };
 

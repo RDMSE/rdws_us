@@ -25,6 +25,7 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor_reading;
+using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 
 namespace {
@@ -118,7 +119,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return rdws::utils::ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
+      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
     }
   }
 
@@ -127,14 +128,14 @@ private:
                                         rdws::sensor_reading::SensorReadingService& svc) {
     const std::string sensorId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (sensorId.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
     const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
     const std::string to = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "to");
     const auto readings = svc.findBySensorId(sensorId, from, to);
 
-    return rdws::utils::ResponseHelper::returnDataDoc([&](auto& alloc) {
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& r : readings) {
         arr.PushBack(readingToJson(r, alloc), alloc);
@@ -151,15 +152,15 @@ private:
       rid = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "rid");
     }
     if (rid.empty()) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Missing reading id (rid)");
+      return ResponseHelper::returnErrorDoc("Missing reading id (rid)");
     }
 
     const auto reading = svc.findById(rid);
     if (!reading) {
-      return rdws::utils::ResponseHelper::returnErrorDoc("Reading not found", 404);
+      return ResponseHelper::returnErrorDoc("Reading not found", 404);
     }
 
-    return rdws::utils::ResponseHelper::returnDataDoc(
+    return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return readingToJson(reading.value(), alloc); });
   }
 };
