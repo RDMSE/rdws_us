@@ -44,12 +44,15 @@ std::string buildJwt(const std::string& userId, const std::string& username,
   rapidjson::Document payload;
   payload.SetObject();
   auto& alloc = payload.GetAllocator();
-  payload.AddMember("sub", rapidjson::Value(userId.c_str(), alloc), alloc);
-  payload.AddMember("username", rapidjson::Value(username.c_str(), alloc), alloc);
-  payload.AddMember("role", rapidjson::Value(role.c_str(), alloc), alloc);
-  payload.AddMember("iss", "rdws", alloc);
-  payload.AddMember("iat", now, alloc);
-  payload.AddMember("exp", exp, alloc);
+  rapidjson::Value payloadValue = JsonObj(alloc)
+                                       .set("sub", userId)
+                                       .set("username", username)
+                                       .set("role", role)
+                                       .set("iss", "rdws")
+                                       .set("iat", now)
+                                       .set("exp", exp)
+                                       .take();
+  payloadValue.Swap(payload);
 
   rapidjson::StringBuffer buf;
   rapidjson::Writer writer(buf);
