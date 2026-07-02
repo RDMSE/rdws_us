@@ -1,0 +1,15 @@
+meta {
+  name: Delete Sensor
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/sensors/1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

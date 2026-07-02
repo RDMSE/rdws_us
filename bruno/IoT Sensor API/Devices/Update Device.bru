@@ -1,0 +1,27 @@
+meta {
+  name: Update Device
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/devices/:devId
+  body: json
+  auth: bearer
+}
+
+params:path {
+  devId: 1
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "type": "weather_station",
+    "status": "maintenance",
+    "location": "POINT(-47.9292 -15.7801)"
+  }
+}

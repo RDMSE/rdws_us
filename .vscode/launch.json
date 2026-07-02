@@ -1,0 +1,994 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Gateway HTTP",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
+            "name": "Gateway HTTP (with persistence)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock",
+                "${workspaceFolder}/routes.json"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
+            "name": "Gateway HTTP (API key auth)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock",
+                "${workspaceFolder}/routes.json"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "RDWS_AUTH_MODE",
+                    "value": "apikey"
+                },
+                {
+                    "name": "RDWS_API_KEYS",
+                    "value": "sk_dev=developer,sk_admin=admin"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
+            "name": "Gateway HTTP (JWT auth)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
+            "args": [
+                "8085",
+                "3001",
+                "/tmp/rdws_gateway.sock",
+                "${workspaceFolder}/routes.json"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "RDWS_AUTH_MODE",
+                    "value": "jwt"
+                },
+                {
+                    "name": "RDWS_JWT_SECRET",
+                    "value": "meu-segredo-dev"
+                },
+                {
+                    "name": "RDWS_JWT_ISSUER",
+                    "value": "rdws"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake-build"
+        },
+        {
+            "name": "Auth Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/auth_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "JWT_SECRET",
+                    "value": "meu-segredo-dev"
+                },
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Auth Service (auth_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/auth_service",
+            "args": [
+                "auth_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "JWT_SECRET",
+                    "value": "meu-segredo-dev"
+                },
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Farm Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/farm_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Farm Service (farm_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/farm_service",
+            "args": [
+                "farm_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Field Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/field_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Field Service (field_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/field_service",
+            "args": [
+                "field_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/device_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Service (device_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/device_service",
+            "args": [
+                "device_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Config Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/device_config_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Device Config Service (device_config_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/device_config_service",
+            "args": [
+                "device_config_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/sensor_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Service (sensor_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/sensor_service",
+            "args": [
+                "sensor_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Reading Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/sensor_reading_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Sensor Reading Service (sensor_reading_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/sensor_reading_service",
+            "args": [
+                "sensor_reading_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Persistence Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/persistence_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Persistence Service (persistence_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/persistence_service",
+            "args": [
+                "persistence_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DB_HOST",
+                    "value": "fedora-server.local"
+                },
+                {
+                    "name": "DB_PORT",
+                    "value": "5432"
+                },
+                {
+                    "name": "DB_NAME",
+                    "value": "rdws_us_dev"
+                },
+                {
+                    "name": "DB_USER",
+                    "value": "rdws_user"
+                },
+                {
+                    "name": "DB_PASSWORD",
+                    "value": "rdws_password"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Example Service (inst_001)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/example_service",
+            "args": [
+                "inst_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Example Service (inst_002)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/example_service",
+            "args": [
+                "inst_002",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Example Service (--dev)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-debug/bin/example_service",
+            "args": [
+                "--dev"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Gateway + All IoT Services (JWT)",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Auth Service (auth_001)",
+                "Farm Service (farm_001)",
+                "Field Service (field_001)",
+                "Device Service (device_001)",
+                "Device Config Service (device_config_001)",
+                "Sensor Service (sensor_001)",
+                "Sensor Reading Service (sensor_reading_001)",
+                "Persistence Service (persistence_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + All IoT Services",
+            "configurations": [
+                "Gateway HTTP",
+                "Auth Service (auth_001)",
+                "Farm Service (farm_001)",
+                "Field Service (field_001)",
+                "Device Service (device_001)",
+                "Device Config Service (device_config_001)",
+                "Sensor Service (sensor_001)",
+                "Sensor Reading Service (sensor_reading_001)",
+                "Persistence Service (persistence_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + Auth",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Auth Service (auth_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + Auth + Farm + Field",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Auth Service (auth_001)",
+                "Farm Service (farm_001)",
+                "Field Service (field_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + Device + Sensor Stack",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Device Service (device_001)",
+                "Device Config Service (device_config_001)",
+                "Sensor Service (sensor_001)",
+                "Sensor Reading Service (sensor_reading_001)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services",
+            "configurations": [
+                "Gateway HTTP",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services (with persistence)",
+            "configurations": [
+                "Gateway HTTP (with persistence)",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services (API key auth)",
+            "configurations": [
+                "Gateway HTTP (API key auth)",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 2 Services (JWT auth)",
+            "configurations": [
+                "Gateway HTTP (JWT auth)",
+                "Example Service (inst_001)",
+                "Example Service (inst_002)"
+            ],
+            "stopAll": true
+        },
+        {
+            "name": "Gateway + 1 Service",
+            "configurations": [
+                "Gateway HTTP",
+                "Example Service (inst_001)"
+            ],
+            "stopAll": true
+        }
+    ]
+}

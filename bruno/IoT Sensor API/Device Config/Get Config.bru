@@ -1,0 +1,19 @@
+meta {
+  name: Get Config
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/devices/:dev/config
+  body: none
+  auth: bearer
+}
+
+params:path {
+  dev: 3
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

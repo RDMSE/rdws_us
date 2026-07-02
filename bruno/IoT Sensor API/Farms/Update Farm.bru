@@ -1,0 +1,22 @@
+meta {
+  name: Update Farm
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/farms/1
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "name": "Fazenda São João (atualizada)",
+    "location": "POINT(-47.9292 -15.7801)"
+  }
+}

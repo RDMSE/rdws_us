@@ -1,65 +1,68 @@
+#pragma once
+
+#include <memory>
 #include <string>
-#include <vector>
-#include <json/json.h>
+#include <utility>
+#include <valijson/adapters/rapidjson_adapter.hpp>
+#include <rapidjson/document.h>
 #include <valijson/schema.hpp>
 #include <valijson/validator.hpp>
+#include <vector>
 
+namespace rdws::utils::validator {
 
-namespace rdws::validation {
+struct ValidationError {
+  std::string field;
+  std::string message;
+  std::string context;
 
-  struct ValidationError {
-      std::string field;
-      std::string message;
-      std::string context;
+  ValidationError(std::string f, std::string m, std::string c = "")
+      : field(std::move(f)), message(std::move(m)), context(std::move(c)) {}
+};
 
-      ValidationError(std::string  f, std::string  m, std::string  c = "")
-          : field(std::move(f)), message(std::move(m)), context(std::move(c)) {}
-  };
+class SchemaValidator {
+  std::string schemaName;
+  std::unique_ptr<valijson::Schema> schema;
+  std::unique_ptr<valijson::Validator> validator;
 
-  class SchemaValidator {
-    std::string schemaName;
-    std::unique_ptr<valijson::Schema> schema;
-    std::unique_ptr<valijson::Validator> validator;
+  // Private default constructor for factory methods
+  SchemaValidator() = default;
 
-    // Private default constructor for factory methods
-    SchemaValidator() = default;
+  [[nodiscard]] static std::string getSchemaPath(const std::string& schemaFile);
+  [[nodiscard]] bool loadSchemaFromString(const std::string& schemaString) const;
+  [[nodiscard]] static std::vector<ValidationError>
+  convertValidationResults(const valijson::ValidationResults& results);
 
-    [[nodiscard]] static std::string getSchemaPath(const std::string& schemaFile) ;
-    [[nodiscard]] bool loadSchemaFromString(const std::string& schemaString) const;
-    [[nodiscard]] static std::vector<ValidationError>
-        convertValidationResults(const valijson::ValidationResults& results) ;
+public:
+  // Constructor for string-based schemas (recommended)
+  static SchemaValidator fromString(const std::string& name, const std::string& schemaString);
 
+  ~SchemaValidator() = default;
 
-  public:
-    // Constructor for string-based schemas (recommended)
-    static SchemaValidator fromString(const std::string& name, const std::string& schemaString);
+  // Move constructor and assignment
+  SchemaValidator(SchemaValidator&& other) noexcept;
+  SchemaValidator& operator=(SchemaValidator&& other) noexcept;
 
-    ~SchemaValidator() = default;
+  // Disable copy
+  SchemaValidator(const SchemaValidator&) = delete;
+  SchemaValidator& operator=(const SchemaValidator&) = delete;
 
-    // Move constructor and assignment
-    SchemaValidator(SchemaValidator&& other) noexcept;
-    SchemaValidator& operator=(SchemaValidator&& other) noexcept;
+  [[nodiscard]] std::vector<ValidationError> validate(const rapidjson::Document& json) const;
+  [[nodiscard]] std::vector<ValidationError> validate(const std::string& jsonString) const;
 
-    // Disable copy
-    SchemaValidator(const SchemaValidator&) = delete;
-    SchemaValidator& operator=(const SchemaValidator&) = delete;
+  [[nodiscard]] bool isValid(const rapidjson::Document& json) const {
+    return validate(json).empty();
+  }
 
-    [[nodiscard]] std::vector<ValidationError> validate(const Json::Value& json) const;
-    [[nodiscard]] std::vector<ValidationError> validate(const std::string& jsonString) const;
+  [[nodiscard]] bool isValid(const std::string& jsonString) const {
+    return validate(jsonString).empty();
+  }
 
-    [[nodiscard]] bool isValid(const Json::Value& json) const {
-        return validate(json).empty();
-    }
+  [[nodiscard]] std::string getErrorsAsJson(const std::vector<ValidationError>& errors) const;
 
-    [[nodiscard]] bool isValid(const std::string& jsonString) const {
-        return validate(jsonString).empty();
-    }
+  [[nodiscard]] const std::string& getName() const {
+    return schemaName;
+  }
+};
 
-    [[nodiscard]] std::string getErrorsAsJson(const std::vector<ValidationError>& errors) const;
-
-    [[nodiscard]] const std::string& getName() const {
-        return schemaName;
-    }
-  };
-
-};  
+}; // namespace rdws::utils::validator

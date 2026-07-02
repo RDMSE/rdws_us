@@ -1,0 +1,299 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cmake-build",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-debug",
+                "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "run-gateway",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8080",
+                "3001",
+                "/tmp/service_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-gateway (with persistence)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8080",
+                "3001",
+                "/tmp/service_gateway.sock",
+                "${workspaceFolder}/gateway.log",
+                "${workspaceFolder}/routes.json"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-gateway (full config)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "args": [
+                "8080",
+                "3001",
+                "/tmp/service_gateway.sock",
+                "${workspaceFolder}/gateway.log",
+                "${workspaceFolder}/routes.json",
+                "${workspaceFolder}/gateway_config.json"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-auth-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/auth_service",
+            "args": [
+                "auth_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "JWT_SECRET": "meu-segredo-dev"
+                }
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-farm-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/farm_service",
+            "args": [
+                "farm_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-field-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/field_service",
+            "args": [
+                "field_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-device-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/device_service",
+            "args": [
+                "device_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-device-config-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/device_config_service",
+            "args": [
+                "device_config_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-sensor-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/sensor_service",
+            "args": [
+                "sensor_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-sensor-reading-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/sensor_reading_service",
+            "args": [
+                "sensor_reading_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-persistence-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build/bin/persistence_service",
+            "args": [
+                "persistence_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-all-services",
+            "dependsOn": [
+                "run-auth-service",
+                "run-farm-service",
+                "run-field-service",
+                "run-device-service",
+                "run-device-config-service",
+                "run-sensor-service",
+                "run-sensor-reading-service",
+                "run-persistence-service"
+            ],
+            "dependsOrder": "parallel",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run-tests",
+            "type": "shell",
+            "command": "ctest",
+            "args": [
+                "--output-on-failure",
+                "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/build"
+            },
+            "dependsOn": "cmake-build",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

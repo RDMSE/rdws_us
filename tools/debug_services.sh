@@ -21,7 +21,6 @@ print_usage() {
     echo "Commands:"
     echo "  build                - Build the project"
     echo "  run <service>        - Run service in development mode"
-    echo "  test <service>       - Connect test harness to running service"
     echo "  debug <service>      - Show debug instructions for service"
     echo "  list                 - List available services"
     echo "  clean                - Clean socket files"
@@ -29,8 +28,9 @@ print_usage() {
     echo "Examples:"
     echo "  $0 build"
     echo "  $0 run example_service"
-    echo "  $0 test example_service"
     echo "  $0 debug example_service"
+    echo ""
+    echo "Note: Use service_broker_monitor for service testing/monitoring"
 }
 
 check_build() {
@@ -92,23 +92,6 @@ run_service_dev() {
     "$service_path" --dev
 }
 
-test_service() {
-    local service_name="$1"
-    local harness_path="$BIN_DIR/service_test_harness"
-    local socket_path="/tmp/${service_name}_dev.sock"
-    
-    check_build
-    
-    if [ ! -x "$harness_path" ]; then
-        echo -e "${RED}Test harness not found at $harness_path${NC}"
-        echo -e "${YELLOW}Run 'build' first${NC}"
-        exit 1
-    fi
-    
-    echo -e "${GREEN}Connecting to $service_name...${NC}"
-    "$harness_path" "$service_name" "$socket_path" --interactive
-}
-
 show_debug_instructions() {
     local service_name="$1"
     local service_path="$SERVICES_DIR/$service_name"
@@ -151,14 +134,6 @@ case "$1" in
             exit 1
         fi
         run_service_dev "$2"
-        ;;
-    "test")
-        if [ -z "$2" ]; then
-            echo -e "${RED}Please specify a service name${NC}"
-            print_usage
-            exit 1
-        fi
-        test_service "$2"
         ;;
     "debug")
         if [ -z "$2" ]; then

@@ -1,307 +1,329 @@
 //
-// Example Service Application
-// This demonstrates how a service should interact with the ServiceLoader
+// Example Service - ServiceGateway Architecture v2.0
+// Demonstrates service creation using ServiceClient library
 //
 
-#include <iostream>
-#include <string>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <signal.h>
-#include <thread>
+#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/utils/json_helper.h"
+
 #include <chrono>
-#include <cstring>
+#include <csignal>
+#include <iostream>
+#include <random>
+#include <string>
+#include <thread>
+#include <utility>
+
+using namespace servicegateway;
+namespace json = rdws::utils::json;
 
 class ExampleService {
 private:
-    std::string serviceId;
-    int instanceId;
-    std::string endpoint;
-    bool running = false;
-    bool developmentMode = false;
-    int serverSocket = -1;
-    
+  ServiceIdentity identity;
+  std::unique_ptr<ServiceClient> client;
+  std::string gatewayAddress;
+  bool developmentMode = false;
+  std::atomic<bool> running{false};
+
+  static std::string resolveCommand(const rapidjson::Document& request) {
+    const auto commandValue = json::getString(request, "command");
+    if (commandValue.has_value()) {
+      return commandValue.value();
+    }
+
+    const auto capabilityValue = json::getString(request, "capability");
+    if (capabilityValue.has_value()) {
+      return capabilityValue.value();
+    }
+
+    if (const auto* lambdaEvent = json::getObject(request, "lambdaEvent"); lambdaEvent != nullptr) {
+      const auto* pathParameters = json::getObject(*lambdaEvent, "pathParameters");
+      if (pathParameters != nullptr) {
+        const auto capabilityValue = json::getString(*pathParameters, "capability");
+        if (capabilityValue.has_value()) {
+          return capabilityValue.value();
+        }
+      }
+    }
+
+    return "";
+  }
+
+  static void addMockUserResponse(rapidjson::Document& response,
+                                  rapidjson::Document::AllocatorType& allocator) {
+    rapidjson::Value user(rapidjson::kObjectType);
+    user.AddMember("id", "usr_mock_001", allocator);
+    user.AddMember("name", "Ada Lovelace", allocator);
+    user.AddMember("email", "ada.lovelace@example.local", allocator);
+    user.AddMember("plan", "enterprise", allocator);
+    user.AddMember("active", true, allocator);
+    user.AddMember("loginCount", 42, allocator);
+    user.AddMember("lastLogin", "2026-05-15T12:00:00Z", allocator);
+
+    response.AddMember("result", user, allocator);
+    response.AddMember("status", "success", allocator);
+  }
+
+  static void addMockOrdersResponse(rapidjson::Document& response,
+                                    rapidjson::Document::AllocatorType& allocator) {
+    rapidjson::Value orders(rapidjson::kArrayType);
+
+    rapidjson::Value order1(rapidjson::kObjectType);
+    order1.AddMember("orderId", "ord_mock_1001", allocator);
+    order1.AddMember("status", "processing", allocator);
+    order1.AddMember("amount", 199.90, allocator);
+    order1.AddMember("currency", "BRL", allocator);
+
+    rapidjson::Value order2(rapidjson::kObjectType);
+    order2.AddMember("orderId", "ord_mock_1002", allocator);
+    order2.AddMember("status", "delivered", allocator);
+    order2.AddMember("amount", 49.50, allocator);
+    order2.AddMember("currency", "BRL", allocator);
+
+    rapidjson::Value order3(rapidjson::kObjectType);
+    order3.AddMember("orderId", "ord_mock_1003", allocator);
+    order3.AddMember("status", "pending_payment", allocator);
+    order3.AddMember("amount", 10.00, allocator);
+    order3.AddMember("currency", "BRL", allocator);
+
+    orders.PushBack(order1, allocator);
+    orders.PushBack(order2, allocator);
+    orders.PushBack(order3, allocator);
+
+    rapidjson::Value payload(rapidjson::kObjectType);
+    payload.AddMember("total", static_cast<int>(orders.Size()), allocator);
+    payload.AddMember("orders", orders, allocator);
+
+    response.AddMember("result", payload, allocator);
+    response.AddMember("status", "success", allocator);
+  }
+
+  static void addMathResponse(const rapidjson::Document& request, rapidjson::Document& response,
+                              rapidjson::Document::AllocatorType& allocator) {
+    const double a = json::getDouble(request, "a").value_or(0.0);
+    const double b = json::getDouble(request, "b").value_or(0.0);
+    const std::string operation = json::getString(request, "operation").value_or("add");
+
+    rapidjson::Value result(rapidjson::kObjectType);
+    result.AddMember("a", a, allocator);
+    result.AddMember("b", b, allocator);
+    result.AddMember("operation", rapidjson::Value(operation.c_str(), allocator), allocator);
+
+    if (operation == "subtract") {
+      result.AddMember("value", a - b, allocator);
+    } else if (operation == "multiply") {
+      result.AddMember("value", a * b, allocator);
+    } else if (operation == "divide") {
+      if (b == 0.0) {
+        response.AddMember("error", "Division by zero", allocator);
+        response.AddMember("status", "error", allocator);
+        return;
+      }
+      result.AddMember("value", a / b, allocator);
+    } else {
+      result.AddMember("value", a + b, allocator);
+    }
+
+    response.AddMember("result", result, allocator);
+    response.AddMember("status", "success", allocator);
+  }
+
 public:
-    ExampleService(const std::string& id, int instance, const std::string& ep, bool devMode = false) 
-        : serviceId(id), instanceId(instance), endpoint(ep), developmentMode(devMode) {}
-    
-    bool performHandshake() {
-        std::cout << "[" << serviceId << "] Attempting handshake with loader at " << endpoint << std::endl;
-        
-        int socketFd = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (socketFd == -1) {
-            std::cerr << "[" << serviceId << "] Failed to create socket for handshake" << std::endl;
-            return false;
-        }
-        
-        struct sockaddr_un addr;
-        memset(&addr, 0, sizeof(addr));
-        addr.sun_family = AF_UNIX;
-        strncpy(addr.sun_path, endpoint.c_str(), sizeof(addr.sun_path) - 1);
-        
-        // Retry connection a few times (loader might not be ready immediately)
-        for (int i = 0; i < 5; ++i) {
-            if (connect(socketFd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            if (i == 4) {
-                std::cerr << "[" << serviceId << "] Failed to connect to loader" << std::endl;
-                close(socketFd);
-                return false;
-            }
-        }
-        
-        // Send READY message
-        std::string readyMessage = "READY:" + serviceId;
-        if (send(socketFd, readyMessage.c_str(), readyMessage.length(), 0) == -1) {
-            std::cerr << "[" << serviceId << "] Failed to send READY message" << std::endl;
-            close(socketFd);
-            return false;
-        }
-        
-        // Wait for ACK
-        char buffer[256];
-        ssize_t bytesRead = recv(socketFd, buffer, sizeof(buffer) - 1, 0);
-        if (bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            std::string response(buffer);
-            
-            if (response == "ACK:" + serviceId) {
-                std::cout << "[" << serviceId << "] Handshake successful!" << std::endl;
-                close(socketFd);
-                return true;
-            } else {
-                std::cerr << "[" << serviceId << "] Invalid ACK message: " << response << std::endl;
-            }
-        } else {
-            std::cerr << "[" << serviceId << "] Failed to read ACK message" << std::endl;
-        }
-        
-        close(socketFd);
-        return false;
+  ExampleService(const std::string& serviceId, const std::string& machineName,
+                 const bool devMode = false, std::string broker = "unix:///tmp/rdws_gateway.sock")
+      : gatewayAddress(std::move(broker)), developmentMode(devMode) {
+
+    // Setup service identity
+    identity.machineName = machineName;
+    identity.serviceName = "example_service";
+    identity.serviceId = serviceId;
+    identity.version = "v2.0.0";
+    identity.environment = devMode ? "dev" : "prod";
+    identity.maxConcurrent = 10;
+    identity.capabilities = {"ping", "echo", "status", "info", "math"};
+  }
+
+  bool initialize() {
+    std::cout << "[" << identity.serviceId << "] Initializing service..." << '\n';
+
+    client = std::make_unique<ServiceClient>(identity, gatewayAddress);
+
+    client->setRequestHandler([this](const rapidjson::Document& request) -> rapidjson::Document {
+      return this->processRequest(request);
+    });
+
+    if (developmentMode) {
+      std::cout << "[" << identity.serviceId << "] Debug mode enabled" << '\n';
     }
-    
-    void run() {
-        running = true;
-        
-        if (developmentMode) {
-            std::cout << "[" << serviceId << "] Running in DEVELOPMENT mode (instance " << instanceId << ")" << std::endl;
-            runDevelopmentMode();
-        } else {
-            std::cout << "[" << serviceId << "] Service running (instance " << instanceId << ")" << std::endl;
-            runProductionMode();
-        }
-        
-        std::cout << "[" << serviceId << "] Service stopped" << std::endl;
+
+    return true;
+  }
+
+  void run() {
+    running.store(true);
+
+    std::cout << "[" << identity.serviceId << "] Starting service..." << '\n';
+    std::cout << "[" << identity.serviceId << "] Machine: " << identity.machineName << '\n';
+    std::cout << "[" << identity.serviceId << "] Version: " << identity.version << '\n';
+    std::cout << "[" << identity.serviceId << "] Capabilities: ";
+
+    for (size_t i = 0; i < identity.capabilities.size(); ++i) {
+      std::cout << identity.capabilities[i];
+      if (i < identity.capabilities.size() - 1) {
+        std::cout << ", ";
+      }
     }
-    
+    std::cout << '\n';
+    std::cout << "[" << identity.serviceId << "] Gateway: " << gatewayAddress << '\n';
+
+    client->run();
+
+    std::cout << "[" << identity.serviceId << "] Service stopped" << '\n';
+  }
+
+  void shutdown() {
+    std::cout << "[" << identity.serviceId << "] Shutdown requested" << '\n';
+    running.store(false);
+
+    if (client) {
+      client->stop();
+    }
+  }
+
 private:
-    void runProductionMode() {
-        int counter = 0;
-        while (running) {
-            std::cout << "[" << serviceId << "] Working... counter=" << counter++ << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-        }
+  [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) const {
+    const std::string command = resolveCommand(request);
+
+    std::cout << "[" << identity.serviceId << "] Processing: " << command << '\n';
+
+    rapidjson::Document response;
+    response.SetObject();
+    auto& allocator = response.GetAllocator();
+
+    response.AddMember("serviceId", rapidjson::Value(identity.serviceId.c_str(), allocator),
+                       allocator);
+    response.AddMember("timestamp",
+                       static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                std::chrono::steady_clock::now().time_since_epoch())
+                                                .count()),
+                       allocator);
+
+    if (command == "ping") {
+      response.AddMember("result", "pong", allocator);
+      response.AddMember("status", "success", allocator);
+    } else if (command == "status") {
+      response.AddMember("result", "running", allocator);
+      response.AddMember("status", "success", allocator);
+      response.AddMember("uptime", static_cast<int64_t>(identity.getUptime().count()), allocator);
+      response.AddMember("load", static_cast<int64_t>(identity.currentLoad), allocator);
+    } else if (command == "info") {
+      rapidjson::Value resultObj(rapidjson::kObjectType);
+      resultObj.AddMember("service", rapidjson::Value(identity.serviceName.c_str(), allocator),
+                          allocator);
+      resultObj.AddMember("id", rapidjson::Value(identity.serviceId.c_str(), allocator), allocator);
+      resultObj.AddMember("machine", rapidjson::Value(identity.machineName.c_str(), allocator),
+                          allocator);
+      resultObj.AddMember("version", rapidjson::Value(identity.version.c_str(), allocator),
+                          allocator);
+      resultObj.AddMember("environment", rapidjson::Value(identity.environment.c_str(), allocator),
+                          allocator);
+      rapidjson::Value caps(rapidjson::kArrayType);
+      for (const auto& cap : identity.capabilities) {
+        caps.PushBack(rapidjson::Value(cap.c_str(), allocator), allocator);
+      }
+      resultObj.AddMember("capabilities", caps, allocator);
+      response.AddMember("result", resultObj, allocator);
+      response.AddMember("status", "success", allocator);
+    } else if (command == "mock_user") {
+      addMockUserResponse(response, allocator);
+    } else if (command == "mock_orders") {
+      addMockOrdersResponse(response, allocator);
+    } else if (command == "math") {
+      addMathResponse(request, response, allocator);
+    } else if (command == "echo") {
+      const std::string message = json::getString(request, "message").value_or("");
+      response.AddMember("result", rapidjson::Value(("echo: " + message).c_str(), allocator),
+                         allocator);
+      response.AddMember("status", "success", allocator);
+    } else {
+      response.AddMember(
+          "error", rapidjson::Value(("Unknown command: " + command).c_str(), allocator), allocator);
+      response.AddMember("status", "error", allocator);
+      rapidjson::Value commands(rapidjson::kArrayType);
+      commands.PushBack("ping", allocator);
+      commands.PushBack("status", allocator);
+      commands.PushBack("info", allocator);
+      commands.PushBack("echo", allocator);
+      commands.PushBack("math", allocator);
+      commands.PushBack("mock_user", allocator);
+      commands.PushBack("mock_orders", allocator);
+      response.AddMember("availableCommands", commands, allocator);
     }
-    
-    void runDevelopmentMode() {
-        if (!setupDevelopmentSocket()) {
-            return;
-        }
-        
-        std::cout << "[" << serviceId << "] Ready to accept connections at " << endpoint << std::endl;
-        std::cout << "[" << serviceId << "] 🐛 DEBUG MODE: Use service_test_harness to connect!" << std::endl;
-        
-        while (running) {
-            acceptConnection();
-        }
-        
-        cleanupDevelopmentSocket();
+
+    // Simulate processing time
+    std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 50)));
+
+    const std::string statusValue = json::getString(response, "status").value_or("");
+    if (!statusValue.empty()) {
+        std::cout << "[" << identity.serviceId << "] Response: " << statusValue << '\n';
     }
-    
-    bool setupDevelopmentSocket() {
-        // Remove existing socket file if it exists
-        unlink(endpoint.c_str());
-        
-        serverSocket = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (serverSocket == -1) {
-            std::cerr << "[" << serviceId << "] Failed to create server socket" << std::endl;
-            return false;
-        }
-        
-        struct sockaddr_un addr;
-        memset(&addr, 0, sizeof(addr));
-        addr.sun_family = AF_UNIX;
-        strncpy(addr.sun_path, endpoint.c_str(), sizeof(addr.sun_path) - 1);
-        
-        if (bind(serverSocket, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-            std::cerr << "[" << serviceId << "] Failed to bind socket: " << strerror(errno) << std::endl;
-            close(serverSocket);
-            return false;
-        }
-        
-        if (listen(serverSocket, 5) == -1) {
-            std::cerr << "[" << serviceId << "] Failed to listen on socket" << std::endl;
-            close(serverSocket);
-            return false;
-        }
-        
-        return true;
-    }
-    
-    void acceptConnection() {
-        struct sockaddr_un clientAddr;
-        socklen_t clientLen = sizeof(clientAddr);
-        
-        int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientLen);
-        if (clientSocket == -1) {
-            if (running) { // Only log if we're still supposed to be running
-                std::cerr << "[" << serviceId << "] Failed to accept connection" << std::endl;
-            }
-            return;
-        }
-        
-        std::cout << "[" << serviceId << "] Client connected" << std::endl;
-        
-        // Handle client in separate thread to allow multiple connections
-        std::thread clientThread(&ExampleService::handleClient, this, clientSocket);
-        clientThread.detach();
-    }
-    
-    void handleClient(int clientSocket) {
-        char buffer[1024];
-        
-        while (running) {
-            ssize_t bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
-            
-            if (bytesRead <= 0) {
-                break; // Client disconnected or error
-            }
-            
-            buffer[bytesRead] = '\0';
-            std::string request(buffer);
-            
-            std::cout << "[" << serviceId << "] Received: " << request << std::endl;
-            
-            // Process the request and generate response
-            std::string response = processRequest(request);
-            
-            if (send(clientSocket, response.c_str(), response.length(), 0) == -1) {
-                std::cerr << "[" << serviceId << "] Failed to send response" << std::endl;
-                break;
-            }
-            
-            std::cout << "[" << serviceId << "] Sent: " << response << std::endl;
-        }
-        
-        close(clientSocket);
-        std::cout << "[" << serviceId << "] Client disconnected" << std::endl;
-    }
-    
-    std::string processRequest(const std::string& request) {
-        // TODO: Implement actual service logic here
-        
-        if (request == "PING") {
-            return "PONG";
-        } else if (request == "STATUS") {
-            return "RUNNING";
-        } else if (request == "INFO") {
-            return "Service:" + serviceId + ",Instance:" + std::to_string(instanceId);
-        } else if (request.starts_with("ECHO ")) {
-            return "ECHO_RESPONSE:" + request.substr(5);
-        } else {
-            return "UNKNOWN_COMMAND:" + request;
-        }
-    }
-    
-    void cleanupDevelopmentSocket() {
-        if (serverSocket != -1) {
-            close(serverSocket);
-            serverSocket = -1;
-        }
-        unlink(endpoint.c_str());
-    }
-    
-public:
-    
-    void shutdown() {
-        std::cout << "[" << serviceId << "] Received shutdown signal" << std::endl;
-        running = false;
-        
-        if (developmentMode && serverSocket != -1) {
-            // Close server socket to unblock accept()
-            close(serverSocket);
-            serverSocket = -1;
-        }
-    }
+
+    return response;
+  }
 };
 
 // Global service instance for signal handling
 ExampleService* globalService = nullptr;
 
-void signalHandler(int signal) {
-    if (globalService && signal == SIGTERM) {
-        globalService->shutdown();
-    }
+void signalHandler(const int signal) {
+  if ((globalService != nullptr) && (signal == SIGTERM || signal == SIGINT)) {
+    globalService->shutdown();
+  }
 }
 
-int main(int argc, char* argv[]) {
-    bool developmentMode = false;
-    
-    // Check for development mode flag
-    if (argc == 2 && std::string(argv[1]) == "--dev") {
-        developmentMode = true;
-        std::cout << "=== DEVELOPMENT MODE ===" << std::endl;
-        std::cout << "Service will run standalone for debugging" << std::endl;
-        std::cout << "========================" << std::endl;
-    }
-    
-    if (!developmentMode && argc != 4) {
-        std::cerr << "Usage: " << std::endl;
-        std::cerr << "  Production:  " << argv[0] << " <service_id> <instance_id> <endpoint>" << std::endl;
-        std::cerr << "  Development: " << argv[0] << " --dev" << std::endl;
-        return 1;
-    }
-    
-    std::string serviceId;
-    int instanceId;
-    std::string endpoint;
-    
-    if (developmentMode) {
-        serviceId = "example_service_dev";
-        instanceId = 0;
-        endpoint = "/tmp/example_service_dev.sock";
-        std::cout << "Development config:" << std::endl;
-        std::cout << "  Service ID: " << serviceId << std::endl;
-        std::cout << "  Endpoint: " << endpoint << std::endl;
-    } else {
-        serviceId = argv[1];
-        instanceId = std::stoi(argv[2]);
-        endpoint = argv[3];
-    }
-    
-    std::cout << "[" << serviceId << "] Starting service with instance " << instanceId 
-              << " at " << endpoint << std::endl;
-    
-    ExampleService service(serviceId, instanceId, endpoint, developmentMode);
-    globalService = &service;
-    
-    // Setup signal handler for graceful shutdown
-    signal(SIGTERM, signalHandler);
-    signal(SIGINT, signalHandler);  // Also handle Ctrl+C in dev mode
-    
-    if (!developmentMode) {
-        // Perform handshake with loader (production mode only)
-        if (!service.performHandshake()) {
-            std::cerr << "[" << serviceId << "] Handshake failed, exiting" << std::endl;
-            return 1;
-        }
-    }
-    
-    // Run the service
-    service.run();
-    
-    return 0;
+int main(const int argc, char* argv[]) {
+  bool developmentMode = false;
+  std::string gatewayAddress = "unix:///tmp/rdws_gateway.sock";
+  std::string serviceId = "example_001";
+  std::string machineName = "localhost";
+
+  // Parse arguments
+  if (argc >= 2 && std::string(argv[1]) == "--dev") {
+    developmentMode = true;
+    serviceId = "example_dev";
+    machineName = "dev-machine";
+
+    std::cout << "=== DEVELOPMENT MODE ===" << '\n';
+    std::cout << "Connect to gateway for debugging" << '\n';
+    std::cout << "========================" << '\n';
+  } else if (argc >= 4) {
+    serviceId = argv[1];
+    machineName = argv[2];
+    gatewayAddress = argv[3];
+  } else if (argc != 1) {
+    std::cerr << "Usage:" << '\n';
+    std::cerr << "  Development: " << argv[0] << " --dev" << '\n';
+    std::cerr << "  Production:  " << argv[0] << " <serviceId> <machineName> <gatewayAddress>"
+              << '\n';
+    std::cerr << "  Default:     " << argv[0] << '\n';
+    return 1;
+  }
+
+  std::cout << "[" << serviceId << "] Example Service v2.0 (ServiceGateway Architecture)" << '\n';
+
+  ExampleService service(serviceId, machineName, developmentMode, gatewayAddress);
+  globalService = &service;
+
+  signal(SIGTERM, signalHandler);
+  signal(SIGINT, signalHandler);
+
+  if (!service.initialize()) {
+    std::cerr << "[" << serviceId << "] Failed to initialize service" << '\n';
+    return 1;
+  }
+
+  service.run();
+
+  std::cout << "[" << serviceId << "] Service exited gracefully" << '\n';
+  return 0;
 }

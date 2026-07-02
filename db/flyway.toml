@@ -1,0 +1,9 @@
+[flyway]
+url        = "jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}"
+user       = "${DB_USER}"
+password   = "${DB_PASSWORD}"
+locations  = ["filesystem:./migrations"]
+table      = "flyway_schema_history"
+baselineOnMigrate = true
+validateOnMigrate = true
+outOfOrder = false

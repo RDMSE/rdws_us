@@ -1,0 +1,15 @@
+meta {
+  name: List Readings
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/sensors/1/readings?from=2026-06-01T00:00:00Z&to=2026-06-22T23:59:59Z
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

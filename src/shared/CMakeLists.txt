@@ -13,22 +13,14 @@ target_include_directories(rdws_shared_validation PUBLIC
 
 target_link_libraries(rdws_shared_validation PUBLIC
     valijson_wrapper
+    rapidjson_wrapper
+    rdws_shared_json_utils
 )
 
-# Required for jsoncpp (used by valijson adapters)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(JSONCPP jsoncpp)
-
-if(JSONCPP_FOUND)
-    target_link_libraries(rdws_shared_validation PUBLIC ${JSONCPP_LIBRARIES})
-    target_include_directories(rdws_shared_validation PUBLIC ${JSONCPP_INCLUDE_DIRS})
-    target_compile_options(rdws_shared_validation PUBLIC ${JSONCPP_CFLAGS_OTHER})
-else()
-    message(WARNING "jsoncpp not found via pkg-config, validation may not work correctly")
-endif()
+# jsoncpp is provided via valijson_wrapper (bundled)
 
 
-add_library(rdws_shared_config 
+add_library(rdws_shared_config
     config/config.cpp
     config/config.h
 )
@@ -40,6 +32,100 @@ target_include_directories(rdws_shared_config PUBLIC
 target_link_libraries(rdws_shared_config PUBLIC
     dotenv_wrapper
 )
+
+add_library(rdws_shared_types
+    types/lambda_event.cpp
+    types/lambda_event.h
+    types/lambda_context.cpp
+    types/lambda_context.h
+    types/service_result.h
+)
+
+target_include_directories(rdws_shared_types PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/types
+)
+
+target_link_libraries(rdws_shared_types PUBLIC
+    rapidjson_wrapper
+)
+
+add_library(rdws_shared_json_utils
+    utils/json_helper.cpp
+    utils/json_helper.h
+)
+
+target_include_directories(rdws_shared_json_utils PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+)
+
+target_link_libraries(rdws_shared_json_utils PUBLIC
+    rapidjson_wrapper
+)
+
+add_library(rdws_shared_utils
+    utils/lambda_params_helper.cpp
+    utils/lambda_params_helper.h
+    utils/metrics.cpp
+    utils/metrics.h
+    utils/response_helper.cpp
+    utils/response_helper.h
+)
+
+target_include_directories(rdws_shared_utils PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+)
+
+target_link_libraries(rdws_shared_utils PUBLIC
+    expected_wrapper
+    rapidjson_wrapper
+)
+
+add_library(rdws_shared_logger
+    utils/logger.cpp
+    utils/logger.h
+)
+
+target_include_directories(rdws_shared_logger PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils
+)
+
+target_link_libraries(rdws_shared_logger PUBLIC
+    spdlog_wrapper
+)
+
+add_library(rdws_shared_database
+    database/postgresql_database.cpp
+    database/postgresql_database.h
+    database/idatabase.h
+)
+
+target_include_directories(rdws_shared_database PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/database
+    ${PQXX_INCLUDE_DIRS}
+)
+
+target_link_libraries(rdws_shared_database
+    PRIVATE
+    PQXX_DEP
+    pq
+)
+
+# Linux Mint Debian Edition
+# target_link_libraries(rdws_shared_database PUBLIC
+#     rdws_shared_config
+#     libpqxx::pqxx
+# )
+
+# Linux Mint
+# target_link_libraries(rdws_shared_database PUBLIC
+#     rdws_shared_config
+#     ${PQXX_LIBRARIES}
+# )
 
 # --- Testes para shared components ---
 if(BUILD_TESTING)
