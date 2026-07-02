@@ -47,19 +47,15 @@ std::string LambdaContext::toJson() const {
   rapidjson::Document doc;
   doc.SetObject();
   auto& allocator = doc.GetAllocator();
-
-  doc.AddMember("requestId", rapidjson::Value(requestId_.c_str(), allocator), allocator);
-  doc.AddMember("functionName", rapidjson::Value(functionName_.c_str(), allocator), allocator);
-  doc.AddMember("functionVersion", rapidjson::Value(functionVersion_.c_str(), allocator),
-                allocator);
-  doc.AddMember("timeoutMs", rapidjson::Value(static_cast<int64_t>(timeoutMs_.count())), allocator);
-  doc.AddMember("memoryLimitMB", rapidjson::Value(memoryLimitMB_), allocator);
-
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  doc.Accept(writer);
-
-  return buffer.GetString();
+  rapidjson::Value value = json::JsonObj(allocator)
+                               .set("requestId", requestId_)
+                               .set("functionName", functionName_)
+                               .set("functionVersion", functionVersion_)
+                               .set("timeoutMs", static_cast<int64_t>(timeoutMs_.count()))
+                               .set("memoryLimitMB", memoryLimitMB_)
+                               .take();
+  value.Swap(doc);
+  return json::docToString(doc);
 }
 
 std::chrono::milliseconds LambdaContext::getRemainingTimeMs() const {

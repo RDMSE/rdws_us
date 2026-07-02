@@ -7,6 +7,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include "../utils/json_helper.h"
 
 namespace servicegateway {
 
@@ -15,10 +16,7 @@ using namespace std::chrono_literals;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 static std::string docToString(const rapidjson::Document& doc) {
-  rapidjson::StringBuffer buf;
-  rapidjson::Writer<rapidjson::StringBuffer> w(buf);
-  doc.Accept(w);
-  return buf.GetString();
+  return rdws::utils::json::docToString(doc);
 }
 
 static std::string tmpPath() {

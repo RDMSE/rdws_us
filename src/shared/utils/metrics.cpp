@@ -1,5 +1,7 @@
 #include "metrics.h"
 
+#include "json_helper.h"
+
 #include <algorithm>
 #include <cmath>
 #include <rapidjson/document.h>
@@ -40,6 +42,32 @@ double MetricsTracker::computePercentile(std::vector<double> samples, const doub
   return samples[std::min(idx, samples.size() - 1)];
 }
 
+rapidjson::Value MetricsTracker::capabilityStatsToJson(const std::string& capability, const CapabilityStats& stats,
+                                                        rapidjson::Document::AllocatorType& alloc) {
+  const double avg = stats.requestCount > 0 ? stats.totalLatencyMs / static_cast<double>(stats.requestCount) : 0.0;
+  const double p99 = computePercentile(stats.recentLatencies, 99.0);
+  const double errorRate =
+      stats.requestCount > 0 ? static_cast<double>(stats.errorCount) / static_cast<double>(stats.requestCount) : 0.0;
+  const double minMs = stats.requestCount > 0 ? stats.minLatencyMs : 0.0;
+
+  auto roundToDecimal = [](double value, int decimalPlaces) {
+    const double factor = std::pow(10.0, decimalPlaces);
+    return std::round(value * factor) / factor;
+  };
+
+  return rdws::utils::json::JsonObj(alloc)
+      .set("capability", capability)
+      .set("requestCount", stats.requestCount)
+      .set("errorCount", stats.errorCount)
+      .set("timeoutCount", stats.timeoutCount)
+      .set("avgLatencyMs", roundToDecimal(avg, 2))
+      .set("p99LatencyMs", roundToDecimal(p99, 2))
+      .set("minLatencyMs", roundToDecimal(minMs, 2))
+      .set("maxLatencyMs", roundToDecimal(stats.maxLatencyMs, 2))
+      .set("errorRate", roundToDecimal(errorRate, 4))
+      .take();
+}
+
 rapidjson::Document MetricsTracker::toJson() const {
   std::scoped_lock lock(mutex_);
 
@@ -48,28 +76,8 @@ rapidjson::Document MetricsTracker::toJson() const {
   auto& alloc = doc.GetAllocator();
 
   rapidjson::Value capabilities(rapidjson::kArrayType);
-
-  for (const auto& [cap, s] : stats_) {
-    const double avg =
-        s.requestCount > 0 ? s.totalLatencyMs / static_cast<double>(s.requestCount) : 0.0;
-    const double p99 = computePercentile(s.recentLatencies, 99.0);
-    const double errorRate =
-        s.requestCount > 0 ? static_cast<double>(s.errorCount) / static_cast<double>(s.requestCount)
-                           : 0.0;
-    const double minMs = s.requestCount > 0 ? s.minLatencyMs : 0.0;
-
-    rapidjson::Value entry(rapidjson::kObjectType);
-    entry.AddMember("capability", rapidjson::Value(cap.c_str(), alloc), alloc);
-    entry.AddMember("requestCount", static_cast<uint64_t>(s.requestCount), alloc);
-    entry.AddMember("errorCount", static_cast<uint64_t>(s.errorCount), alloc);
-    entry.AddMember("timeoutCount", static_cast<uint64_t>(s.timeoutCount), alloc);
-    entry.AddMember("avgLatencyMs", std::round(avg * 100.0) / 100.0, alloc);
-    entry.AddMember("p99LatencyMs", std::round(p99 * 100.0) / 100.0, alloc);
-    entry.AddMember("minLatencyMs", std::round(minMs * 100.0) / 100.0, alloc);
-    entry.AddMember("maxLatencyMs", std::round(s.maxLatencyMs * 100.0) / 100.0, alloc);
-    entry.AddMember("errorRate", std::round(errorRate * 10000.0) / 10000.0, alloc);
-
-    capabilities.PushBack(entry, alloc);
+  for (const auto& [cap, capData] : stats_) {
+    capabilities.PushBack(capabilityStatsToJson(cap, capData, alloc), alloc);
   }
 
   doc.AddMember("capabilities", capabilities, alloc);

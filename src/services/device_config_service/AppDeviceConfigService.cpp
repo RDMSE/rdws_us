@@ -20,8 +20,6 @@
 #include <csignal>
 #include <memory>
 #include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
 #include <string>
 #include <utility>
 
@@ -97,7 +95,7 @@ public:
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
 
-    const auto& cap = json::getString(request, "capability").value_or("");
+    const auto cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<
@@ -155,11 +153,8 @@ private:
     }
 
     std::string configJson;
-    if (req.HasMember("config")) {
-      rapidjson::StringBuffer buf;
-      rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-      req["config"].Accept(writer);
-      configJson = buf.GetString();
+    if (const auto configField = req.FindMember("config"); configField != req.MemberEnd()) {
+      configJson = json::docToString(configField->value);
     }
     if (configJson.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: config");
@@ -184,11 +179,8 @@ private:
     }
 
     std::string configJson;
-    if (req.HasMember("config")) {
-      rapidjson::StringBuffer buf;
-      rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-      req["config"].Accept(writer);
-      configJson = buf.GetString();
+    if (const auto configField = req.FindMember("config"); configField != req.MemberEnd()) {
+      configJson = json::docToString(configField->value);
     }
     if (configJson.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: config");

@@ -60,7 +60,7 @@ bool ServiceGateway::start() {
   // Bridge request.completed → persistence.save.request (fire-and-forget)
   bus_.subscribe("request.completed", [this](const std::string&, const rapidjson::Document& ev) {
     // Skip forwarding persistence-internal requests to avoid loops
-    const auto& capability = json::getString(ev, "capability");
+    const auto capability = json::getString(ev, "capability");
     if (capability.has_value() && capability.value().rfind("persistence.", 0) == 0) {
       return;
     }
@@ -320,8 +320,7 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
       return;
     }
 
-    const auto& messageType = json::getString(jsonMessage, "type");
-
+    const auto messageType = json::getString(jsonMessage, "type");
     if (!messageType.has_value()) {
       logger::error("Missing message type from client", "fd=" + std::to_string(clientFd));
       return;
@@ -343,13 +342,14 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
 
 bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::Document& message) {
   try {
-    if (json::getObject(message, "identity") == nullptr) {
+    const auto* identityObj = json::getObject(message, "identity");
+    if (identityObj == nullptr) {
       logger::error("Invalid identification: missing identity object");
       return false;
     }
 
     // Parse service identity from message
-    ServiceIdentity identity = ServiceIdentity::fromJson(message["identity"]);
+    ServiceIdentity identity = ServiceIdentity::fromJson(*identityObj);
 
     // Validate required fields
     if (identity.serviceId.empty() || identity.serviceName.empty()) {
@@ -375,16 +375,14 @@ bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::
       rapidjson::Document ackMessage;
       ackMessage.SetObject();
       auto& allocator = ackMessage.GetAllocator();
-      ackMessage.AddMember("type", "ACKNOWLEDGED", allocator);
-      ackMessage.AddMember("serviceId", rapidjson::Value(identity.serviceId.c_str(), allocator),
-                           allocator);
-      ackMessage.AddMember("status", "registered", allocator);
+      rapidjson::Value ackValue = json::JsonObj(allocator)
+                                       .set("type", "ACKNOWLEDGED")
+                                       .set("serviceId", identity.serviceId)
+                                       .set("status", "registered")
+                                       .take();
+      ackValue.Swap(ackMessage);
 
-      rapidjson::StringBuffer buffer;
-      rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-      ackMessage.Accept(writer);
-
-      sendMessage(clientFd, buffer.GetString());
+      sendMessage(clientFd, json::docToString(ackMessage));
 
       logger::info("service_connected", identity.serviceId + " (" + identity.serviceName + ") from " + identity.clientAddress);
 
@@ -393,19 +391,25 @@ bool ServiceGateway::handleIdentifyMessage(const int clientFd, const rapidjson::
         rapidjson::Document ev;
         ev.SetObject();
         auto& a = ev.GetAllocator();
-        ev.AddMember("serviceId", rapidjson::Value(identity.serviceId.c_str(), a), a);
-        ev.AddMember("serviceName", rapidjson::Value(identity.serviceName.c_str(), a), a);
-        ev.AddMember("address", rapidjson::Value(identity.clientAddress.c_str(), a), a);
+        rapidjson::Value evValue = json::JsonObj(a)
+            .set("serviceId", identity.serviceId)
+            .set("serviceName", identity.serviceName)
+            .set("address", identity.clientAddress)
+            .take();
+        evValue.Swap(ev);
+
         bus_.publish("service.connected", ev);
       }
 
       return true;
+    } else {
+      logger::error("Service registration failed", identity.serviceId);
+      return false;
     }
   } catch (const std::exception& e) {
     logger::error("Error in handleIdentifyMessage", e.what());
+    return false;
   }
-
-  return false;
 }
 
 bool ServiceGateway::handlePingMessage(const int clientFd, const rapidjson::Document& message) {
@@ -422,11 +426,9 @@ bool ServiceGateway::handlePingMessage(const int clientFd, const rapidjson::Docu
 
   if (!serviceId.empty()) {
     // Update stats if provided
-    if (json::getObject(message, "stats") != nullptr) {
-      const auto& stats = message["stats"];
-      if (stats.HasMember("currentLoad") && stats["currentLoad"].IsUint()) {
-        const uint32_t load = stats["currentLoad"].GetUint();
-        registry.updateCurrentLoad(serviceId, load);
+    if (const auto* stats = json::getObject(message, "stats")) {
+      if (const auto currentLoad = json::getUInt(*stats, "currentLoad")) {
+        registry.updateCurrentLoad(serviceId, currentLoad.value());
       }
     }
 
@@ -437,19 +439,15 @@ bool ServiceGateway::handlePingMessage(const int clientFd, const rapidjson::Docu
     rapidjson::Document pongMessage;
     pongMessage.SetObject();
     auto& allocator = pongMessage.GetAllocator();
-    pongMessage.AddMember("type", "PONG", allocator);
-    pongMessage.AddMember(
-        "timestamp",
-        static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now().time_since_epoch())
-                                 .count()),
-        allocator);
-
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    pongMessage.Accept(writer);
-
-    return sendMessage(clientFd, buffer.GetString());
+    rapidjson::Value pongValue = json::JsonObj(allocator)
+        .set("type", "PONG")
+        .set("timestamp",
+             static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch())
+                                      .count()))
+        .take();
+    pongValue.Swap(pongMessage);
+    return sendMessage(clientFd, json::docToString(pongMessage));
   }
 
   return false;
@@ -457,7 +455,7 @@ bool ServiceGateway::handlePingMessage(const int clientFd, const rapidjson::Docu
 
 bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::Document& message) {
 
-  const auto& requestId = json::getString(message, "requestId");
+  const auto requestId = json::getString(message, "requestId");
   if (!requestId.has_value()) {
     logger::error("Received RESPONSE without valid requestId", "fd=" + std::to_string(clientFd));
     return false;
@@ -476,25 +474,25 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
   pending.updatedAt = now;
 
   if (message.HasMember("data")) {
-    pending.responsePayload = serializeJsonValue(message["data"]);
+    pending.responsePayload = json::docToString(message["data"]);
   }
 
   bool isError = false;
   std::string errorMessage = json::getString(message, "error").value_or("");
 
-  if (json::getObject(message, "data") != nullptr) {
-    const auto& data = message["data"];
-    const auto& status = json::getString(data, "status");
+  if (const auto* dataObj = json::getObject(message, "data")) {
+    const auto& data = *dataObj;
+    const auto status = json::getString(data, "status");
     if (status.has_value() && status.value() == "error") {
       isError = true;
     }
 
-    const auto& dataError = json::getString(data, "error");
+    const auto dataError = json::getString(data, "error");
     if (dataError.has_value()) {
       isError = true;
       errorMessage = dataError.value();
     }
-    const auto& dataMessage = json::getString(data, "message");
+    const auto dataMessage = json::getString(data, "message");
     if (isError && errorMessage.empty() && dataMessage.has_value()) {
       errorMessage = dataMessage.value();
     }
@@ -507,9 +505,8 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
   if (isError) {
     pending.state = RequestState::FAILED;
     // Propagate statusCode from payload if available
-    const auto& dataObj = json::getObject(message, "data");
-    if (dataObj != nullptr) {
-      const auto& statusCode = json::getInt(*dataObj, "statusCode");
+    if (const auto* dataObj = json::getObject(message, "data")) {
+      const auto statusCode = json::getInt(*dataObj, "statusCode");
       if (statusCode.has_value()) {
         pending.statusCode = statusCode.value();
       } else {
@@ -540,11 +537,16 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
     rapidjson::Document ev;
     ev.SetObject();
     auto& a = ev.GetAllocator();
-    ev.AddMember("requestId", rapidjson::Value(requestId.value().c_str(), a), a);
-    ev.AddMember("capability", rapidjson::Value(pending.capability.c_str(), a), a);
-    ev.AddMember("serviceId", rapidjson::Value(pending.targetServiceId.c_str(), a), a);
-    ev.AddMember("success", !isError, a);
-    ev.AddMember("latencyMs", static_cast<int>(latencyMs.count()), a);
+
+    rapidjson::Value evValue = json::JsonObj(a)
+        .set("requestId", requestId.value())
+        .set("capability", pending.capability)
+        .set("serviceId", pending.targetServiceId)
+        .set("success", !isError)
+        .set("latencyMs", static_cast<int>(latencyMs.count()))
+        .take();
+
+    evValue.Swap(ev);
     bus_.publish("request.completed", ev);
   }
 
@@ -615,7 +617,7 @@ std::string ServiceGateway::sendRequest(const std::string& capability,
   pending.requestId = requestId;
   pending.targetServiceId = targetServiceId;
   pending.capability = resolvedCapability;
-  pending.requestPayload = serializeJsonValue(requestData);
+  pending.requestPayload = json::docToString(requestData);
   pending.state = RequestState::QUEUED;
   pending.statusCode = 202;
   pending.createdAt = std::chrono::steady_clock::now();
@@ -629,14 +631,18 @@ std::string ServiceGateway::sendRequest(const std::string& capability,
   rapidjson::Document requestMessage;
   requestMessage.SetObject();
   auto& allocator = requestMessage.GetAllocator();
-  requestMessage.AddMember("type", "REQUEST", allocator);
-  requestMessage.AddMember("requestId", rapidjson::Value(requestId.c_str(), allocator), allocator);
-  requestMessage.AddMember("capability", rapidjson::Value(resolvedCapability.c_str(), allocator),
-                           allocator);
 
   rapidjson::Value data;
   data.CopyFrom(requestData, allocator);
-  requestMessage.AddMember("data", data, allocator);
+
+  rapidjson::Value requestMessageValue = json::JsonObj(allocator)
+      .set("type", "REQUEST")
+      .set("requestId", requestId)
+      .set("capability", resolvedCapability)
+      .setValue("data", std::move(data))
+      .take();
+
+  requestMessage.Swap(requestMessageValue);
 
   if (!sendDirectRequest(targetServiceId, requestMessage)) {
     std::scoped_lock lock(requestsMutex);
@@ -677,10 +683,7 @@ bool ServiceGateway::sendDirectRequest(const std::string& serviceId,
   rapidjson::Document outbound;
   outbound.CopyFrom(requestData, outbound.GetAllocator());
 
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  outbound.Accept(writer);
-  return sendMessage(targetFd, buffer.GetString());
+  return sendMessage(targetFd, json::docToString(outbound));
 }
 
 void ServiceGateway::closeConnection(const int clientFd) {
@@ -705,7 +708,11 @@ void ServiceGateway::closeConnection(const int clientFd) {
     rapidjson::Document ev;
     ev.SetObject();
     auto& a = ev.GetAllocator();
-    ev.AddMember("serviceId", rapidjson::Value(disconnectedServiceId.c_str(), a), a);
+
+    rapidjson::Value evValue = json::JsonObj(a)
+        .set("serviceId", disconnectedServiceId)
+        .take();
+    evValue.Swap(ev);
     bus_.publish("service.disconnected", ev);
   }
 
@@ -733,17 +740,19 @@ rapidjson::Document ServiceGateway::getGatewayStatus() const {
   status.SetObject();
   auto& allocator = status.GetAllocator();
 
-  status.AddMember("running", running.load(), allocator);
-  status.AddMember("tcpPort", tcpPort, allocator);
-  status.AddMember("unixSocket", rapidjson::Value(unixSocketPath.c_str(), allocator), allocator);
-  status.AddMember("activeConnections", static_cast<int>(getActiveConnectionCount()), allocator);
-  status.AddMember("trackedRequests", static_cast<int>(getTrackedRequestCount()), allocator);
-
   rapidjson::Document registryStatus = registry.getRegistryStatus();
   rapidjson::Value registryValue;
   registryValue.CopyFrom(registryStatus, allocator);
-  status.AddMember("registryStatus", registryValue, allocator);
 
+  rapidjson::Value statusValue = json::JsonObj(allocator)
+      .set("status", running.load())
+      .set("tcpPort", tcpPort)
+      .set("unixSocket", unixSocketPath)
+      .set("activeConnections", static_cast<int>(getActiveConnectionCount()))
+      .set("trackedRequests", static_cast<int>(getTrackedRequestCount()))
+      .setValue("registryStatus", std::move(registryValue))
+      .take();
+  status.Swap(statusValue);
   return status;
 }
 
@@ -754,19 +763,22 @@ rapidjson::Document ServiceGateway::getConnectionStatus() const {
   connections.SetArray();
   auto& allocator = connections.GetAllocator();
   for (const auto& [fd, conn] : activeConnections) {
-    rapidjson::Value connInfo(rapidjson::kObjectType);
-    connInfo.AddMember("fd", fd, allocator);
-    connInfo.AddMember("address", rapidjson::Value(conn.address.c_str(), allocator), allocator);
-    connInfo.AddMember("type", rapidjson::Value(conn.connectionType.c_str(), allocator), allocator);
-    connInfo.AddMember("serviceId", rapidjson::Value(conn.serviceId.c_str(), allocator), allocator);
-    connInfo.AddMember("identified", conn.identified, allocator);
 
     const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
                             std::chrono::steady_clock::now() - conn.connectedAt)
                             .count();
-    connInfo.AddMember("uptimeSeconds", static_cast<int64_t>(uptime), allocator);
 
-    connections.PushBack(connInfo, allocator);
+
+    rapidjson::Value connInfoValue = json::JsonObj(allocator)
+        .set("fd", fd)
+        .set("address", conn.address)
+        .set("type", conn.connectionType)
+        .set("serviceId", conn.serviceId)
+        .set("identified", conn.identified)
+        .set("uptimeSeconds", static_cast<int64_t>(uptime))
+        .take();
+
+    connections.PushBack(connInfoValue, allocator);
   }
 
   return connections;
@@ -800,46 +812,36 @@ rapidjson::Document ServiceGateway::getHealth() const {
                              std::chrono::steady_clock::now().time_since_epoch())
                              .count();
 
-  doc.AddMember("status", running.load() ? "healthy" : "stopped", alloc);
-  doc.AddMember("uptimeEpochSec", static_cast<int64_t>(uptimeSec), alloc);
 
-  // Gateway config
-  rapidjson::Value gw(rapidjson::kObjectType);
-  gw.AddMember("tcpPort", tcpPort, alloc);
-  gw.AddMember("unixSocket", rapidjson::Value(unixSocketPath.c_str(), alloc), alloc);
-  gw.AddMember("activeConnections", static_cast<int>(getActiveConnectionCount()), alloc);
-  gw.AddMember("pendingRequests", static_cast<int>(getTrackedRequestCount()), alloc);
-  doc.AddMember("gateway", gw, alloc);
 
   // Services
   rapidjson::Document registryDoc = registry.getRegistryStatus();
   rapidjson::Value services(rapidjson::kArrayType);
 
-  if (registryDoc.HasMember("services") && registryDoc["services"].IsArray()) {
+  if (const auto* registryServices = json::getArray(registryDoc, "services")) {
     // Merge registry info with per-capability metrics
     rapidjson::Document metricsDoc = metrics_.toJson();
 
     // Build a quick lookup: capability -> avgLatencyMs, errorRate
-    std::map<std::string, rapidjson::Value*> capMetrics;
-    if (metricsDoc.HasMember("capabilities") && metricsDoc["capabilities"].IsArray()) {
-      for (auto& entry : metricsDoc["capabilities"].GetArray()) {
-        const auto& cap = json::getString(entry, "capability");
+    std::map<std::string, const rapidjson::Value*> capMetrics;
+    if (const auto* capabilities = json::getArray(metricsDoc, "capabilities")) {
+      for (const auto& entry : capabilities->GetArray()) {
+        const auto cap = json::getString(entry, "capability");
         if (cap.has_value()) {
           capMetrics[cap.value()] = &entry;
         }
       }
     }
 
-    for (const auto& svc : registryDoc["services"].GetArray()) {
-      rapidjson::Value entry(rapidjson::kObjectType);
+    for (const auto& svc : registryServices->GetArray()) {
+      json::JsonObj entry(alloc);
 
       // Copy core identity fields
       for (const auto& m : {"serviceId", "serviceName", "machineName", "version"}) {
         if (svc.HasMember(m)) {
-          rapidjson::Value key(m, alloc);
           rapidjson::Value val;
           val.CopyFrom(svc[m], alloc);
-          entry.AddMember(key, val, alloc);
+          entry.setValue(m, std::move(val));
         }
       }
 
@@ -848,12 +850,12 @@ rapidjson::Document ServiceGateway::getHealth() const {
       double totalErrorRate = 0.0;
       int capCount = 0;
 
-      if (svc.HasMember("capabilities") && svc["capabilities"].IsArray()) {
+      if (const auto* svcCapabilities = json::getArray(svc, "capabilities")) {
         rapidjson::Value caps;
-        caps.CopyFrom(svc["capabilities"], alloc);
-        entry.AddMember("capabilities", caps, alloc);
+        caps.CopyFrom(*svcCapabilities, alloc);
+        entry.setValue("capabilities", std::move(caps));
 
-        for (const auto& capVal : svc["capabilities"].GetArray()) {
+        for (const auto& capVal : svcCapabilities->GetArray()) {
           const std::string cap = capVal.GetString();
           if (capMetrics.contains(cap)) {
             const auto* cm = capMetrics.at(cap);
@@ -869,16 +871,30 @@ rapidjson::Document ServiceGateway::getHealth() const {
       }
 
       if (capCount > 0) {
-        entry.AddMember("avgLatencyMs", std::round(totalAvg / capCount * 100.0) / 100.0, alloc);
-        entry.AddMember("errorRate", std::round(totalErrorRate / capCount * 10000.0) / 10000.0,
-                        alloc);
+        entry.set("avgLatencyMs", std::round(totalAvg / capCount * 100.0) / 100.0);
+        entry.set("errorRate", std::round(totalErrorRate / capCount * 10000.0) / 10000.0);
       }
 
-      services.PushBack(entry, alloc);
+      services.PushBack(entry.take(), alloc);
     }
   }
-  doc.AddMember("services", services, alloc);
 
+  // Gateway config
+  rapidjson::Value gw = json::JsonObj(alloc)
+        .set("tcpPort", tcpPort)
+        .set("unixSocket", unixSocketPath)
+        .set("activeConnections", static_cast<int>(getActiveConnectionCount()))
+        .set("pendingRequests", static_cast<int>(getTrackedRequestCount()))
+        .take();
+
+  rapidjson::Value docValue = json::JsonObj(alloc)
+      .set("status", running.load() ? "healthy" : "stopped")
+      .set("uptimeEpochSec", static_cast<int64_t>(uptimeSec))
+      .setValue("gateway", std::move(gw))
+      .setValue("services", std::move(services))
+      .take();
+
+  docValue.Swap(doc);
   return doc;
 }
 
@@ -887,45 +903,50 @@ rapidjson::Document ServiceGateway::getRequestStatus(const std::string& requestI
   response.SetObject();
   auto& allocator = response.GetAllocator();
 
-  response.AddMember("requestId", rapidjson::Value(requestId.c_str(), allocator), allocator);
 
   std::scoped_lock lock(requestsMutex);
   const auto it = pendingRequests.find(requestId);
   if (it == pendingRequests.end()) {
-    response.AddMember("found", false, allocator);
-    response.AddMember("status", "not_found", allocator);
-    response.AddMember("message", "Request ID not found", allocator);
+    rapidjson::Value notFoundValue = json::JsonObj(allocator)
+        .set("requestId", requestId)
+        .set("found", false)
+        .set("status", "not_found")
+        .set("message", "Request ID not found")
+        .take();
+    notFoundValue.Swap(response);
     return response;
   }
 
   const PendingRequest& pending = it->second;
-  response.AddMember("found", true, allocator);
-  response.AddMember("status",
-                     rapidjson::Value(requestStateToString(pending.state).c_str(), allocator),
-                     allocator);
-  response.AddMember("statusCode", pending.statusCode, allocator);
-  response.AddMember("targetServiceId",
-                     rapidjson::Value(pending.targetServiceId.c_str(), allocator), allocator);
-  response.AddMember("capability", rapidjson::Value(pending.capability.c_str(), allocator),
-                     allocator);
-  response.AddMember("requestPayload", rapidjson::Value(pending.requestPayload.c_str(), allocator),
-                     allocator);
-
-  if (!pending.responsePayload.empty()) {
-    response.AddMember("responsePayload",
-                       rapidjson::Value(pending.responsePayload.c_str(), allocator), allocator);
-  }
-
-  if (!pending.errorMessage.empty()) {
-    response.AddMember("errorMessage", rapidjson::Value(pending.errorMessage.c_str(), allocator),
-                       allocator);
-  }
-
   const auto ageMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::steady_clock::now() - pending.createdAt)
                          .count();
-  response.AddMember("ageMs", static_cast<int64_t>(ageMs), allocator);
-  response.AddMember("timeoutMs", static_cast<int64_t>(pending.timeout.count()), allocator);
+
+  json::JsonObj requestInfo(allocator);
+  requestInfo.set("requestId", pending.requestId)
+      .set("found", true)
+      .set("status", requestStateToString(pending.state))
+      .set("statusCode", pending.statusCode)
+      .set("targetServiceId", pending.targetServiceId)
+      .set("capability", pending.capability)
+      .set("ageMs", static_cast<int64_t>(ageMs))
+      .set("timeoutMs", static_cast<int64_t>(pending.timeout.count()));
+
+  if (!pending.responsePayload.empty()) {
+    requestInfo.set("responsePayload", pending.responsePayload);
+  } else {
+    requestInfo.setValue("responsePayload", rapidjson::Value(rapidjson::kNullType));
+  }
+
+  if (!pending.errorMessage.empty()) {
+    requestInfo.set("errorMessage", pending.errorMessage);
+  } else {
+    requestInfo.setValue("errorMessage", rapidjson::Value(rapidjson::kNullType));
+  }
+
+  rapidjson::Value requestInfoValue = requestInfo.take();
+
+  requestInfoValue.Swap(response);
 
   return response;
 }
@@ -956,13 +977,6 @@ std::string ServiceGateway::requestStateToString(const RequestState state) {
   }
 
   return "unknown";
-}
-
-std::string ServiceGateway::serializeJsonValue(const rapidjson::Value& value) {
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  value.Accept(writer);
-  return buffer.GetString();
 }
 
 std::string ServiceGateway::generateRequestId() {

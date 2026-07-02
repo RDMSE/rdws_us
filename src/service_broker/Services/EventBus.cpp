@@ -1,12 +1,17 @@
 #include "EventBus.h"
 
+#include "../../shared/utils/json_helper.h"
+
 #include <algorithm>
 #include <iomanip>
+#include <map>
 #include <mutex>
 #include <random>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <sstream>
+
+namespace json = rdws::utils::json;
 
 namespace servicegateway {
 
@@ -90,20 +95,25 @@ rapidjson::Document EventBus::stats() const {
   rapidjson::Document doc;
   doc.SetObject();
   auto& alloc = doc.GetAllocator();
+  json::JsonObj obj(alloc);
 
-  std::shared_lock lock(subsMutex_);
-  doc.AddMember("totalSubscriptions", static_cast<int>(subscriptions_.size()), alloc);
-
-  rapidjson::Value topicsObj(rapidjson::kObjectType);
-  for (const auto& s : subscriptions_) {
-    if (topicsObj.HasMember(s.topic.c_str())) {
-      topicsObj[s.topic.c_str()].SetInt(topicsObj[s.topic.c_str()].GetInt() + 1);
-    } else {
-      topicsObj.AddMember(rapidjson::Value(s.topic.c_str(), alloc), rapidjson::Value(1), alloc);
+  std::map<std::string, int> topicCounts;
+  {
+    std::shared_lock lock(subsMutex_);
+    obj.set("totalSubscriptions", static_cast<int>(subscriptions_.size()));
+    for (const auto& s : subscriptions_) {
+      ++topicCounts[s.topic];
     }
   }
-  doc.AddMember("topics", topicsObj, alloc);
 
+  json::JsonObj topics(alloc);
+  for (const auto& [topic, count] : topicCounts) {
+    topics.setValue(topic, rapidjson::Value(count));
+  }
+  obj.setValue("topics", topics.take());
+
+  rapidjson::Value result = obj.take();
+  doc.Swap(result);
   return doc;
 }
 

@@ -18,34 +18,33 @@ rapidjson::Document ServiceIdentity::toJson() const {
 }
 
 rapidjson::Value ServiceIdentity::toJsonValue(rapidjson::Document::AllocatorType& allocator) const {
-  rapidjson::Value json(rapidjson::kObjectType);
-
-  json.AddMember("machineName", rapidjson::Value(machineName.c_str(), allocator), allocator);
-  json.AddMember("serviceName", rapidjson::Value(serviceName.c_str(), allocator), allocator);
-  json.AddMember("serviceId", rapidjson::Value(serviceId.c_str(), allocator), allocator);
-  json.AddMember("version", rapidjson::Value(version.c_str(), allocator), allocator);
-  json.AddMember("environment", rapidjson::Value(environment.c_str(), allocator), allocator);
-  json.AddMember("maxConcurrent", maxConcurrent, allocator);
-  json.AddMember("connectionType", rapidjson::Value(connectionType.c_str(), allocator), allocator);
-  json.AddMember("clientAddress", rapidjson::Value(clientAddress.c_str(), allocator), allocator);
-  json.AddMember("currentLoad", currentLoad, allocator);
-  json.AddMember("totalRequests", totalRequests, allocator);
-  json.AddMember("errorCount", errorCount, allocator);
-  json.AddMember("avgResponseTimeMs", static_cast<int64_t>(avgResponseTime.count()), allocator);
-
   rapidjson::Value capsArray(rapidjson::kArrayType);
   for (const auto& cap : capabilities) {
     capsArray.PushBack(rapidjson::Value(cap.c_str(), allocator), allocator);
   }
-  json.AddMember("capabilities", capsArray, allocator);
 
   const auto connectedEpoch =
-      std::chrono::duration_cast<std::chrono::seconds>(connectedAt.time_since_epoch()).count();
+    std::chrono::duration_cast<std::chrono::seconds>(connectedAt.time_since_epoch()).count();
   const auto lastPingEpoch =
-      std::chrono::duration_cast<std::chrono::seconds>(lastPing.time_since_epoch()).count();
+    std::chrono::duration_cast<std::chrono::seconds>(lastPing.time_since_epoch()).count();
 
-  json.AddMember("connectedAt", connectedEpoch, allocator);
-  json.AddMember("lastPing", lastPingEpoch, allocator);
+  rapidjson::Value json = json::JsonObj(allocator)
+      .set("machineName", machineName)
+      .set("serviceName", serviceName)
+      .set("serviceId", serviceId)
+      .set("version", version)
+      .set("environment", environment)
+      .set("maxConcurrent", maxConcurrent)
+      .set("connectionType", connectionType)
+      .set("clientAddress", clientAddress)
+      .set("currentLoad", currentLoad)
+      .set("totalRequests", totalRequests)
+      .set("errorCount", errorCount)
+      .set("avgResponseTimeMs", static_cast<int64_t>(avgResponseTime.count()))
+      .setValue("capabilities", std::move(capsArray))
+      .set("connectedAt", connectedEpoch)
+      .set("lastPing", lastPingEpoch)
+      .take();
 
   return json;
 }

@@ -172,9 +172,9 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::device::DeviceService& svc) {
-    const auto& fieldId = json::getString(req, "field_id").value_or(std::string{});
-    const auto& type = json::getString(req, "type").value_or(std::string{});
-    const auto& status = json::getString(req, "status").value_or(std::string{});
+    const auto fieldId = json::getString(req, "field_id").value_or(std::string{});
+    const auto type = json::getString(req, "type").value_or(std::string{});
+    const auto status = json::getString(req, "status").value_or(std::string{});
 
     if (fieldId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: field_id");

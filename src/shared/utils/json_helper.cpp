@@ -1,4 +1,7 @@
 #include "json_helper.h"
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 namespace rdws::utils::json {
 
@@ -16,6 +19,13 @@ std::optional<std::string> getString(const rapidjson::Value& doc, const std::str
 std::optional<int> getInt(const rapidjson::Value& doc, const std::string& field) {
   if (hasField(doc, field) && doc[field.c_str()].IsInt()) {
     return doc[field.c_str()].GetInt();
+  }
+  return std::nullopt;
+}
+
+std::optional<uint> getUInt(const rapidjson::Value& doc, const std::string& field) {
+  if (hasField(doc, field) && doc[field.c_str()].IsUint()) {
+    return doc[field.c_str()].GetUint();
   }
   return std::nullopt;
 }
@@ -53,6 +63,13 @@ const rapidjson::Value* getArray(const rapidjson::Value& doc, const std::string&
     return &doc[field.c_str()];
   }
   return nullptr;
+}
+
+std::string docToString(const rapidjson::Value& doc) {
+  rapidjson::StringBuffer buf;
+  rapidjson::Writer<rapidjson::StringBuffer> w(buf);
+  doc.Accept(w);
+  return buf.GetString();
 }
 
 } // namespace rdws::utils::json

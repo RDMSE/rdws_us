@@ -74,7 +74,7 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
   httpRequest_.body = json::getString(doc, "body").value_or("");
   httpRequest_.isBase64Encoded = json::getBool(doc, "isBase64Encoded").value_or(false);
 
-  if (const auto headers = json::getObject(doc, "headers"); headers != nullptr) {
+  if (const auto* headers = json::getObject(doc, "headers"); headers != nullptr) {
     for (auto it = headers->MemberBegin(); it != headers->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         httpRequest_.headers[it->name.GetString()] = it->value.GetString();
@@ -82,7 +82,7 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
     }
   }
 
-  if (const auto queryParams = json::getObject(doc, "queryStringParameters"); queryParams != nullptr) {
+  if (const auto* queryParams = json::getObject(doc, "queryStringParameters"); queryParams != nullptr) {
     for (auto it = queryParams->MemberBegin(); it != queryParams->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         httpRequest_.queryStringParameters[it->name.GetString()] = it->value.GetString();
@@ -90,7 +90,7 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
     }
   }
 
-  if (const auto pathParams = json::getObject(doc, "pathParameters"); pathParams != nullptr) {
+  if (const auto* pathParams = json::getObject(doc, "pathParameters"); pathParams != nullptr) {
     for (auto it = pathParams->MemberBegin(); it != pathParams->MemberEnd(); ++it) {
       if (it->value.IsString()) {
         httpRequest_.pathParameters[it->name.GetString()] = it->value.GetString();
@@ -98,7 +98,7 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
     }
   }
 
-  if (const auto requestContext = json::getObject(doc, "requestContext"); requestContext != nullptr) {
+  if (const auto* requestContext = json::getObject(doc, "requestContext"); requestContext != nullptr) {
     requestContext_.requestId =
         json::getString(*requestContext, "requestId").value_or(generateRequestId());
     requestContext_.stage = json::getString(*requestContext, "stage").value_or("prod");
@@ -271,64 +271,45 @@ std::string LambdaEvent::toJson() const {
   doc.SetObject();
   auto& allocator = doc.GetAllocator();
 
-  doc.AddMember("httpMethod", rapidjson::Value(httpRequest_.method.c_str(), allocator), allocator);
-  doc.AddMember("path", rapidjson::Value(httpRequest_.path.c_str(), allocator), allocator);
-  doc.AddMember("resource", rapidjson::Value(httpRequest_.resource.c_str(), allocator), allocator);
-  doc.AddMember("body", rapidjson::Value(httpRequest_.body.c_str(), allocator), allocator);
-  doc.AddMember("isBase64Encoded", rapidjson::Value(httpRequest_.isBase64Encoded), allocator);
+  const auto stringMapToJson = [&allocator](const std::map<std::string, std::string>& map) {
+    json::JsonObj obj(allocator);
+    for (const auto& [key, value] : map) {
+      obj.setValue(key, rapidjson::Value(value.c_str(), allocator));
+    }
+    return obj.take();
+  };
 
-  rapidjson::Value headers(rapidjson::kObjectType);
-  for (const auto& [key, value] : httpRequest_.headers) {
-    headers.AddMember(rapidjson::Value(key.c_str(), allocator),
-                      rapidjson::Value(value.c_str(), allocator), allocator);
-  }
-  doc.AddMember("headers", headers, allocator);
+  rapidjson::Value headers = stringMapToJson(httpRequest_.headers);
+  rapidjson::Value queryParams = stringMapToJson(httpRequest_.queryStringParameters);
+  rapidjson::Value pathParams = stringMapToJson(httpRequest_.pathParameters);
 
-  rapidjson::Value queryParams(rapidjson::kObjectType);
-  for (const auto& [key, value] : httpRequest_.queryStringParameters) {
-    queryParams.AddMember(rapidjson::Value(key.c_str(), allocator),
-                          rapidjson::Value(value.c_str(), allocator), allocator);
-  }
-  doc.AddMember("queryStringParameters", queryParams, allocator);
+  rapidjson::Value requestContext = json::JsonObj(allocator)
+      .set("requestId", requestContext_.requestId)
+      .set("stage", requestContext_.stage)
+      .set("httpMethod", requestContext_.httpMethod)
+      .set("resourcePath", requestContext_.resourcePath)
+      .set("protocol", requestContext_.protocol)
+      .set("sourceIp", requestContext_.sourceIp)
+      .set("userAgent", requestContext_.userAgent)
+      .set("requestTimeEpoch", static_cast<int64_t>(requestContext_.requestTimeEpoch))
+      .take();
 
-  rapidjson::Value pathParams(rapidjson::kObjectType);
-  for (const auto& [key, value] : httpRequest_.pathParameters) {
-    pathParams.AddMember(rapidjson::Value(key.c_str(), allocator),
-                         rapidjson::Value(value.c_str(), allocator), allocator);
-  }
-  doc.AddMember("pathParameters", pathParams, allocator);
+  rapidjson::Value stageVars = stringMapToJson(stageVariables_);
 
-  rapidjson::Value requestContext(rapidjson::kObjectType);
-  requestContext.AddMember(
-      "requestId", rapidjson::Value(requestContext_.requestId.c_str(), allocator), allocator);
-  requestContext.AddMember("stage", rapidjson::Value(requestContext_.stage.c_str(), allocator),
-                           allocator);
-  requestContext.AddMember(
-      "httpMethod", rapidjson::Value(requestContext_.httpMethod.c_str(), allocator), allocator);
-  requestContext.AddMember(
-      "resourcePath", rapidjson::Value(requestContext_.resourcePath.c_str(), allocator), allocator);
-  requestContext.AddMember(
-      "protocol", rapidjson::Value(requestContext_.protocol.c_str(), allocator), allocator);
-  requestContext.AddMember(
-      "sourceIp", rapidjson::Value(requestContext_.sourceIp.c_str(), allocator), allocator);
-  requestContext.AddMember(
-      "userAgent", rapidjson::Value(requestContext_.userAgent.c_str(), allocator), allocator);
-  requestContext.AddMember("requestTimeEpoch", rapidjson::Value(requestContext_.requestTimeEpoch),
-                           allocator);
-  doc.AddMember("requestContext", requestContext, allocator);
-
-  rapidjson::Value stageVars(rapidjson::kObjectType);
-  for (const auto& [key, value] : stageVariables_) {
-    stageVars.AddMember(rapidjson::Value(key.c_str(), allocator),
-                        rapidjson::Value(value.c_str(), allocator), allocator);
-  }
-  doc.AddMember("stageVariables", stageVars, allocator);
-
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  doc.Accept(writer);
-
-  return buffer.GetString();
+  rapidjson::Value docValue = json::JsonObj(allocator)
+                             .set("httpMethod", httpRequest_.method)
+                             .set("path", httpRequest_.path)
+                             .set("resource", httpRequest_.resource)
+                             .set("body", httpRequest_.body)
+                             .set("isBase64Encoded", httpRequest_.isBase64Encoded)
+                             .setValue("headers", std::move(headers))
+                             .setValue("queryStringParameters", std::move(queryParams))
+                             .setValue("pathParameters", std::move(pathParams))
+                             .setValue("requestContext", std::move(requestContext))
+                             .setValue("stageVariables", std::move(stageVars))
+                             .take();
+  docValue.Swap(doc);
+  return json::docToString(doc);
 }
 
 } // namespace rdws::types

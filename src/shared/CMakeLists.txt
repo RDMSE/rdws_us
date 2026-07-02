@@ -14,6 +14,7 @@ target_include_directories(rdws_shared_validation PUBLIC
 target_link_libraries(rdws_shared_validation PUBLIC
     valijson_wrapper
     rapidjson_wrapper
+    rdws_shared_json_utils
 )
 
 # jsoncpp is provided via valijson_wrapper (bundled)

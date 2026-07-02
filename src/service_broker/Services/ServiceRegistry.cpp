@@ -1,6 +1,7 @@
 #include "ServiceRegistry.h"
 
 #include "../../shared/utils/logger.h"
+#include "../../shared/utils/json_helper.h"
 
 #include <algorithm>
 #include <chrono>
@@ -8,6 +9,7 @@
 #include <ranges>
 
 namespace logger = rdws::utils::logger;
+namespace json = rdws::utils::json;
 
 namespace servicegateway {
 
@@ -247,14 +249,18 @@ rapidjson::Document ServiceRegistry::getRegistryStatus() const {
     }
   }
 
-  status.AddMember("totalServices", static_cast<int>(identities.size()), allocator);
-  status.AddMember("healthyServices", static_cast<int>(healthyCount), allocator);
-
   rapidjson::Value servicesArray(rapidjson::kArrayType);
   for (const auto& identity : identities | std::views::values) {
     servicesArray.PushBack(identity.toJsonValue(allocator), allocator);
   }
-  status.AddMember("services", servicesArray, allocator);
+
+  rapidjson::Value statusValue = json::JsonObj(allocator)
+      .set("totalServices", static_cast<int>(identities.size()))
+      .set("healthyServices", static_cast<int>(healthyCount))
+      .setValue("services", std::move(servicesArray))
+      .take();
+
+  status.Swap(statusValue);
 
   return status;
 }

@@ -34,17 +34,6 @@ using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 namespace json = rdws::utils::json;
 
-namespace {
-
-std::string docToString(const rapidjson::Value& v) {
-  rapidjson::StringBuffer buf;
-  rapidjson::Writer w(buf);
-  v.Accept(w);
-  return buf.GetString();
-}
-
-} // namespace
-
 // ─── Buffer types ─────────────────────────────────────────────────────────────
 
 struct RequestRecord {
@@ -141,7 +130,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = json::getString(request, "capability").value_or("");
+    const auto cap = json::getString(request, "capability").value_or("");
 
     const std::unordered_map<std::string,
                               rdws::utils::CapabilityHandler<AppPersistenceService>>
@@ -194,7 +183,7 @@ private:
   rapidjson::Document handleSaveMetrics(const rapidjson::Document& req) {
     MetricsRecord m;
     m.snapshotAt = json::getString(req, "snapshotAt").value_or("");
-    m.metricsJson = docToString(req);
+    m.metricsJson = json::docToString(req);
 
     {
       std::scoped_lock lock(bufferMutex_);

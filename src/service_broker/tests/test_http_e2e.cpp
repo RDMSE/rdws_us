@@ -176,7 +176,7 @@ TEST_F(HttpE2ETest, InvokeNoService_Returns503) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  const auto& errorValue = json::getString(doc, "error");
+  const auto errorValue = json::getString(doc, "error");
   ASSERT_TRUE(errorValue.has_value());
   EXPECT_NE(errorValue.value().find("unknown-cap"), std::string::npos);
 }
@@ -191,7 +191,7 @@ TEST_F(HttpE2ETest, EchoService_Returns200WithPayload) {
                      rapidjson::Document resp;
                      resp.SetObject();
                      auto& alloc = resp.GetAllocator();
-                     const auto& msg = json::getString(req, "message").value_or("");
+                     const auto msg = json::getString(req, "message").value_or("");
                      resp.AddMember("result", rapidjson::Value(("echo: " + msg).c_str(), alloc),
                                     alloc);
                      resp.AddMember("status", "success", alloc);
@@ -206,7 +206,7 @@ TEST_F(HttpE2ETest, EchoService_Returns200WithPayload) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  const auto& resultValue = json::getString(doc, "result");
+  const auto resultValue = json::getString(doc, "result");
   ASSERT_TRUE(resultValue.has_value());
   EXPECT_STREQ(resultValue.value().c_str(), "echo: world");
 }
@@ -240,7 +240,7 @@ TEST_F(HttpE2ETest, SlowService_Timeout_Returns504) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  const auto& errorValue = json::getString(doc, "error");
+  const auto errorValue = json::getString(doc, "error");
   ASSERT_TRUE(errorValue.has_value());
   EXPECT_NE(errorValue.value().find("timed out"), std::string::npos);
 
@@ -292,7 +292,7 @@ TEST_F(HttpE2ETest, Auth_ValidApiKey_RequestProceeds) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  const auto& okValue = json::getBool(doc, "ok");
+  const auto okValue = json::getBool(doc, "ok");
   ASSERT_TRUE(okValue.has_value());
   EXPECT_TRUE(okValue.value());
 }
@@ -337,7 +337,7 @@ TEST_F(HttpE2ETest, EventRouter_RedirectsCapability_ServiceResponds) {
 
   rapidjson::Document doc = parseBody(res->body);
   ASSERT_FALSE(doc.HasParseError());
-  const auto& routedValue = json::getBool(doc, "routed");
+  const auto routedValue = json::getBool(doc, "routed");
   ASSERT_TRUE(routedValue.has_value());
   EXPECT_TRUE(routedValue.value());
 }

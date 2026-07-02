@@ -129,7 +129,7 @@ void HttpGateway::registerRoutes() {
     auto t = profiler.scoped("GET /status");
     const rapidjson::Document status = gateway_.getGatewayStatus();
     response.status = 200;
-    response.set_content(documentToString(status), "application/json");
+    response.set_content(json::docToString(status), "application/json");
   });
 
   server_.Get("/metrics", [this](const httplib::Request&, httplib::Response& response) {
@@ -137,7 +137,7 @@ void HttpGateway::registerRoutes() {
     auto t = profiler.scoped("GET /metrics");
     const rapidjson::Document metrics = gateway_.getMetrics();
     response.status = 200;
-    response.set_content(documentToString(metrics), "application/json");
+    response.set_content(json::docToString(metrics), "application/json");
   });
 
   server_.Get("/health", [this](const httplib::Request&, httplib::Response& response) {
@@ -147,25 +147,27 @@ void HttpGateway::registerRoutes() {
     const bool healthy =
         health.HasMember("status") && std::string(health["status"].GetString()) == "healthy";
     response.status = healthy ? 200 : 503;
-    response.set_content(documentToString(health), "application/json");
+    response.set_content(json::docToString(health), "application/json");
   });
 
   server_.Get("/connections", [this](const httplib::Request&, httplib::Response& response) {
     rdws::utils::Profiler profiler("gateway");
     auto t = profiler.scoped("GET /connections");
-    rapidjson::Document connections;
-    connections.SetObject();
+    rapidjson::Document connections = gateway_.getConnectionStatus();
     auto& allocator = connections.GetAllocator();
 
-    rapidjson::Document connectionList = gateway_.getConnectionStatus();
     rapidjson::Value connectionsValue;
-    connectionsValue.CopyFrom(connectionList, allocator);
-    connections.AddMember("connections", connectionsValue, allocator);
-    connections.AddMember("activeConnections",
-                          static_cast<int>(gateway_.getActiveConnectionCount()), allocator);
+    connectionsValue.Swap(connections);
+
+    rapidjson::Value connectionsResult =
+        json::JsonObj(allocator)
+            .setValue("connections", std::move(connectionsValue))
+            .set("activeConnections", static_cast<int>(gateway_.getActiveConnectionCount()))
+            .take();
+    connectionsResult.Swap(connections);
 
     response.status = 200;
-    response.set_content(documentToString(connections), "application/json");
+    response.set_content(json::docToString(connections), "application/json");
   });
 
   server_.Get(R"(/requests/([^/?]+))",
@@ -174,7 +176,7 @@ void HttpGateway::registerRoutes() {
                 const rapidjson::Document status = gateway_.getRequestStatus(requestId);
                 const bool found = json::getBool(status, "found").value_or(false);
                 response.status = found ? 200 : 404;
-                response.set_content(documentToString(status), "application/json");
+                response.set_content(json::docToString(status), "application/json");
               });
 
   // ── EventRouter CRUD ─────────────────────────────────────────────────────
@@ -195,7 +197,7 @@ void HttpGateway::registerRoutes() {
       doc.PushBack(rv, alloc);
     }
     response.status = 200;
-    response.set_content(documentToString(doc), "application/json");
+    response.set_content(json::docToString(doc), "application/json");
   });
 
   // POST /routes — create a new routing rule
@@ -219,7 +221,7 @@ void HttpGateway::registerRoutes() {
     const std::string id = gateway_.getEventRouter().addRule(std::move(rule));
     const auto created = gateway_.getEventRouter().getRule(id);
     response.status = 201;
-    response.set_content(documentToString(gateway_.getEventRouter().ruleToJson(*created)),
+    response.set_content(json::docToString(gateway_.getEventRouter().ruleToJson(*created)),
                          "application/json");
   });
 
@@ -234,7 +236,7 @@ void HttpGateway::registerRoutes() {
       return;
     }
     response.status = 200;
-    response.set_content(documentToString(gateway_.getEventRouter().ruleToJson(*rule)),
+    response.set_content(json::docToString(gateway_.getEventRouter().ruleToJson(*rule)),
                          "application/json");
   });
 
@@ -258,7 +260,7 @@ void HttpGateway::registerRoutes() {
     }
     const auto updated = gateway_.getEventRouter().getRule(id);
     response.status = 200;
-    response.set_content(documentToString(gateway_.getEventRouter().ruleToJson(*updated)),
+    response.set_content(json::docToString(gateway_.getEventRouter().ruleToJson(*updated)),
                          "application/json");
   });
 
@@ -279,7 +281,7 @@ void HttpGateway::registerRoutes() {
   // GET /events — bus stats (topics + subscriber counts)
   server_.Get("/events", [this](const httplib::Request&, httplib::Response& response) {
     rapidjson::Document stats = gateway_.getBus().stats();
-    response.set_content(documentToString(stats), "application/json");
+    response.set_content(json::docToString(stats), "application/json");
   });
 
   // POST /events/{topic} — publish an event to the bus
@@ -305,10 +307,13 @@ void HttpGateway::registerRoutes() {
                  rapidjson::Document resp;
                  resp.SetObject();
                  auto& alloc = resp.GetAllocator();
-                 resp.AddMember("published", true, alloc);
-                 resp.AddMember("topic", rapidjson::Value(topic.c_str(), alloc), alloc);
+                 rapidjson::Value result = json::JsonObj(alloc)
+                     .set("published", true)
+                     .set("topic", topic)
+                     .take();
+                 resp.Swap(result);
                  response.status = 202;
-                 response.set_content(documentToString(resp), "application/json");
+                 response.set_content(json::docToString(resp), "application/json");
                });
 
   // ── GatewayConfig endpoints ───────────────────────────────────────────────────
@@ -316,7 +321,7 @@ void HttpGateway::registerRoutes() {
   // GET /config — full config snapshot
   server_.Get("/config", [this](const httplib::Request&, httplib::Response& response) {
     response.status = 200;
-    response.set_content(documentToString(gateway_.getConfig().toJson()), "application/json");
+    response.set_content(json::docToString(gateway_.getConfig().toJson()), "application/json");
   });
 
   // PATCH /config/capabilities/{cap} — update per-capability settings
@@ -341,7 +346,7 @@ void HttpGateway::registerRoutes() {
     // Read existing config for this capability and apply partial updates.
     CapabilityConfig cfg = gateway_.getConfig().forCapability(cap);
     cfg.timeoutMs = std::chrono::milliseconds{json::getInt(body, "timeoutMs").value_or(0)};
-    if (auto lb = json::getString(body, "loadBalancing"); lb != std::nullopt) {
+    if (const auto lb = json::getString(body, "loadBalancing"); lb != std::nullopt) {
       cfg.loadBalancing = GatewayConfig::lbStrategyFromString(*lb);
     }
     cfg.maxConcurrentRequests =
@@ -350,7 +355,7 @@ void HttpGateway::registerRoutes() {
     gateway_.getConfig().setCapabilityConfig(cap, cfg);
 
     response.status = 200;
-    response.set_content(documentToString(gateway_.getConfig().toJson()), "application/json");
+    response.set_content(json::docToString(gateway_.getConfig().toJson()), "application/json");
   });
 
   // DELETE /config/capabilities/{cap} — remove override (revert to defaults)
@@ -359,7 +364,7 @@ void HttpGateway::registerRoutes() {
     const std::string cap = request.matches[1];
     gateway_.getConfig().removeCapabilityConfig(cap);
     response.status = 200;
-    response.set_content(documentToString(gateway_.getConfig().toJson()), "application/json");
+    response.set_content(json::docToString(gateway_.getConfig().toJson()), "application/json");
   });
 
   // GET /config/features — list all feature flags
@@ -367,13 +372,17 @@ void HttpGateway::registerRoutes() {
     const rapidjson::Document full = gateway_.getConfig().toJson();
     rapidjson::Document resp;
     resp.SetObject();
-    if (full.HasMember("features")) {
-      rapidjson::Value feats;
-      feats.CopyFrom(full["features"], resp.GetAllocator());
-      resp.AddMember("features", feats, resp.GetAllocator());
+    auto& allocator = resp.GetAllocator();
+
+    if (const auto* features = json::getObject(full, "features")) {
+      rapidjson::Value featsValue;
+      featsValue.CopyFrom(*features, allocator);
+
+      rapidjson::Value result = json::JsonObj(allocator).setValue("features", std::move(featsValue)).take();
+      resp.Swap(result);
     }
     response.status = 200;
-    response.set_content(documentToString(resp), "application/json");
+    response.set_content(json::docToString(resp), "application/json");
   });
 
   // PUT /config/features/{name} — set a feature flag
@@ -400,10 +409,13 @@ void HttpGateway::registerRoutes() {
                 rapidjson::Document resp;
                 resp.SetObject();
                 auto& alloc = resp.GetAllocator();
-                resp.AddMember("feature", rapidjson::Value(name.c_str(), alloc), alloc);
-                resp.AddMember("enabled", enabled, alloc);
+                rapidjson::Value result = json::JsonObj(alloc)
+                    .set("feature", name)
+                    .set("enabled", enabled)
+                    .take();
+                resp.Swap(result);
                 response.status = 200;
-                response.set_content(documentToString(resp), "application/json");
+                response.set_content(json::docToString(resp), "application/json");
               });
 
   // ── REST path routing (EventRouter method+path rules) ────────────────────
@@ -446,10 +458,12 @@ void HttpGateway::registerRoutes() {
 
     // Merge extracted path params into pathParameters
     if (!match->pathParams.empty()) {
-      if (json::getObject(eventDocument, "pathParameters") == nullptr) {
+      auto member = eventDocument.FindMember("pathParameters");
+      if (member == eventDocument.MemberEnd()) {
         eventDocument.AddMember("pathParameters", rapidjson::Value(rapidjson::kObjectType), alloc);
+        member = eventDocument.FindMember("pathParameters");
       }
-      auto& pp = eventDocument["pathParameters"];
+      auto& pp = member->value;
       for (const auto& [k, v] : match->pathParams) {
         if (!pp.HasMember(k.c_str())) {
           pp.AddMember(rapidjson::Value(k.c_str(), alloc), rapidjson::Value(v.c_str(), alloc),
@@ -546,13 +560,6 @@ std::optional<std::string> HttpGateway::extractRequestId(const std::string& path
   return requestId;
 }
 
-std::string HttpGateway::documentToString(const rapidjson::Document& document) {
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  document.Accept(writer);
-  return buffer.GetString();
-}
-
 rapidjson::Document HttpGateway::documentFromRequest(const httplib::Request& request,
                                                      const std::string& capability) {
   LambdaEvent event(request.method, request.path, request.body);
@@ -580,6 +587,7 @@ rapidjson::Document HttpGateway::documentFromRequest(const httplib::Request& req
   rapidjson::Document payload;
   payload.SetObject();
   auto& allocator = payload.GetAllocator();
+  json::JsonObj obj(allocator);
 
   if (!event.getBody().empty()) {
     rapidjson::Document bodyDocument;
@@ -587,67 +595,53 @@ rapidjson::Document HttpGateway::documentFromRequest(const httplib::Request& req
 
     if (!bodyDocument.HasParseError() && bodyDocument.IsObject()) {
       for (auto it = bodyDocument.MemberBegin(); it != bodyDocument.MemberEnd(); ++it) {
-        rapidjson::Value key(it->name.GetString(), allocator);
         rapidjson::Value value;
         value.CopyFrom(it->value, allocator);
-        payload.AddMember(key, value, allocator);
+        obj.setValue(std::string(it->name.GetString()), std::move(value));
       }
     }
   }
 
   rapidjson::Value eventValue;
   eventValue.CopyFrom(eventDocument, allocator);
-  payload.AddMember("lambdaEvent", eventValue, allocator);
-  payload.AddMember("httpMethod", rapidjson::Value(event.getHttpMethod().c_str(), allocator),
-                    allocator);
-  payload.AddMember("path", rapidjson::Value(event.getPath().c_str(), allocator), allocator);
-  payload.AddMember("resource", rapidjson::Value(event.getResource().c_str(), allocator),
-                    allocator);
-  payload.AddMember("body", rapidjson::Value(event.getBody().c_str(), allocator), allocator);
-  payload.AddMember("capability", rapidjson::Value(capability.c_str(), allocator), allocator);
 
-  rapidjson::Value headers(rapidjson::kObjectType);
+  json::JsonObj headers(allocator);
   for (const auto& [fst, snd] : event.getHeaders()) {
-    headers.AddMember(rapidjson::Value(fst.c_str(), allocator),
-                      rapidjson::Value(snd.c_str(), allocator), allocator);
+    headers.setValue(fst, rapidjson::Value(snd.c_str(), allocator));
   }
-  payload.AddMember("headers", headers, allocator);
 
-  rapidjson::Value queryParams(rapidjson::kObjectType);
+  json::JsonObj queryParams(allocator);
   for (const auto& [fst, snd] : event.getQueryStringParameters()) {
-    queryParams.AddMember(rapidjson::Value(fst.c_str(), allocator),
-                          rapidjson::Value(snd.c_str(), allocator), allocator);
+    queryParams.setValue(fst, rapidjson::Value(snd.c_str(), allocator));
   }
-  payload.AddMember("queryStringParameters", queryParams, allocator);
 
-  rapidjson::Value pathParams(rapidjson::kObjectType);
+  json::JsonObj pathParams(allocator);
   for (const auto& [fst, snd] : event.getPathParameters()) {
-    pathParams.AddMember(rapidjson::Value(fst.c_str(), allocator),
-                         rapidjson::Value(snd.c_str(), allocator), allocator);
+    pathParams.setValue(fst, rapidjson::Value(snd.c_str(), allocator));
   }
-  payload.AddMember("pathParameters", pathParams, allocator);
 
-  rapidjson::Document contextDocument;
-  contextDocument.SetObject();
-  auto& contextAllocator = contextDocument.GetAllocator();
-  LambdaContext context("http-" + capability, "http-gateway");
-  contextDocument.AddMember("requestId",
-                            rapidjson::Value(context.getRequestId().c_str(), contextAllocator),
-                            contextAllocator);
-  contextDocument.AddMember("functionName",
-                            rapidjson::Value(context.getFunctionName().c_str(), contextAllocator),
-                            contextAllocator);
-  contextDocument.AddMember(
-      "functionVersion", rapidjson::Value(context.getFunctionVersion().c_str(), contextAllocator),
-      contextAllocator);
-  contextDocument.AddMember("timeoutMs", static_cast<int>(context.getTimeout().count()),
-                            contextAllocator);
-  contextDocument.AddMember("memoryLimitMB", context.getMemoryLimitMB(), contextAllocator);
+  const LambdaContext context("http-" + capability, "http-gateway");
+  rapidjson::Value contextValue = json::JsonObj(allocator)
+                                       .set("requestId", context.getRequestId())
+                                       .set("functionName", context.getFunctionName())
+                                       .set("functionVersion", context.getFunctionVersion())
+                                       .set("timeoutMs", static_cast<int>(context.getTimeout().count()))
+                                       .set("memoryLimitMB", context.getMemoryLimitMB())
+                                       .take();
 
-  rapidjson::Value contextValue;
-  contextValue.CopyFrom(contextDocument, allocator);
-  payload.AddMember("lambdaContext", contextValue, allocator);
+  obj.setValue("lambdaEvent", std::move(eventValue))
+      .set("httpMethod", event.getHttpMethod())
+      .set("path", event.getPath())
+      .set("resource", event.getResource())
+      .set("body", event.getBody())
+      .set("capability", capability)
+      .setValue("headers", headers.take())
+      .setValue("queryStringParameters", queryParams.take())
+      .setValue("pathParameters", pathParams.take())
+      .setValue("lambdaContext", std::move(contextValue));
 
+  rapidjson::Value result = obj.take();
+  payload.Swap(result);
   return payload;
 }
 
@@ -658,20 +652,24 @@ rapidjson::Document HttpGateway::buildAcceptedResponse(const std::string& capabi
   response.SetObject();
   auto& allocator = response.GetAllocator();
 
-  response.AddMember("accepted", true, allocator);
-  response.AddMember("status", rapidjson::Value("queued", allocator), allocator);
-  response.AddMember("requestId", rapidjson::Value(requestId.c_str(), allocator), allocator);
-  response.AddMember("capability", rapidjson::Value(capability.c_str(), allocator), allocator);
-
   rapidjson::Value eventValue;
   eventValue.CopyFrom(event, allocator);
-  response.AddMember("event", eventValue, allocator);
+
+  rapidjson::Value responseValue = json::JsonObj(allocator)
+      .set("accepted", true)
+      .set("status", "queued")
+      .set("requestId", requestId)
+      .set("capability", capability)
+      .setValue("event", std::move(eventValue))
+      .take();
+
+  response.Swap(responseValue);
 
   return response;
 }
 
 std::string HttpGateway::responseDocumentToBody(const rapidjson::Document& document) {
-  return documentToString(document);
+  return json::docToString(document);
 }
 
 } // namespace servicegateway

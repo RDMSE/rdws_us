@@ -174,7 +174,6 @@ private:
   // Helper methods
   static bool sendMessage(int socketFd, const std::string& message);
   static std::string requestStateToString(RequestState state);
-  static std::string serializeJsonValue(const rapidjson::Value& value);
   std::string generateRequestId();
 
   void cleanupExpiredRequests();

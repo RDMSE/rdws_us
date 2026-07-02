@@ -143,14 +143,13 @@ void GatewayConfig::setFeature(const std::string& feature, const bool enabled) {
 
 static rapidjson::Value capabilityConfigToJson(const CapabilityConfig& cfg,
                                                rapidjson::Document::AllocatorType& alloc) {
-  rapidjson::Value obj(rapidjson::kObjectType);
-  obj.AddMember("timeoutMs", static_cast<int64_t>(cfg.timeoutMs.count()), alloc);
+  json::JsonObj obj(alloc);
+  obj.set("timeoutMs", static_cast<int64_t>(cfg.timeoutMs.count()));
   if (cfg.loadBalancing.has_value()) {
-    const std::string lb = GatewayConfig::lbStrategyToString(*cfg.loadBalancing);
-    obj.AddMember("loadBalancing", rapidjson::Value(lb.c_str(), alloc), alloc);
+    obj.set("loadBalancing", GatewayConfig::lbStrategyToString(*cfg.loadBalancing));
   }
-  obj.AddMember("maxConcurrentRequests", cfg.maxConcurrentRequests, alloc);
-  return obj;
+  obj.set("maxConcurrentRequests", cfg.maxConcurrentRequests);
+  return obj.take();
 }
 
 rapidjson::Document GatewayConfig::toJson() const {
@@ -159,25 +158,27 @@ rapidjson::Document GatewayConfig::toJson() const {
   rapidjson::Document doc;
   doc.SetObject();
   auto& alloc = doc.GetAllocator();
+  json::JsonObj obj(alloc);
 
   // defaults
-  doc.AddMember("defaults", capabilityConfigToJson(defaults_, alloc), alloc);
+  obj.setValue("defaults", capabilityConfigToJson(defaults_, alloc));
 
   // capabilities
-  rapidjson::Value caps(rapidjson::kObjectType);
+  json::JsonObj caps(alloc);
   for (const auto& [name, cfg] : capabilities_) {
-    caps.AddMember(rapidjson::Value(name.c_str(), alloc), capabilityConfigToJson(cfg, alloc),
-                   alloc);
+    caps.setValue(name, capabilityConfigToJson(cfg, alloc));
   }
-  doc.AddMember("capabilities", caps, alloc);
+  obj.setValue("capabilities", caps.take());
 
   // features
-  rapidjson::Value feats(rapidjson::kObjectType);
+  json::JsonObj feats(alloc);
   for (const auto& [name, val] : features_) {
-    feats.AddMember(rapidjson::Value(name.c_str(), alloc), rapidjson::Value(val), alloc);
+    feats.setValue(name, rapidjson::Value(val));
   }
-  doc.AddMember("features", feats, alloc);
+  obj.setValue("features", feats.take());
 
+  rapidjson::Value result = obj.take();
+  doc.Swap(result);
   return doc;
 }
 
@@ -208,20 +209,20 @@ void GatewayConfig::loadFromJson(const rapidjson::Document& doc) {
     };
   };
 
-  if (json::getObject(doc, "defaults") != nullptr) {
-    defaults_ = parseCapCfg(doc["defaults"]);
+  if (const auto* defaults = json::getObject(doc, "defaults")) {
+    defaults_ = parseCapCfg(*defaults);
   }
 
-  if (json::getObject(doc, "capabilities") != nullptr) {
-    for (auto it = doc["capabilities"].MemberBegin(); it != doc["capabilities"].MemberEnd(); ++it) {
+  if (const auto* capabilities = json::getObject(doc, "capabilities")) {
+    for (auto it = capabilities->MemberBegin(); it != capabilities->MemberEnd(); ++it) {
       if (it->value.IsObject()) {
         capabilities_[it->name.GetString()] = parseCapCfg(it->value);
       }
     }
   }
 
-  if (json::getObject(doc, "features") != nullptr) {
-    for (auto it = doc["features"].MemberBegin(); it != doc["features"].MemberEnd(); ++it) {
+  if (const auto* features = json::getObject(doc, "features")) {
+    for (auto it = features->MemberBegin(); it != features->MemberEnd(); ++it) {
       if (it->value.IsBool()) {
         features_[it->name.GetString()] = it->value.GetBool();
       }

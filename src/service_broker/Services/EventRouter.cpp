@@ -251,49 +251,53 @@ rapidjson::Document EventRouter::ruleToJson(const RoutingRule& rule) {
   doc.SetObject();
   auto& a = doc.GetAllocator();
 
-  doc.AddMember("id", rapidjson::Value(rule.id.c_str(), a), a);
-  doc.AddMember("name", rapidjson::Value(rule.name.c_str(), a), a);
-  doc.AddMember("inputCapability", rapidjson::Value(rule.inputCapability.c_str(), a), a);
-  doc.AddMember("outputCapability", rapidjson::Value(rule.outputCapability.c_str(), a), a);
-  doc.AddMember("priority", rule.priority, a);
-  doc.AddMember("enabled", rule.enabled, a);
-  doc.AddMember("createdAt", rapidjson::Value(rule.createdAt.c_str(), a), a);
-  doc.AddMember("updatedAt", rapidjson::Value(rule.updatedAt.c_str(), a), a);
+  json::JsonObj ruleJsonObj(a);
+  ruleJsonObj.set("id", rule.id)
+      .set("name", rule.name)
+      .set("inputCapability", rule.inputCapability)
+      .set("outputCapability", rule.outputCapability)
+      .set("priority", rule.priority)
+      .set("enabled", rule.enabled)
+      .set("createdAt", rule.createdAt)
+      .set("updatedAt", rule.updatedAt);
 
-  if (rule.condition) {
-    rapidjson::Value cond(rapidjson::kObjectType);
-    cond.AddMember("field", rapidjson::Value(rule.condition->field.c_str(), a), a);
-    cond.AddMember("op", rapidjson::Value(rule.condition->op.c_str(), a), a);
-    cond.AddMember("value", rapidjson::Value(rule.condition->value.c_str(), a), a);
-    doc.AddMember("condition", cond, a);
+  if (rule.condition.has_value()) {
+    rapidjson::Value condValue = json::JsonObj(a)
+      .set("field", rule.condition.value().field)
+      .set("op", rule.condition.value().op)
+      .set("value", rule.condition.value().value)
+      .take();
+    ruleJsonObj.setValue("condition", std::move(condValue));
   } else {
-    doc.AddMember("condition", rapidjson::Value(rapidjson::kNullType), a);
+    ruleJsonObj.setValue("condition", rapidjson::Value(rapidjson::kNullType));
   }
 
-  if (rule.fallbackCapability) {
-    doc.AddMember("fallbackCapability", rapidjson::Value(rule.fallbackCapability->c_str(), a), a);
+  if (rule.fallbackCapability.has_value()) {
+    ruleJsonObj.set("fallbackCapability", rule.fallbackCapability.value());
   } else {
-    doc.AddMember("fallbackCapability", rapidjson::Value(rapidjson::kNullType), a);
+    ruleJsonObj.setValue("fallbackCapability", rapidjson::Value(rapidjson::kNullType));
   }
 
-  if (rule.httpMethod) {
-    doc.AddMember("httpMethod", rapidjson::Value(rule.httpMethod->c_str(), a), a);
+  if (rule.httpMethod.has_value()) {
+    ruleJsonObj.set("httpMethod", rule.httpMethod.value());
   } else {
-    doc.AddMember("httpMethod", rapidjson::Value(rapidjson::kNullType), a);
+    ruleJsonObj.setValue("httpMethod", rapidjson::Value(rapidjson::kNullType));
   }
 
-  if (rule.httpPath) {
-    doc.AddMember("httpPath", rapidjson::Value(rule.httpPath->c_str(), a), a);
+  if (rule.httpPath.has_value()) {
+    ruleJsonObj.set("httpPath", rule.httpPath.value());
   } else {
-    doc.AddMember("httpPath", rapidjson::Value(rapidjson::kNullType), a);
+    ruleJsonObj.setValue("httpPath", rapidjson::Value(rapidjson::kNullType));
   }
 
+  rapidjson::Value result = ruleJsonObj.take();
+  doc.Swap(result);
   return doc;
 }
 
 RoutingRule EventRouter::ruleFromJson(const rapidjson::Value& obj) {
   RoutingRule rule;
-  const auto& condition = json::getObject(obj, "condition");
+  const auto* condition = json::getObject(obj, "condition");
 
   rule.id = json::getString(obj, "id").value_or(std::string{});
   rule.name = json::getString(obj, "name").value_or(std::string{});

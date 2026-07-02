@@ -11,6 +11,10 @@
 #include <valijson/schema_parser.hpp>
 #include <valijson/validation_results.hpp>
 
+#include "../../shared/utils/json_helper.h"
+
+namespace json = rdws::utils::json;
+
 namespace rdws::utils::validator {
 
 // Static factory method for string-based schemas
@@ -138,25 +142,27 @@ std::string SchemaValidator::getErrorsAsJson(const std::vector<ValidationError>&
   result.SetObject();
   auto& allocator = result.GetAllocator();
 
-  result.AddMember("valid", false, allocator);
-  result.AddMember("schema", rapidjson::Value(schemaName.c_str(), allocator), allocator);
-
   rapidjson::Value errorsArray(rapidjson::kArrayType);
   for (const auto& error : errors) {
-    rapidjson::Value errorObj(rapidjson::kObjectType);
-    errorObj.AddMember("field", rapidjson::Value(error.field.c_str(), allocator), allocator);
-    errorObj.AddMember("message", rapidjson::Value(error.message.c_str(), allocator), allocator);
-    if (!error.context.empty()) {
-      errorObj.AddMember("context", rapidjson::Value(error.context.c_str(), allocator), allocator);
-    }
-    errorsArray.PushBack(errorObj, allocator);
-  }
-  result.AddMember("errors", errorsArray, allocator);
+    json::JsonObj errorObj(allocator);
+    errorObj.set("field", error.field);
+    errorObj.set("message", error.message);
 
-  rapidjson::StringBuffer buffer;
-  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-  result.Accept(writer);
-  return buffer.GetString();
+    if (!error.context.empty()) {
+      errorObj.set("context", error.context);
+    }
+
+    errorsArray.PushBack(errorObj.take(), allocator);
+  }
+
+  rapidjson::Value resultValue = json::JsonObj(allocator)
+      .set("valid", false)
+      .set("schema", schemaName)
+      .setValue("errors", std::move(errorsArray))
+      .take();
+   resultValue.Swap(result);
+
+  return rdws::utils::json::docToString(result);
 }
 
 }; // namespace rdws::utils::validator

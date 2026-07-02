@@ -109,7 +109,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = json::getString(request, "capability").value_or(std::string{});
+    const auto cap = json::getString(request, "capability").value_or(std::string{});
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,
@@ -161,14 +161,14 @@ private:
 
   static rapidjson::Document handleCreate(const rapidjson::Document& req,
                                           rdws::farm::FarmService& svc) {
-    const auto& name = json::getString(req, "name").value_or(std::string{});
+    const std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FarmCreate data;
     data.name = name;
-    if (const auto location = json::getObject(req, "location"); location != nullptr) {
+    if (const auto* location = json::getObject(req, "location"); location != nullptr) {
       const auto& loc = *location;
       const auto lat = json::getDouble(loc, "lat");
       const auto lng = json::getDouble(loc, "lng");
@@ -197,14 +197,14 @@ private:
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    const auto& name = json::getString(req, "name").value_or(std::string{});
+    const std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: name");
     }
 
     FarmUpdate data;
     data.name = name;
-    if (const auto location = json::getObject(req, "location"); location != nullptr) {
+    if (const auto* location = json::getObject(req, "location"); location != nullptr) {
       const auto& loc = *location;
       const auto lat = json::getDouble(loc, "lat");
       const auto lng = json::getDouble(loc, "lng");

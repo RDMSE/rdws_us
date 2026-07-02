@@ -111,7 +111,7 @@ public:
 
 private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
-    const auto& cap = json::getString(request, "capability").value_or("");
+    const auto cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
     static const std::unordered_map<std::string,

@@ -131,13 +131,19 @@ TEST_F(GatewayIntegrationTest, EchoRequest_ServiceResponds_Success) {
 
   startClient(makeIdentity("integ_echo_001", {"echo"}), "unix://" + sock);
   client->setRequestHandler([](const rapidjson::Document& req) -> rapidjson::Document {
+
+    const std::string msg = json::getString(req, "message").value_or("");
+    const std::string result = "echo: " + msg;
+
     rapidjson::Document resp;
     resp.SetObject();
     auto& alloc = resp.GetAllocator();
-    const std::string msg = json::getString(req, "message").value_or("");
-    const std::string result = "echo: " + msg;
-    resp.AddMember("result", rapidjson::Value(result.c_str(), alloc), alloc);
-    resp.AddMember("status", "success", alloc);
+
+    rapidjson::Value respValue = json::JsonObj(alloc)
+        .set("result", result)
+        .set("status", "success")
+        .take();
+    respValue.Swap(resp);
     return resp;
   });
 
@@ -146,8 +152,11 @@ TEST_F(GatewayIntegrationTest, EchoRequest_ServiceResponds_Success) {
   rapidjson::Document payload;
   payload.SetObject();
   auto& alloc = payload.GetAllocator();
-  payload.AddMember("capability", "echo", alloc);
-  payload.AddMember("message", "hello", alloc);
+  rapidjson::Value payloadValue = json::JsonObj(alloc)
+      .set("capability", "echo")
+      .set("message", "hello")
+      .take();
+  payloadValue.Swap(payload);
 
   const std::string requestId = gw->sendRequest("echo", payload);
   ASSERT_FALSE(requestId.empty()) << "sendRequest should return a requestId";

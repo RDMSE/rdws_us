@@ -44,6 +44,8 @@ private:
   std::map<std::string, CapabilityStats> stats_;
 
   static double computePercentile(std::vector<double> samples, double pct);
+
+  static rapidjson::Value capabilityStatsToJson(const std::string& capability, const CapabilityStats& stats, rapidjson::Document::AllocatorType& alloc);
 };
 
 } // namespace rdws::metrics

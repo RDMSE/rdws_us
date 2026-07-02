@@ -48,19 +48,20 @@ AuthResult AuthMiddleware::authenticate(const AuthHttpRequest& req) const {
 void AuthMiddleware::injectIdentity(const AuthIdentity& id, rapidjson::Document& payload) {
   auto& alloc = payload.GetAllocator();
 
-  rapidjson::Value claimsObj(rapidjson::kObjectType);
+  json::JsonObj claims(alloc);
   for (const auto& [k, v] : id.claims) {
-    claimsObj.AddMember(rapidjson::Value(k.c_str(), alloc), rapidjson::Value(v.c_str(), alloc),
-                        alloc);
+    claims.setValue(k, rapidjson::Value(v.c_str(), alloc));
   }
 
-  rapidjson::Value identityObj(rapidjson::kObjectType);
-  identityObj.AddMember("subject", rapidjson::Value(id.subject.c_str(), alloc), alloc);
-  identityObj.AddMember("issuer", rapidjson::Value(id.issuer.c_str(), alloc), alloc);
-  identityObj.AddMember("claims", claimsObj, alloc);
+  rapidjson::Value identityObj = json::JsonObj(alloc)
+                                      .set("subject", id.subject)
+                                      .set("issuer", id.issuer)
+                                      .setValue("claims", claims.take())
+                                      .take();
 
-  if (payload.HasMember("lambdaContext") && payload["lambdaContext"].IsObject()) {
-    payload["lambdaContext"].AddMember("identity", identityObj, alloc);
+  auto lambdaContext = payload.FindMember("lambdaContext");
+  if (lambdaContext != payload.MemberEnd() && lambdaContext->value.IsObject()) {
+    lambdaContext->value.AddMember("identity", identityObj, alloc);
   } else {
     payload.AddMember("identity", identityObj, alloc);
   }
@@ -127,7 +128,7 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
       return {.authorized = false, .statusCode = 401, .message = "Malformed JWT header"};
     }
 
-    const auto& alg = json::getString(hdr, "alg");
+    const auto alg = json::getString(hdr, "alg");
     if (alg.has_value() && alg.value() != "HS256") {
       return {.authorized = false,
               .statusCode = 401,
@@ -185,7 +186,7 @@ AuthResult AuthMiddleware::checkJwt(const AuthHttpRequest& req) const {
 
   // ── Validate issuer ───────────────────────────────────────────────────
   if (!config_.jwtIssuer.empty()) {
-    const auto& iss = json::getString(doc, "iss");
+    const auto iss = json::getString(doc, "iss");
     if (!iss.has_value() || iss.value() != config_.jwtIssuer) {
       return {.authorized = false, .statusCode = 401, .message = "JWT issuer mismatch"};
     }
