@@ -5,9 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/devices/1/config
+  url: {{baseUrl}}/devices/:dev/config
   body: none
   auth: bearer
+}
+
+params:path {
+  dev: 3
 }
 
 auth:bearer {

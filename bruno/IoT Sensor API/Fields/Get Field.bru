@@ -5,9 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/fields/1
+  url: {{baseUrl}}/fields/:fieldId
   body: none
   auth: bearer
+}
+
+params:path {
+  fieldId: 1
 }
 
 auth:bearer {

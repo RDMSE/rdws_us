@@ -5,9 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/devices/1
+  url: {{baseUrl}}/devices/:devId
   body: none
   auth: bearer
+}
+
+params:path {
+  devId: 1
 }
 
 auth:bearer {
