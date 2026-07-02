@@ -1,0 +1,19 @@
+meta {
+  name: List Devices
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/devices?field_id=3
+  body: none
+  auth: bearer
+}
+
+params:query {
+  field_id: 3
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

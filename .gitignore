@@ -1,2 +1,5 @@
 build
 cmake-build-*
+build*
+logs/
+*.log

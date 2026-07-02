@@ -1,0 +1,25 @@
+meta {
+  name: Create Device
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/devices
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "field_id": "1",
+    "type": "weather_station",
+    "status": "active",
+    "installation_date": "2026-06-01T00:00:00Z",
+    "location": "POINT(-47.9292 -15.7801)"
+  }
+}

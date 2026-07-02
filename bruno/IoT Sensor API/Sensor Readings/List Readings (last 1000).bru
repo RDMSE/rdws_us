@@ -1,0 +1,15 @@
+meta {
+  name: List Readings (last 1000)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/sensors/1/readings
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

@@ -1,0 +1,19 @@
+meta {
+  name: Get Field
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/fields/:fieldId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  fieldId: 1
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

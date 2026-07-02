@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-debug/_deps/fmt-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-debug/_deps/httplib-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-debug/_deps/spdlog-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-debug/_deps/tl_expected-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/_deps/fmt-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/_deps/httplib-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/_deps/spdlog-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/_deps/tl_expected-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-debug/_deps/fmt-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-debug/_deps/spdlog-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/dotenv-cpp" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/inih" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/JSON-Schema-Test-Suite" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/googletest" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/json11" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/jsoncpp" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/nlohmann-json" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/picojson" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/rapidjson" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/rapidjson/thirdparty/gtest" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/third_party/valijson/thirdparty/yaml-cpp" vcs="Git" />
+  </component>
+</project>

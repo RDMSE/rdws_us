@@ -1,0 +1,404 @@
+#include "EventRouter.h"
+
+#include <algorithm>
+#include <chrono>
+#include <fstream>
+#include <iomanip>
+#include <map>
+#include <mutex>
+#include <random>
+#include <rapidjson/istreamwrapper.h>
+#include <rapidjson/ostreamwrapper.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/writer.h>
+#include <sstream>
+#include "../../shared/utils/json_helper.h"
+
+namespace json = rdws::utils::json;
+
+namespace servicegateway {
+
+// ─── Construction ─────────────────────────────────────────────────────────────
+
+EventRouter::EventRouter(std::string persistPath) : persistPath_(std::move(persistPath)) {
+  if (!persistPath_.empty()) {
+    loadFromFile(persistPath_);
+  }
+}
+
+// ─── Resolve ─────────────────────────────────────────────────────────────────
+
+std::string EventRouter::resolve(const std::string& inputCapability,
+                                 const rapidjson::Document& payload) const {
+  std::shared_lock lock(mutex_);
+  for (const auto& rule : rules_) {
+    if (!rule.enabled) {
+      continue;
+    }
+    if (rule.inputCapability != inputCapability) {
+      continue;
+    }
+    if (rule.condition && !matchesCondition(*rule.condition, payload)) {
+      continue;
+    }
+    return rule.outputCapability;
+  }
+  return inputCapability; // passthrough — no rule matched
+}
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
+
+std::string EventRouter::addRule(RoutingRule rule) {
+  rule.id = generateId();
+  rule.createdAt = nowIso();
+  rule.updatedAt = rule.createdAt;
+  const std::string id = rule.id;
+
+  {
+    std::unique_lock lock(mutex_);
+    rules_.push_back(std::move(rule));
+    sortRules();
+  }
+
+  persistIfConfigured();
+  return id;
+}
+
+bool EventRouter::updateRule(const std::string& id, RoutingRule rule) {
+  bool found = false;
+  {
+    std::unique_lock lock(mutex_);
+    const auto it = std::find_if(rules_.begin(), rules_.end(),
+                                 [&id](const RoutingRule& r) { return r.id == id; });
+    if (it != rules_.end()) {
+      rule.id = id;
+      rule.createdAt = it->createdAt;
+      rule.updatedAt = nowIso();
+      *it = std::move(rule);
+      sortRules();
+      found = true;
+    }
+  }
+
+  if (found) {
+    persistIfConfigured();
+  }
+  return found;
+}
+
+bool EventRouter::removeRule(const std::string& id) {
+  bool found = false;
+  {
+    std::unique_lock lock(mutex_);
+    const auto it = std::find_if(rules_.begin(), rules_.end(),
+                                 [&id](const RoutingRule& r) { return r.id == id; });
+    if (it != rules_.end()) {
+      rules_.erase(it);
+      found = true;
+    }
+  }
+
+  if (found) {
+    persistIfConfigured();
+  }
+  return found;
+}
+
+std::optional<RoutingRule> EventRouter::getRule(const std::string& id) const {
+  std::shared_lock lock(mutex_);
+  const auto it = std::find_if(rules_.cbegin(), rules_.cend(),
+                               [&id](const RoutingRule& r) { return r.id == id; });
+  if (it == rules_.cend()) {
+    return std::nullopt;
+  }
+  return *it;
+}
+
+std::vector<RoutingRule> EventRouter::listRules() const {
+  std::shared_lock lock(mutex_);
+  return rules_;
+}
+
+// ─── Persistence ─────────────────────────────────────────────────────────────
+
+bool EventRouter::loadFromFile(const std::string& path) {
+  std::ifstream ifs(path);
+  if (!ifs.is_open()) {
+    return false;
+  }
+
+  rapidjson::IStreamWrapper isw(ifs);
+  rapidjson::Document doc;
+  doc.ParseStream(isw);
+  if (doc.HasParseError() || !doc.IsArray()) {
+    return false;
+  }
+
+  std::unique_lock lock(mutex_);
+  rules_.clear();
+  for (const auto& obj : doc.GetArray()) {
+    if (obj.IsObject()) {
+      rules_.push_back(ruleFromJson(obj));
+    }
+  }
+  sortRules();
+  return true;
+}
+
+bool EventRouter::saveToFile(const std::string& path) const {
+  std::ofstream ofs(path);
+  if (!ofs.is_open()) {
+    return false;
+  }
+
+  rapidjson::Document doc;
+  doc.SetArray();
+  auto& alloc = doc.GetAllocator();
+
+  {
+    std::shared_lock lock(mutex_);
+    for (const auto& rule : rules_) {
+      rapidjson::Document ruleDoc = ruleToJson(rule);
+      rapidjson::Value ruleVal;
+      ruleVal.CopyFrom(ruleDoc, alloc);
+      doc.PushBack(ruleVal, alloc);
+    }
+  }
+
+  rapidjson::OStreamWrapper osw(ofs);
+  rapidjson::PrettyWriter<rapidjson::OStreamWrapper> writer(osw);
+  doc.Accept(writer);
+  return true;
+}
+
+// ─── Path-based resolve ───────────────────────────────────────────────────────
+
+namespace {
+
+// Split a string by '/' — returns segments, skipping empty ones from leading slash.
+std::vector<std::string> splitPath(const std::string& path) {
+  std::vector<std::string> parts;
+  std::istringstream ss(path);
+  std::string seg;
+  while (std::getline(ss, seg, '/')) {
+    if (!seg.empty()) {
+      parts.push_back(seg);
+    }
+  }
+  return parts;
+}
+
+// Match a concrete path against a pattern with {param} placeholders.
+// Returns true and fills params on success.
+bool matchPathPattern(const std::string& pattern, const std::string& path,
+                      std::map<std::string, std::string>& params) {
+  const auto patParts = splitPath(pattern);
+  const auto pathParts = splitPath(path);
+  if (patParts.size() != pathParts.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < patParts.size(); ++i) {
+    const auto& pp = patParts[i];
+    if (pp.size() >= 2 && pp.front() == '{' && pp.back() == '}') {
+      params[pp.substr(1, pp.size() - 2)] = pathParts[i];
+    } else if (pp != pathParts[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // anonymous namespace
+
+std::optional<EventRouter::PathMatch> EventRouter::resolveFromPath(const std::string& method,
+                                                                   const std::string& path) const {
+  // Strip query string if present
+  const std::string cleanPath = [&]() -> std::string {
+    const auto q = path.find('?');
+    return q == std::string::npos ? path : path.substr(0, q);
+  }();
+
+  std::shared_lock lock(mutex_);
+  for (const auto& rule : rules_) {
+    if (!rule.enabled) {
+      continue;
+    }
+    if (!rule.httpMethod) {
+      continue;
+    }
+    if (!rule.httpPath) {
+      continue;
+    }
+    if (rule.httpMethod.value() != method) {
+      continue;
+    }
+
+    std::map<std::string, std::string> params;
+    if (matchPathPattern(rule.httpPath.value(), cleanPath, params)) {
+      PathMatch m;
+      m.capability = rule.outputCapability;
+      m.pathParams = std::move(params);
+      return m;
+    }
+  }
+  return std::nullopt;
+}
+
+// ─── Serialisation ────────────────────────────────────────────────────────────
+
+rapidjson::Document EventRouter::ruleToJson(const RoutingRule& rule) {
+  rapidjson::Document doc;
+  doc.SetObject();
+  auto& a = doc.GetAllocator();
+
+  json::JsonObj ruleJsonObj(a);
+  ruleJsonObj.set("id", rule.id)
+      .set("name", rule.name)
+      .set("inputCapability", rule.inputCapability)
+      .set("outputCapability", rule.outputCapability)
+      .set("priority", rule.priority)
+      .set("enabled", rule.enabled)
+      .set("createdAt", rule.createdAt)
+      .set("updatedAt", rule.updatedAt);
+
+  if (rule.condition.has_value()) {
+    rapidjson::Value condValue = json::JsonObj(a)
+      .set("field", rule.condition.value().field)
+      .set("op", rule.condition.value().op)
+      .set("value", rule.condition.value().value)
+      .take();
+    ruleJsonObj.setValue("condition", std::move(condValue));
+  } else {
+    ruleJsonObj.setValue("condition", rapidjson::Value(rapidjson::kNullType));
+  }
+
+  if (rule.fallbackCapability.has_value()) {
+    ruleJsonObj.set("fallbackCapability", rule.fallbackCapability.value());
+  } else {
+    ruleJsonObj.setValue("fallbackCapability", rapidjson::Value(rapidjson::kNullType));
+  }
+
+  if (rule.httpMethod.has_value()) {
+    ruleJsonObj.set("httpMethod", rule.httpMethod.value());
+  } else {
+    ruleJsonObj.setValue("httpMethod", rapidjson::Value(rapidjson::kNullType));
+  }
+
+  if (rule.httpPath.has_value()) {
+    ruleJsonObj.set("httpPath", rule.httpPath.value());
+  } else {
+    ruleJsonObj.setValue("httpPath", rapidjson::Value(rapidjson::kNullType));
+  }
+
+  rapidjson::Value result = ruleJsonObj.take();
+  doc.Swap(result);
+  return doc;
+}
+
+RoutingRule EventRouter::ruleFromJson(const rapidjson::Value& obj) {
+  RoutingRule rule;
+  const auto* condition = json::getObject(obj, "condition");
+
+  rule.id = json::getString(obj, "id").value_or(std::string{});
+  rule.name = json::getString(obj, "name").value_or(std::string{});
+  rule.inputCapability = json::getString(obj, "inputCapability").value_or(std::string{});
+  rule.outputCapability = json::getString(obj, "outputCapability").value_or(std::string{});
+  rule.priority = json::getInt(obj, "priority").value_or(0);
+  rule.enabled = json::getBool(obj, "enabled").value_or(true);
+  rule.createdAt = json::getString(obj, "createdAt").value_or(std::string{});
+  rule.updatedAt = json::getString(obj, "updatedAt").value_or(std::string{});
+
+  if (condition != nullptr) {
+    rule.condition = {
+    .field = json::getString(*condition, "field").value_or(std::string{}),
+    .op = json::getString(*condition, "op").value_or(std::string{}),
+    .value = json::getString(*condition, "value").value_or(std::string{}),
+    };
+  }
+
+  rule.fallbackCapability = json::getString(obj, "fallbackCapability");
+  rule.httpMethod = json::getString(obj, "httpMethod");
+  rule.httpPath = json::getString(obj, "httpPath");
+
+  return rule;
+}
+
+// ─── Condition matching ───────────────────────────────────────────────────────
+
+bool EventRouter::matchesCondition(const RouteCondition& cond, const rapidjson::Document& payload) {
+  if (!payload.IsObject()) {
+    return false;
+  }
+
+  const bool fieldExists = payload.HasMember(cond.field.c_str());
+
+  if (cond.op == "exists") {
+    return fieldExists;
+  }
+  if (!fieldExists) {
+    return false;
+  }
+
+  // Coerce field to string for comparison
+  const auto& fv = payload[cond.field.c_str()];
+  std::string strVal;
+  if (fv.IsString()) {
+    strVal = fv.GetString();
+  } else if (fv.IsBool()) {
+    strVal = fv.GetBool() ? "true" : "false";
+  } else if (fv.IsInt()) {
+    strVal = std::to_string(fv.GetInt());
+  } else if (fv.IsUint()) {
+    strVal = std::to_string(fv.GetUint());
+  } else if (fv.IsDouble()) {
+    strVal = std::to_string(fv.GetDouble());
+  }
+
+  if (cond.op == "eq") {
+    return strVal == cond.value;
+  }
+  if (cond.op == "ne") {
+    return strVal != cond.value;
+  }
+  if (cond.op == "contains") {
+    return strVal.find(cond.value) != std::string::npos;
+  }
+  return false;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+std::string EventRouter::generateId() {
+  static std::mt19937_64 rng{std::random_device{}()};
+  static std::uniform_int_distribution<uint32_t> dist;
+  std::ostringstream oss;
+  oss << std::hex << std::setfill('0') << std::setw(8) << dist(rng) << '-' << std::setw(4)
+      << (dist(rng) & 0xFFFFU) << '-' << std::setw(4) << ((dist(rng) & 0x0FFFU) | 0x4000U) << '-'
+      << std::setw(4) << ((dist(rng) & 0x3FFFU) | 0x8000U) << '-' << std::setw(8) << dist(rng)
+      << std::setw(4) << (dist(rng) & 0xFFFFU);
+  return oss.str();
+}
+
+std::string EventRouter::nowIso() {
+  const auto now = std::chrono::system_clock::now();
+  const std::time_t t = std::chrono::system_clock::to_time_t(now);
+  std::tm tm_utc{};
+  gmtime_r(&t, &tm_utc);
+  std::ostringstream oss;
+  oss << std::put_time(&tm_utc, "%Y-%m-%dT%H:%M:%SZ");
+  return oss.str();
+}
+
+void EventRouter::sortRules() {
+  std::stable_sort(rules_.begin(), rules_.end(), [](const RoutingRule& a, const RoutingRule& b) {
+    return a.priority > b.priority;
+  });
+}
+
+void EventRouter::persistIfConfigured() const {
+  if (!persistPath_.empty()) {
+    saveToFile(persistPath_);
+  }
+}
+
+} // namespace servicegateway

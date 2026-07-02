@@ -1,0 +1,29 @@
+meta {
+  name: Update Config
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/devices/1/config
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "config": {
+      "sampleIntervalSec": 30,
+      "transmitIntervalSec": 120,
+      "alertThresholds": {
+        "temperature": { "min": -10, "max": 50 },
+        "humidity":    { "min": 5,   "max": 99 }
+      },
+      "firmware": "v2.4.0"
+    }
+  }
+}

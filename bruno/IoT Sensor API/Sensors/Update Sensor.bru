@@ -1,0 +1,22 @@
+meta {
+  name: Update Sensor
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/sensors/1
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "type": "humidity",
+    "unit": "%"
+  }
+}

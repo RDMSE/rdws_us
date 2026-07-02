@@ -1,0 +1,15 @@
+meta {
+  name: Delete Device
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/devices/1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

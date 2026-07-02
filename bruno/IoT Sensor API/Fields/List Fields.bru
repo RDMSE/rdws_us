@@ -1,0 +1,19 @@
+meta {
+  name: List Fields
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/fields?farm_id=2
+  body: none
+  auth: bearer
+}
+
+params:query {
+  farm_id: 2
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
