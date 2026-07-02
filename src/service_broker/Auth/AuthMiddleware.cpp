@@ -59,12 +59,11 @@ void AuthMiddleware::injectIdentity(const AuthIdentity& id, rapidjson::Document&
                                       .setValue("claims", claims.take())
                                       .take();
 
-  auto lambdaContext = payload.FindMember("lambdaContext");
-  if (lambdaContext != payload.MemberEnd() && lambdaContext->value.IsObject()) {
-    lambdaContext->value.AddMember("identity", identityObj, alloc);
-  } else {
-    payload.AddMember("identity", identityObj, alloc);
-  }
+  const auto lambdaContext = payload.FindMember("lambdaContext");
+  rapidjson::Value& target = (lambdaContext != payload.MemberEnd() && lambdaContext->value.IsObject())
+                                 ? lambdaContext->value
+                                 : payload;
+  target.AddMember("identity", identityObj, alloc);
 }
 
 // ─── API key ──────────────────────────────────────────────────────────────────
