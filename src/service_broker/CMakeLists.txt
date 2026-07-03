@@ -78,17 +78,6 @@ add_executable(service_gateway_example
 target_link_libraries(service_gateway_example PRIVATE service_gateway_core)
 add_executable(service_broker_example ALIAS service_gateway_example)
 
-add_executable(service_gateway_monitor
-    service_gateway_monitor.cpp
-)
-target_link_libraries(service_gateway_monitor PRIVATE service_gateway_core)
-add_executable(service_broker_monitor ALIAS service_gateway_monitor)
-
-add_executable(example_service_client
-    example_service_client.cpp
-)
-target_link_libraries(example_service_client PRIVATE service_gateway_core)
-
 # --- Unit tests ---
 if(BUILD_TESTING)
     add_subdirectory(tests)
