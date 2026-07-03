@@ -81,6 +81,20 @@ Hoje não existe endpoint `/metrics` em formato Prometheus — só `/health`, `/
 - Dashboard inicial no Grafana provisionado via arquivo (datasource + dashboard JSON
   versionados em `infra/grafana/`), evitando setup manual.
 
+**Indicador de status por serviço no Grafana**: assim que o Prometheus faz scrape de um
+alvo, ele gera automaticamente a métrica `up{job="..."}` (1 = respondendo, 0 = fora do
+ar) para cada serviço/broker — sem esforço extra além do `prometheus.yml` já previsto.
+Um painel *Stat* com essa métrica já dá um indicador verde/vermelho por serviço no
+dashboard. Opcionalmente, dá pra enriquecer isso expondo no `/metrics` alguns dos dados
+que o `MetricsTracker`/`ServiceMonitor` já calculam (serviços conectados, capabilities
+registradas, taxa de erro) como gauges, indo além do simples "up/down".
+
+**Nota**: com esse indicador via Prometheus + o Bruno cobrindo `/health` e `/status`
+(coleção `bruno/IoT Sensor API/Gateway/Health.bru` e `Status.bru`), o
+`service_gateway_monitor` (CLI interativo de debug) fica dispensável nos ambientes
+containerizados — não é candidato a dockerização (depende de terminal interativo, portas
+hardcoded) nem necessário, já que os mesmos dados ficam disponíveis via HTTP/Grafana.
+
 **Logs no Grafana (Loki + Promtail)**: Prometheus só cobre métricas — não indexa texto de
 log. Para logs no Grafana, entra o **Loki** (armazenamento/indexação de logs, datasource
 nativo do Grafana) alimentado pelo **Promtail** (coleta os logs dos containers Docker,
