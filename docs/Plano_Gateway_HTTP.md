@@ -179,11 +179,11 @@ POST /auth/login → gateway → AuthService → valida credenciais no banco →
 - `role` é incluído no JWT mas o controle de acesso por role será implementado em fase futura.
 - `AuthService` é pré-requisito para a fase 10 (banco), pois o banco de usuários faz parte do mesmo schema.
 
-- ⬜ Criar tabela `users` via migration Flyway (ver `Plano_DB_IOT_Sensors.md`).
-- ⬜ Implementar `AuthService` com validação de credenciais e emissão de JWT HS256.
-- ⬜ Registrar `/auth/login` como caminho público no gateway.
-- ⬜ Adicionar capability `auth.login` no EventRouter.
-- Critério de aceite: POST /auth/login com credenciais válidas retorna JWT aceito pelo gateway nas requisições seguintes; credenciais inválidas retornam 401.
+- ✅ Criar tabela `users` via migration Flyway (ver `Plano_DB_IOT_Sensors.md`).
+- ✅ Implementar `AuthService` com validação de credenciais e emissão de JWT HS256.
+- ✅ Registrar `/auth/login` como caminho público no gateway.
+- ✅ Adicionar capability `auth.login` no EventRouter.
+- Critério de aceite: POST /auth/login com credenciais válidas retorna JWT aceito pelo gateway nas requisições seguintes; credenciais inválidas retornam 401. ✅ (testado)
 
 ---
 
@@ -213,12 +213,12 @@ PersistenceService ──subscreve──> acumula em buffer interno ──batch 
 - `request_history`: retenção de 90 dias; job periódico (`pg_cron` ou processo externo) remove registros antigos.
 - `capability_metrics`: registros brutos retidos 30 dias; agregações diárias/semanais mantidas por 1 ano.
 
-- ⬜ Definir e publicar eventos `request.completed` e `metrics.snapshot` no EventBus do gateway.
-- ⬜ Implementar `PersistenceService` com buffer interno e batch upsert no PostgreSQL.
-- ⬜ Criar migrations Flyway para `request_history` e `capability_metrics`.
+- ✅ Definir e publicar eventos `request.completed` e `metrics.snapshot` no EventBus do gateway.
+- ✅ Implementar `PersistenceService` com buffer interno e batch upsert no PostgreSQL.
+- ✅ Criar migrations Flyway para `request_history` e `capability_metrics`.
 - ⬜ Implementar job de cleanup de registros antigos.
-- ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11).
-- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão.
+- ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11) — depende do `Plano_Deployment.md`.
+- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão. ✅ (testado)
 
 ---
 
@@ -292,4 +292,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 ---
 
 ## Próximo passo sugerido
-Concluir a **Fase 5** com testes HTTP end-to-end: levantar um service mock via socket, disparar requests HTTP reais ao gateway e validar respostas — cobrindo cenários de sucesso, timeout e auth rejeitada. Isso fecha o único gap de cobertura antes de avançar para Fase 10.
+Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
+passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
+`Plano_Deployment.md`. `Plano_Ingestion.md` (RabbitMQ) entra depois, reaproveitando o
+mesmo pipeline de CI/CD e a mesma instância de Grafana.

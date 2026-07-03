@@ -1,4 +1,4 @@
-# Dockerização + CI/CD (dev homelab / prod VPS)
+# Dockerização + CI/CD (dev local / QA homelab / prod VPS)
 
 ## Contexto
 
@@ -8,14 +8,18 @@ rodam como binários C++ soltos, iniciados manualmente (ou via `.vscode/launch.j
 conectados ao `service_gateway_http` (broker) por socket UNIX/TCP. Não existe Docker,
 CI/CD, nem separação de ambientes — só o fluxo local via CMake.
 
-O objetivo é introduzir três cenários sem tocar no fluxo local:
+O objetivo é introduzir três ambientes sem tocar no fluxo local:
 
-- **local**: continua exatamente como está (CMake + launch.json).
-- **dev**: push no GitHub → Actions (runner self-hosted no homelab) builda imagens,
-  publica no GHCR e sobe via `docker compose` no próprio homelab.
-- **prod**: promoção da mesma imagem (já validada em dev) → deploy via SSH numa VPS
+- **dev**: este notebook — continua exatamente como está (CMake + launch.json), sem
+  Docker, apontando pro Postgres remoto do homelab (`fedora-server` via Tailscale) num
+  banco próprio (`rdws_dev`).
+- **QA**: o homelab — push no GitHub → Actions (runner self-hosted no próprio homelab)
+  builda imagens, publica no GHCR e sobe via `docker compose` ali, contra o banco
+  `rdws_qa`. É o ambiente de integração contínua, sempre no ar.
+- **prod**: promoção da mesma imagem (já validada em QA) → deploy via SSH numa VPS
   Digital Ocean de 1GB (2GB depois), rodando tudo (serviços + Postgres + Prometheus +
-  Grafana) num único `docker-compose.yml` com limites de memória ajustados.
+  Grafana) num único `docker-compose.yml` com limites de memória ajustados, banco
+  `rdws_prod`.
 
 Motivação: arquitetura já é desacoplada (broker + serviços via socket/TCP), então é o
 ponto natural para conteinerizar sem reescrever nada — só empacotar o que já existe.
@@ -52,22 +56,45 @@ de build CMake e mesma lista de dependências):
 
 ## 2. docker-compose
 
-- **`docker-compose.dev.yml`** (homelab): broker + todos os serviços + Postgres/PostGIS+
-  TimescaleDB + Prometheus + Grafana, rede compartilhada, env vars equivalentes ao
-  `.env.dev` atual.
+- **`docker-compose.qa.yml`** (homelab): broker + todos os serviços + Postgres/PostGIS+
+  TimescaleDB + Prometheus + Grafana, rede compartilhada, env vars apontando pro banco
+  `rdws_qa`. Ambiente dev (notebook) não usa compose — continua no fluxo CMake local,
+  contra o mesmo Postgres do homelab mas no banco `rdws_dev`.
 - **Broker ↔ serviços via TCP, não socket UNIX**: o socket UNIX só funcionaria entre
   containers via volume compartilhado — frágil (single-host, single-instância do broker,
   quebra em k8s/múltiplos hosts). O broker já suporta conexão via `tcp://host:port` além
   de `unix://` (nenhuma mudança de código necessária); em `docker-compose` os nomes dos
   serviços já funcionam como hostname DNS interno (ex: `tcp://gateway:3001`), o que
   também deixa o caminho pronto para uma futura migração a k8s. Socket UNIX continua
-  sendo o padrão fora de container (uso local/dev sem Docker).
+  sendo o padrão fora de container (uso em dev local sem Docker).
 - **`docker-compose.prod.yml`** (VPS): mesma topologia, mas com `deploy.resources.limits`
   de memória por serviço pensando no teto de 1GB total (Postgres com `shared_buffers`
   reduzido, Prometheus com `--storage.tsdb.retention.time` curto, ex. 3-7 dias) — e um
-  comentário indicando que os limites sobem quando a VPS for pra 2GB.
+  comentário indicando que os limites sobem quando a VPS for pra 2GB. Banco `rdws_prod`.
 - Ambos herdam de um `docker-compose.base.yml` opcional para evitar duplicação (serviços,
   imagens, healthchecks), com overrides só de recursos/replicas/env por ambiente.
+
+## 2.1 Banco de dados — três instâncias Postgres, todas containerizadas
+
+Homelab reformatado (ambiente limpo) e acessado agora via **Tailscale** (MagicDNS) —
+o hostname continua `fedora-server`, só que resolvido pela rede Tailscale em vez do
+`.local` (mDNS) anterior. Isso substitui `DB_HOST=fedora-server.local` por
+`DB_HOST=fedora-server` (ou o IP Tailscale) em toda configuração, e também simplifica o
+acesso do notebook/CI ao homelab (mesma rede virtual, sem depender de estar na LAN física).
+
+- **`rdws_dev`**: instância própria Postgres containerizada no homelab, usada pelo
+  ambiente dev (notebook, fluxo local sem Docker) via Tailscale.
+- **`rdws_qa`**: instância própria Postgres containerizada no homelab, parte do
+  `docker-compose.qa.yml` (mesma máquina do runner self-hosted, mas container isolado
+  do de `rdws_dev` — cada um com seu próprio volume de dados).
+- **`rdws_prod`**: instância própria Postgres containerizada na VPS Digital Ocean,
+  isolada das demais.
+
+Três containers Postgres distintos (não instância única com múltiplos databases) — mais
+simples de isolar recurso/backup por ambiente, ao custo de rodar 2 instâncias no mesmo
+homelab (aceitável, já que o homelab não tem o teto de memória apertado da VPS de 1GB).
+- Migrations (Flyway) rodam uma vez por banco/ambiente — mesmo `db/migrations/`, `.toml`
+  com env vars diferentes por ambiente (`DB_NAME=rdws_dev|rdws_qa|rdws_prod`).
 
 ## 3. Observabilidade (gap a resolver)
 
@@ -134,12 +161,12 @@ documento para detalhes.
 - **Runner self-hosted** registrado no homelab (setup manual, fora do escopo do CI em si).
 - **`.github/workflows/build.yml`**: em push/PR — build de cada imagem (matrix por
   serviço), roda `ctest`, e em push na branch principal faz `docker push` pro
-  `ghcr.io/rdmeneze/rdws_us/<service>:<sha>` (+ tag `latest` ou `dev`).
-- **`.github/workflows/deploy-dev.yml`**: gatilho após build bem-sucedido na branch
-  principal — roda no runner self-hosted, faz `docker compose -f docker-compose.dev.yml
+  `ghcr.io/rdmeneze/rdws_us/<service>:<sha>` (+ tag `latest` ou `qa`).
+- **`.github/workflows/deploy-qa.yml`**: gatilho após build bem-sucedido na branch
+  principal — roda no runner self-hosted, faz `docker compose -f docker-compose.qa.yml
   pull && up -d` direto no homelab (mesma máquina do runner ou via SSH local).
 - **`.github/workflows/deploy-prod.yml`**: gatilho manual (`workflow_dispatch`) ou por
-  tag/release — reusa a mesma imagem já testada em dev (promoção, não rebuild), conecta
+  tag/release — reusa a mesma imagem já testada em QA (promoção, não rebuild), conecta
   na VPS via SSH (chave em GitHub Secrets) e roda `docker compose -f
   docker-compose.prod.yml pull && up -d`.
 - Migrations do Flyway rodam como step/job dedicado antes do `up -d` dos serviços, em
@@ -148,18 +175,34 @@ documento para detalhes.
 ## 5. Documentação
 
 Este documento é o registro das decisões tomadas — os três ambientes, como rodar
-localmente (sem mudança), como rodar dev/prod via compose, e como funciona o pipeline
+localmente (sem mudança), como rodar QA/prod via compose, e como funciona o pipeline
 de CI/CD — servindo de referência para a implementação e para sessões futuras.
+
+## 6. Ordem de implementação
+
+1. **Dockerfile do gateway** (`service_gateway_http`) — prova de conceito isolada, valida
+   o multi-stage build antes de replicar pros demais serviços.
+2. **docker-compose de QA** orquestrando o gateway (e depois os demais containers, à
+   medida que forem prontos).
+3. **Containers dos serviços** (um por um, reaproveitando o padrão validado no gateway).
+4. **PostgreSQL containerizado** — `rdws_qa` no homelab (compose de QA) e `rdws_prod` na
+   VPS; `rdws_dev` continua no Postgres nativo do homelab, sem mudança.
+5. **RabbitMQ containerizado** — já coberto no `PLANO_INGESTION.md`.
+6. **Prometheus + Loki + Promtail + Grafana containerizados** — nessa ordem, pois Grafana
+   sem os coletores rodando não tem o que exibir.
+7. **CI/CD** (GitHub Actions: build → GHCR → deploy-qa → deploy-prod) — por último, pra
+   automatizar um fluxo que já foi validado manualmente em cada etapa anterior.
 
 ## Verificação
 
-1. `docker compose -f docker-compose.dev.yml up -d` local (ou no homelab) e confirmar
-   via `GET /health` do broker que todos os serviços se registraram.
+1. `docker compose -f docker-compose.qa.yml up -d` no homelab e confirmar via
+   `GET /health` do broker que todos os serviços se registraram.
 2. Confirmar que uma chamada autenticada fim-a-fim (login no `auth_service` → CRUD num
    serviço, ex. `farm_service`) funciona através do broker containerizado.
-3. Confirmar que o Flyway aplicou as migrations (`flyway_schema_history` populada) e o
+3. Confirmar que o Flyway aplicou as migrations (`flyway_schema_history` populada) no
+   banco correto de cada ambiente (`rdws_dev`/`rdws_qa`/`rdws_prod`) e o
    `seed_fake_data.sql` roda sem erro.
 4. Verificar `curl localhost:9090/targets` (Prometheus) mostrando todos os alvos "up", e
-   o dashboard Grafana carregando dados reais.
-5. Rodar o workflow `deploy-dev` manualmente uma vez e conferir logs do runner
+   o dashboard Grafana carregando dados reais (métricas + logs via Loki).
+5. Rodar o workflow `deploy-qa` manualmente uma vez e conferir logs do runner
    self-hosted; só depois habilitar `deploy-prod` contra a VPS.
