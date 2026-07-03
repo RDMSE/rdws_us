@@ -40,11 +40,12 @@ de build CMake e mesma lista de dependências):
   roda `cmake -S . -B build -DBUILD_TESTING=OFF && cmake --build build --target <service>`.
 - **Stage runtime**: imagem slim (ex. `debian:bookworm-slim`) só com libpqxx/libssl
   runtime + o binário copiado de `build/bin/<service>`.
-- Entrypoint recebe os args posicionais que os serviços já esperam
-  (`<serviceId> <machineName> unix:///tmp/rdws_gateway.sock` ou `--dev`), configuráveis
-  via env vars no compose (`SERVICE_ID`, `GATEWAY_ADDRESS`).
-- Dockerfile próprio para o broker (`service_gateway_http`), expondo `PORT` (8080) e o
-  socket UNIX compartilhado via volume entre os containers.
+- Entrypoint recebe os args posicionais que os serviços já esperam, mas em container usa
+  a forma **TCP** (`<serviceId> <machineName> tcp://gateway:3001`) em vez de socket UNIX —
+  ver justificativa na seção 2. Endereço configurável via env var no compose
+  (`SERVICE_ID`, `GATEWAY_ADDRESS`).
+- Dockerfile próprio para o broker (`service_gateway_http`), expondo `PORT` (8080, HTTP)
+  e a porta TCP do gateway (ex. 3001) usada pelos serviços para se registrar.
 - Dockerfile para migrations: imagem oficial `flyway/flyway`, montando `db/migrations`
   e `db/flyway.toml`, rodado como job (`docker compose run migrate`) antes de subir os
   serviços.
@@ -52,8 +53,15 @@ de build CMake e mesma lista de dependências):
 ## 2. docker-compose
 
 - **`docker-compose.dev.yml`** (homelab): broker + todos os serviços + Postgres/PostGIS+
-  TimescaleDB + Prometheus + Grafana, rede compartilhada, volume nomeado para o socket
-  UNIX do broker, env vars equivalentes ao `.env.dev` atual.
+  TimescaleDB + Prometheus + Grafana, rede compartilhada, env vars equivalentes ao
+  `.env.dev` atual.
+- **Broker ↔ serviços via TCP, não socket UNIX**: o socket UNIX só funcionaria entre
+  containers via volume compartilhado — frágil (single-host, single-instância do broker,
+  quebra em k8s/múltiplos hosts). O broker já suporta conexão via `tcp://host:port` além
+  de `unix://` (nenhuma mudança de código necessária); em `docker-compose` os nomes dos
+  serviços já funcionam como hostname DNS interno (ex: `tcp://gateway:3001`), o que
+  também deixa o caminho pronto para uma futura migração a k8s. Socket UNIX continua
+  sendo o padrão fora de container (uso local/dev sem Docker).
 - **`docker-compose.prod.yml`** (VPS): mesma topologia, mas com `deploy.resources.limits`
   de memória por serviço pensando no teto de 1GB total (Postgres com `shared_buffers`
   reduzido, Prometheus com `--storage.tsdb.retention.time` curto, ex. 3-7 dias) — e um
