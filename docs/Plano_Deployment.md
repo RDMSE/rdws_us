@@ -53,6 +53,10 @@ de build CMake e mesma lista de dependências):
 - Dockerfile para migrations: imagem oficial `flyway/flyway`, montando `db/migrations`
   e `db/flyway.toml`, rodado como job (`docker compose run migrate`) antes de subir os
   serviços.
+- `IngestionService` e `ReadingWriterService` (ver `Plano_Ingestion.md`) seguem o mesmo
+  padrão genérico de Dockerfile dos demais serviços. **`SensorSimulatorService` fica de
+  fora** — será uma aplicação completamente separada (no máximo com conexão direta ao
+  banco), sem entrar no compose principal; vale um plano próprio para ele mais adiante.
 
 ## 2. docker-compose
 
@@ -126,7 +130,7 @@ hardcoded) nem necessário, já que os mesmos dados ficam disponíveis via HTTP/
 log. Para logs no Grafana, entra o **Loki** (armazenamento/indexação de logs, datasource
 nativo do Grafana) alimentado pelo **Promtail** (coleta os logs dos containers Docker,
 sem precisar mudar nada no `logger.cpp` — os serviços já escrevem em `stdout` per §3.1).
-Decisão já registrada em `PLANO_INGESTION.md` ("Grafana unificando PostgreSQL/métricas e
+Decisão já registrada em `Plano_Ingestion.md` ("Grafana unificando PostgreSQL/métricas e
 Loki/logs"); aqui fica formalizado que ambos (Loki + Promtail) entram como serviços de
 infraestrutura no compose, mesma categoria de Postgres/Prometheus/Grafana — sem exigir
 mudança na aplicação.
@@ -134,7 +138,7 @@ mudança na aplicação.
 Stack de observabilidade completo: **Prometheus** (métricas) + **Loki** (logs) +
 **Promtail** (coletor) + **Grafana** (visualização unificada).
 
-**RabbitMQ**: já coberto no `PLANO_INGESTION.md` (fila do pipeline de ingestão) — entra
+**RabbitMQ**: já coberto no `Plano_Ingestion.md` (fila do pipeline de ingestão) — entra
 no mesmo compose como serviço de infraestrutura (imagem oficial, sem build próprio), com
 plugin de management/Prometheus exporter habilitado. Não duplicado aqui; ver aquele
 documento para detalhes.
@@ -187,11 +191,14 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
 3. **Containers dos serviços** (um por um, reaproveitando o padrão validado no gateway).
 4. **PostgreSQL containerizado** — `rdws_qa` no homelab (compose de QA) e `rdws_prod` na
    VPS; `rdws_dev` continua no Postgres nativo do homelab, sem mudança.
-5. **RabbitMQ containerizado** — já coberto no `PLANO_INGESTION.md`.
+5. **RabbitMQ containerizado** — já coberto no `Plano_Ingestion.md`.
 6. **Prometheus + Loki + Promtail + Grafana containerizados** — nessa ordem, pois Grafana
    sem os coletores rodando não tem o que exibir.
 7. **CI/CD** (GitHub Actions: build → GHCR → deploy-qa → deploy-prod) — por último, pra
    automatizar um fluxo que já foi validado manualmente em cada etapa anterior.
+8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
+   (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
+   pipeline de ingestão já estável, plano próprio detalha seu desenho.
 
 ## Verificação
 
