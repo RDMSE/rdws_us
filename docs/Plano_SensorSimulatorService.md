@@ -82,18 +82,19 @@ JSON de criação é validado contra schema (valijson, mesmo padrão já usado n
 
 O serviço continua headless e de longa duração (roda sozinho, sem depender de interface
 gráfica pra existir) — mas expõe uma pequena **API HTTP de controle** (mesmo padrão do
-resto do projeto, via `cpp-httplib`), permitindo:
+resto do projeto, via `cpp-httplib`), para disparo manual fora do horário agendado.
 
-- **Restringir o escopo a um único device**: o simulador carrega só os sensores
-  atrelados àquele device e simula somente ele, em vez do lote inteiro.
+- **Restringir o escopo a um único device**: resolvido na **inicialização**, via
+  parâmetro de CLI (ex. `--device-id X`) — coerente com a decisão de agendamento (cada
+  instância controla seu próprio timer/device). Não precisa de endpoint em runtime para
+  isso.
 - **Disparo manual fora do horário agendado**: um endpoint que força o envio imediato
   das leituras de um device específico, sem esperar o agendamento.
 
-Endpoints propostos:
+Endpoint proposto:
 
 | Método | Path | Descrição |
 |---|---|---|
-| `PUT` | `/simulate/scope` | Restringe a simulação a um `device_id` específico (ou remove a restrição). |
 | `POST` | `/simulate/{device_id}/trigger` | Dispara o envio imediato das leituras daquele device, fora do agendamento. |
 
 Sem necessidade de aplicação Qt: uma **nova coleção no Bruno** (mesmo padrão das já
