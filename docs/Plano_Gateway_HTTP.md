@@ -295,4 +295,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
 passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
 `Plano_Deployment.md`. `Plano_Ingestion.md` (RabbitMQ) entra depois, reaproveitando o
-mesmo pipeline de CI/CD e a mesma instância de Grafana.
+mesmo pipeline de CI/CD e a mesma instância de Grafana. O `Plano_SensorSimulatorService.md`
+(ferramenta de apoio para o pipeline de ingestão) só é executado depois — por último na
+ordem de implementação do `Plano_Deployment.md` (§6, passo 8), após tudo dockerizado e
+rodando em QA e prod.
