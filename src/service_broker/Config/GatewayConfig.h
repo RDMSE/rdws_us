@@ -3,6 +3,7 @@
 #include "../Services/ServiceRegistry.h" // LoadBalancingStrategy
 
 #include <chrono>
+#include <optional>
 #include <rapidjson/document.h>
 #include <shared_mutex>
 #include <string>
