@@ -238,6 +238,10 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 - ⬜ Configurar secrets no GitHub (credenciais do banco, API keys de teste).
 - Critério de aceite: PR abre → CI roda automaticamente; merge na main → novo container em produção sem intervenção manual.
 
+**Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
+
+**Instalação como serviço systemd — nota SELinux:** o runner precisa ficar em `/opt/actions-runner` (não em `~/tools/actions-runner` ou qualquer path dentro do home do usuário). No Fedora, SELinux enforcing bloqueia o `systemd` de executar `runsvc.sh` quando o diretório está em contexto `user_home_t`, mesmo com `chmod +x` (erro `status=203/EXEC` / `Permission denied` no `journalctl`). Diagnóstico: `getenforce` + `sudo ausearch -m avc -ts recent | grep runsvc`. Para mover um runner já configurado sem gerar token novo, copiar a pasta inteira (`.runner`, `.credentials`, `.credentials_rsaparams` etc.) com `rsync -a` para o novo path e rodar `svc.sh install`/`start` de lá — **não** rodar `config.sh` de novo (token só é necessário na primeira configuração).
+
 ### Fase 11 - Observabilidade de Logs (Loki + Grafana)
 
 **Decisão de design:** logs não vão para o banco. O gateway já emite logs estruturados JSON via spdlog com arquivo rotativo. O Promtail lê esse arquivo e envia para o Loki; o Grafana consome ambos (PostgreSQL para métricas/requests, Loki para logs).
