@@ -199,6 +199,11 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
 8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
    (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
    pipeline de ingestão já estável, plano próprio detalha seu desenho.
+9. **Escalabilidade horizontal do gateway** — backlog, sem data. O `HttpGateway` hoje
+   assume instância única (conexões de socket com backends, config/rotas em arquivo local
+   por instância); ver `Plano_Gateway_HTTP.md` (Fase 14) para o levantamento completo e o
+   plano de migração de `routes.json`/`GatewayConfig` para o banco. Só entra depois de
+   todas as etapas acima estarem estáveis em produção.
 
 ## Verificação
 

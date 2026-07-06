@@ -291,6 +291,28 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
+### Fase 14 - Escalabilidade horizontal do Gateway (baixa prioridade, backlog)
+
+**Contexto:** o `HttpGateway`/`ServiceGateway` hoje assume instância única. Levantamento feito em 2026-07-06 identificou os seguintes acoplamentos de estado local que impedem rodar múltiplas réplicas atrás de um load balancer:
+
+- Backends (ex. Sensor Simulator) se conectam via socket TCP/Unix a **uma instância específica** do gateway; `ServiceRegistry`/`activeConnections`/`pendingRequests` vivem só na memória do processo (`Services/ServiceGateway.h:66-73`). Não há discovery compartilhado entre instâncias — uma request roteada para a instância errada falha.
+- Unix socket em path fixo `/tmp/service_gateway.sock` (`Services/ServiceGateway.h:53`) colide entre instâncias no mesmo host/container.
+- `GatewayConfig` (capabilities/feature flags) e `EventRouter` (regras de roteamento) persistem em **arquivo JSON local** — mudanças via `PATCH /config/...` numa instância não propagam para as outras.
+- `EventBus` interno é só em memória por processo — métricas/eventos (`request.completed`, `metrics.snapshot`) refletem apenas o que aquela instância processou, sem agregação entre réplicas.
+
+**Decisão:** não priorizar agora. Finalizar as implementações e o deployment single-instance atuais antes de investir em multi-réplica. Este item fica no final do backlog geral (depois de `Plano_Deployment.md` e `Plano_SensorSimulatorService.md`).
+
+**Exceção já decidida:** mover `routes.json` (EventRouter) e demais configurações hoje persistidas em arquivo local (`GatewayConfig`) para o banco de dados, em vez de arquivo — isso pode ser feito no mesmo esforço da Fase 10a (PersistenceService) ou como preparação leve para esta fase, sem exigir o resto do trabalho de multi-instância.
+
+- ⬜ Migrar `GatewayConfig` (capabilities/features) de arquivo JSON para tabela no banco via `PersistenceService`.
+- ⬜ Migrar `EventRouter` (`routes.json`) de arquivo para tabela no banco.
+- ⬜ (Backlog, sem data) Discovery compartilhado entre instâncias do gateway (ex. Redis) para registro de serviços conectados.
+- ⬜ (Backlog, sem data) Agregação de métricas entre instâncias (fora do processo, via `PersistenceService`).
+- ⬜ (Backlog, sem data) Definir estratégia de roteamento cross-instância vs. afinidade backend→instância.
+- Critério de aceite (só da parte de config em banco): `PATCH /config/capabilities/{cap}` e alterações de rotas persistem no banco e sobrevivem a restart sem depender de arquivo local.
+
+---
+
 ## Próximo passo sugerido
 Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
 passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
