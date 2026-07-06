@@ -1,0 +1,220 @@
+# Dockerização + CI/CD (dev local / QA homelab / prod VPS)
+
+## Contexto
+
+Hoje todos os serviços (`auth_service`, `farm_service`, `field_service`, `device_service`,
+`device_config_service`, `sensor_service`, `sensor_reading_service`, `persistence_service`)
+rodam como binários C++ soltos, iniciados manualmente (ou via `.vscode/launch.json`) e
+conectados ao `service_gateway_http` (broker) por socket UNIX/TCP. Não existe Docker,
+CI/CD, nem separação de ambientes — só o fluxo local via CMake.
+
+O objetivo é introduzir três ambientes sem tocar no fluxo local:
+
+- **dev**: este notebook — continua exatamente como está (CMake + launch.json), sem
+  Docker, apontando pro Postgres remoto do homelab (`fedora-server` via Tailscale) num
+  banco próprio (`rdws_dev`).
+- **QA**: o homelab — push no GitHub → Actions (runner self-hosted no próprio homelab)
+  builda imagens, publica no GHCR e sobe via `docker compose` ali, contra o banco
+  `rdws_qa`. É o ambiente de integração contínua, sempre no ar.
+- **prod**: promoção da mesma imagem (já validada em QA) → deploy via SSH numa VPS
+  Digital Ocean de 1GB (2GB depois), rodando tudo (serviços + Postgres + Prometheus +
+  Grafana) num único `docker-compose.yml` com limites de memória ajustados, banco
+  `rdws_prod`.
+
+Motivação: arquitetura já é desacoplada (broker + serviços via socket/TCP), então é o
+ponto natural para conteinerizar sem reescrever nada — só empacotar o que já existe.
+
+## Escopo desta primeira fase
+
+Começar simples (docker-compose), sem Swarm/k8s — migração para orquestrador mais
+complexo fica para depois, sem jogar fora as imagens/Dockerfiles construídos agora.
+
+**Primeiro passo concreto**: dockerizar só o gateway (`service_gateway_http`), como prova
+de conceito — valida o Dockerfile multi-stage (CMake + libpqxx + libssl) e o entrypoint
+antes de replicar o padrão pros demais serviços.
+
+## 1. Dockerfiles
+
+Um `Dockerfile` multi-stage por serviço (ou um Dockerfile parametrizado reaproveitado
+via `--build-arg SERVICE=auth_service`, a decidir na implementação — mais simples de
+manter é um único Dockerfile genérico dado que todos os serviços seguem o mesmo padrão
+de build CMake e mesma lista de dependências):
+
+- **Stage build**: imagem com toolchain C++20 + CMake + libpqxx-dev + libssl-dev,
+  roda `cmake -S . -B build -DBUILD_TESTING=OFF && cmake --build build --target <service>`.
+- **Stage runtime**: imagem slim (ex. `debian:bookworm-slim`) só com libpqxx/libssl
+  runtime + o binário copiado de `build/bin/<service>`.
+- Entrypoint recebe os args posicionais que os serviços já esperam, mas em container usa
+  a forma **TCP** (`<serviceId> <machineName> tcp://gateway:3001`) em vez de socket UNIX —
+  ver justificativa na seção 2. Endereço configurável via env var no compose
+  (`SERVICE_ID`, `GATEWAY_ADDRESS`).
+- Dockerfile próprio para o broker (`service_gateway_http`), expondo `PORT` (8080, HTTP)
+  e a porta TCP do gateway (ex. 3001) usada pelos serviços para se registrar.
+- Dockerfile para migrations: imagem oficial `flyway/flyway`, montando `db/migrations`
+  e `db/flyway.toml`, rodado como job (`docker compose run migrate`) antes de subir os
+  serviços.
+- `IngestionService` e `ReadingWriterService` (ver `Plano_Ingestion.md`) seguem o mesmo
+  padrão genérico de Dockerfile dos demais serviços. **`SensorSimulatorService` fica de
+  fora** — será uma aplicação completamente separada (no máximo com conexão direta ao
+  banco), sem entrar no compose principal; vale um plano próprio para ele mais adiante.
+
+## 2. docker-compose
+
+- **`docker-compose.qa.yml`** (homelab): broker + todos os serviços + Postgres/PostGIS+
+  TimescaleDB + Prometheus + Grafana, rede compartilhada, env vars apontando pro banco
+  `rdws_qa`. Ambiente dev (notebook) não usa compose — continua no fluxo CMake local,
+  contra o mesmo Postgres do homelab mas no banco `rdws_dev`.
+- **Broker ↔ serviços via TCP, não socket UNIX**: o socket UNIX só funcionaria entre
+  containers via volume compartilhado — frágil (single-host, single-instância do broker,
+  quebra em k8s/múltiplos hosts). O broker já suporta conexão via `tcp://host:port` além
+  de `unix://` (nenhuma mudança de código necessária); em `docker-compose` os nomes dos
+  serviços já funcionam como hostname DNS interno (ex: `tcp://gateway:3001`), o que
+  também deixa o caminho pronto para uma futura migração a k8s. Socket UNIX continua
+  sendo o padrão fora de container (uso em dev local sem Docker).
+- **`docker-compose.prod.yml`** (VPS): mesma topologia, mas com `deploy.resources.limits`
+  de memória por serviço pensando no teto de 1GB total (Postgres com `shared_buffers`
+  reduzido, Prometheus com `--storage.tsdb.retention.time` curto, ex. 3-7 dias) — e um
+  comentário indicando que os limites sobem quando a VPS for pra 2GB. Banco `rdws_prod`.
+- Ambos herdam de um `docker-compose.base.yml` opcional para evitar duplicação (serviços,
+  imagens, healthchecks), com overrides só de recursos/replicas/env por ambiente.
+
+## 2.1 Banco de dados — três instâncias Postgres, todas containerizadas
+
+Homelab reformatado (ambiente limpo) e acessado agora via **Tailscale** (MagicDNS) —
+o hostname continua `fedora-server`, só que resolvido pela rede Tailscale em vez do
+`.local` (mDNS) anterior. Isso substitui `DB_HOST=fedora-server.local` por
+`DB_HOST=fedora-server` (ou o IP Tailscale) em toda configuração, e também simplifica o
+acesso do notebook/CI ao homelab (mesma rede virtual, sem depender de estar na LAN física).
+
+- **`rdws_dev`**: instância própria Postgres containerizada no homelab, usada pelo
+  ambiente dev (notebook, fluxo local sem Docker) via Tailscale.
+- **`rdws_qa`**: instância própria Postgres containerizada no homelab, parte do
+  `docker-compose.qa.yml` (mesma máquina do runner self-hosted, mas container isolado
+  do de `rdws_dev` — cada um com seu próprio volume de dados).
+- **`rdws_prod`**: instância própria Postgres containerizada na VPS Digital Ocean,
+  isolada das demais.
+
+Três containers Postgres distintos (não instância única com múltiplos databases) — mais
+simples de isolar recurso/backup por ambiente, ao custo de rodar 2 instâncias no mesmo
+homelab (aceitável, já que o homelab não tem o teto de memória apertado da VPS de 1GB).
+- Migrations (Flyway) rodam uma vez por banco/ambiente — mesmo `db/migrations/`, `.toml`
+  com env vars diferentes por ambiente (`DB_NAME=rdws_dev|rdws_qa|rdws_prod`).
+
+## 3. Observabilidade (gap a resolver)
+
+Hoje não existe endpoint `/metrics` em formato Prometheus — só `/health`, `/status`,
+`/connections` no broker. Para o Prometheus ter o que raspar:
+
+- Expor um endpoint `/metrics` no `service_gateway_http` (ou em cada serviço) reaproveitando
+  o `MetricsTracker` já existente (`src/shared/utils/metrics.h/.cpp`), formatando saída no
+  padrão texto do Prometheus (sem precisar de lib nova — é só um formatter).
+- `prometheus.yml` com scrape configs apontando pros serviços/broker.
+- Dashboard inicial no Grafana provisionado via arquivo (datasource + dashboard JSON
+  versionados em `infra/grafana/`), evitando setup manual.
+
+**Indicador de status por serviço no Grafana**: assim que o Prometheus faz scrape de um
+alvo, ele gera automaticamente a métrica `up{job="..."}` (1 = respondendo, 0 = fora do
+ar) para cada serviço/broker — sem esforço extra além do `prometheus.yml` já previsto.
+Um painel *Stat* com essa métrica já dá um indicador verde/vermelho por serviço no
+dashboard. Opcionalmente, dá pra enriquecer isso expondo no `/metrics` alguns dos dados
+que o `MetricsTracker`/`ServiceMonitor` já calculam (serviços conectados, capabilities
+registradas, taxa de erro) como gauges, indo além do simples "up/down".
+
+**Nota**: com esse indicador via Prometheus + o Bruno cobrindo `/health` e `/status`
+(coleção `bruno/IoT Sensor API/Gateway/Health.bru` e `Status.bru`), o
+`service_gateway_monitor` (CLI interativo de debug) fica dispensável nos ambientes
+containerizados — não é candidato a dockerização (depende de terminal interativo, portas
+hardcoded) nem necessário, já que os mesmos dados ficam disponíveis via HTTP/Grafana.
+
+**Logs no Grafana (Loki + Promtail)**: Prometheus só cobre métricas — não indexa texto de
+log. Para logs no Grafana, entra o **Loki** (armazenamento/indexação de logs, datasource
+nativo do Grafana) alimentado pelo **Promtail** (coleta os logs dos containers Docker,
+sem precisar mudar nada no `logger.cpp` — os serviços já escrevem em `stdout` per §3.1).
+Decisão já registrada em `Plano_Ingestion.md` ("Grafana unificando PostgreSQL/métricas e
+Loki/logs"); aqui fica formalizado que ambos (Loki + Promtail) entram como serviços de
+infraestrutura no compose, mesma categoria de Postgres/Prometheus/Grafana — sem exigir
+mudança na aplicação.
+
+Stack de observabilidade completo: **Prometheus** (métricas) + **Loki** (logs) +
+**Promtail** (coletor) + **Grafana** (visualização unificada).
+
+**RabbitMQ**: já coberto no `Plano_Ingestion.md` (fila do pipeline de ingestão) — entra
+no mesmo compose como serviço de infraestrutura (imagem oficial, sem build próprio), com
+plugin de management/Prometheus exporter habilitado. Não duplicado aqui; ver aquele
+documento para detalhes.
+
+## 3.1 Configuração (`.env`) e logs em container
+
+- **`.env`**: o `Config` (`src/shared/config/config.cpp`) só usa `dotenv::init()` como
+  fallback para popular variáveis de ambiente a partir de um arquivo — a leitura real é
+  sempre via `std::getenv`. Em container isso significa **não** embutir um arquivo `.env`
+  na imagem: as variáveis (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`,
+  `JWT_SECRET` etc.) são injetadas via `environment:`/`env_file:` no `docker-compose.yml`
+  de cada ambiente. Segredos (senha do banco, `JWT_SECRET`) entram via GitHub Secrets nos
+  pipelines de deploy, nunca hardcoded na imagem. O `.env.dev` local continua existindo
+  só para o fluxo sem Docker.
+- **Logs**: o `logger.cpp` já escreve em dois sinks — `stdout` (colorido) e um arquivo
+  rotativo `logs/<name>.log` relativo ao cwd. Em container, manter só o sink de `stdout`
+  (padrão Docker: `docker logs`, drivers de log, ou Promtail/Loki lendo os logs do
+  container) e desabilitar/ignorar o sink de arquivo — evita depender de volume por
+  serviço só para não perder logs ao reiniciar o container. Centralização de logs fica
+  alinhada com o Grafana já previsto no stack (Loki como fonte adicional, futuramente).
+
+## 4. GitHub Actions
+
+- **Runner self-hosted** registrado no homelab (setup manual, fora do escopo do CI em si).
+- **`.github/workflows/build.yml`**: em push/PR — build de cada imagem (matrix por
+  serviço), roda `ctest`, e em push na branch principal faz `docker push` pro
+  `ghcr.io/rdmeneze/rdws_us/<service>:<sha>` (+ tag `latest` ou `qa`).
+- **`.github/workflows/deploy-qa.yml`**: gatilho após build bem-sucedido na branch
+  principal — roda no runner self-hosted, faz `docker compose -f docker-compose.qa.yml
+  pull && up -d` direto no homelab (mesma máquina do runner ou via SSH local).
+- **`.github/workflows/deploy-prod.yml`**: gatilho manual (`workflow_dispatch`) ou por
+  tag/release — reusa a mesma imagem já testada em QA (promoção, não rebuild), conecta
+  na VPS via SSH (chave em GitHub Secrets) e roda `docker compose -f
+  docker-compose.prod.yml pull && up -d`.
+- Migrations do Flyway rodam como step/job dedicado antes do `up -d` dos serviços, em
+  ambos os pipelines de deploy.
+
+## 5. Documentação
+
+Este documento é o registro das decisões tomadas — os três ambientes, como rodar
+localmente (sem mudança), como rodar QA/prod via compose, e como funciona o pipeline
+de CI/CD — servindo de referência para a implementação e para sessões futuras.
+
+## 6. Ordem de implementação
+
+1. **Dockerfile do gateway** (`service_gateway_http`) — prova de conceito isolada, valida
+   o multi-stage build antes de replicar pros demais serviços.
+2. **docker-compose de QA** orquestrando o gateway (e depois os demais containers, à
+   medida que forem prontos).
+3. **Containers dos serviços** (um por um, reaproveitando o padrão validado no gateway).
+4. **PostgreSQL containerizado** — `rdws_qa` no homelab (compose de QA) e `rdws_prod` na
+   VPS; `rdws_dev` continua no Postgres nativo do homelab, sem mudança.
+5. **RabbitMQ containerizado** — já coberto no `Plano_Ingestion.md`.
+6. **Prometheus + Loki + Promtail + Grafana containerizados** — nessa ordem, pois Grafana
+   sem os coletores rodando não tem o que exibir.
+7. **CI/CD** (GitHub Actions: build → GHCR → deploy-qa → deploy-prod) — por último, pra
+   automatizar um fluxo que já foi validado manualmente em cada etapa anterior.
+8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
+   (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
+   pipeline de ingestão já estável, plano próprio detalha seu desenho.
+9. **Escalabilidade horizontal do gateway** — backlog, sem data. O `HttpGateway` hoje
+   assume instância única (conexões de socket com backends, config/rotas em arquivo local
+   por instância); ver `Plano_Gateway_HTTP.md` (Fase 14) para o levantamento completo e o
+   plano de migração de `routes.json`/`GatewayConfig` para o banco. Só entra depois de
+   todas as etapas acima estarem estáveis em produção.
+
+## Verificação
+
+1. `docker compose -f docker-compose.qa.yml up -d` no homelab e confirmar via
+   `GET /health` do broker que todos os serviços se registraram.
+2. Confirmar que uma chamada autenticada fim-a-fim (login no `auth_service` → CRUD num
+   serviço, ex. `farm_service`) funciona através do broker containerizado.
+3. Confirmar que o Flyway aplicou as migrations (`flyway_schema_history` populada) no
+   banco correto de cada ambiente (`rdws_dev`/`rdws_qa`/`rdws_prod`) e o
+   `seed_fake_data.sql` roda sem erro.
+4. Verificar `curl localhost:9090/targets` (Prometheus) mostrando todos os alvos "up", e
+   o dashboard Grafana carregando dados reais (métricas + logs via Loki).
+5. Rodar o workflow `deploy-qa` manualmente uma vez e conferir logs do runner
+   self-hosted; só depois habilitar `deploy-prod` contra a VPS.
