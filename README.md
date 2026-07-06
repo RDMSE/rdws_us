@@ -65,7 +65,7 @@ PostgreSQL com PostGIS (geolocalização) e TimescaleDB (time-series para `senso
 
 ## Ingestão de dados de sensores (planejado)
 
-Pipeline de escrita desacoplado do CRUD via HTTP: `Device --CoAP/DTLS--> IngestionService --> RabbitMQ --> ReadingWriterService --> banco`. Inclui um `SensorSimulatorService` para desenvolvimento enquanto o hardware físico não está pronto. Ver `docs/PLANO_INGESTION.md`.
+Pipeline de escrita desacoplado do CRUD via HTTP: `Device --CoAP/DTLS--> IngestionService --> RabbitMQ --> ReadingWriterService --> banco`. Inclui um `SensorSimulatorService` para desenvolvimento enquanto o hardware físico não está pronto. Ver `docs/Plano_Ingestion.md` e `docs/Plano_SensorSimulatorService.md`.
 
 ## Coleção de requisições (Bruno)
 
@@ -73,10 +73,12 @@ O diretório `bruno/IoT Sensor API/` contém uma coleção [Bruno](https://www.u
 
 ## Documentação de planejamento (`docs/`)
 
-- `PLANO_API_REST.md` — endpoints/capabilities de cada microserviço e contrato de payload.
+- `Plano_API_REST.md` — endpoints/capabilities de cada microserviço e contrato de payload.
 - `Plano_DB_IOT_Sensors.md` — modelo de dados, índices, particionamento e retenção.
-- `PLANO_GATEWAY_HTTP.md` — histórico de evolução do gateway HTTP (fases concluídas e roadmap).
-- `PLANO_INGESTION.md` — pipeline de ingestão de leituras (CoAP/DTLS → fila → escrita).
+- `Plano_Gateway_HTTP.md` — histórico de evolução do gateway HTTP (fases concluídas e roadmap).
+- `Plano_Ingestion.md` — pipeline de ingestão de leituras (CoAP/DTLS → fila → escrita).
+- `Plano_Deployment.md` — dockerização e CI/CD para os ambientes dev local, QA homelab e prod VPS.
+- `Plano_SensorSimulatorService.md` — plano da ferramenta `Sensor Simulator Service`, usada para simular dados de sensores enquanto o hardware físico não está disponível.
 
 ## Current structure
 
