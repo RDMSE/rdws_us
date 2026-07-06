@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: [self-hosted, homelab, docker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build builder stage (compila e prepara os testes)
+        run: |
+          docker build --target builder -t rdws_us-builder:${{ github.sha }} .
+
+      - name: Run ctest
+        run: |
+          docker run --rm rdws_us-builder:${{ github.sha }} \
+            ctest --test-dir build --output-on-failure
+
+      - name: Build runtime image (valida o multi-stage completo)
+        run: |
+          docker build -t rdws_us-gateway:${{ github.sha }} .
+
+      - name: Clean up local images
+        if: always()
+        run: |
+          docker image rm rdws_us-builder:${{ github.sha }} rdws_us-gateway:${{ github.sha }} || true
