@@ -179,11 +179,11 @@ POST /auth/login → gateway → AuthService → valida credenciais no banco →
 - `role` é incluído no JWT mas o controle de acesso por role será implementado em fase futura.
 - `AuthService` é pré-requisito para a fase 10 (banco), pois o banco de usuários faz parte do mesmo schema.
 
-- ⬜ Criar tabela `users` via migration Flyway (ver `Plano_DB_IOT_Sensors.md`).
-- ⬜ Implementar `AuthService` com validação de credenciais e emissão de JWT HS256.
-- ⬜ Registrar `/auth/login` como caminho público no gateway.
-- ⬜ Adicionar capability `auth.login` no EventRouter.
-- Critério de aceite: POST /auth/login com credenciais válidas retorna JWT aceito pelo gateway nas requisições seguintes; credenciais inválidas retornam 401.
+- ✅ Criar tabela `users` via migration Flyway (ver `Plano_DB_IOT_Sensors.md`).
+- ✅ Implementar `AuthService` com validação de credenciais e emissão de JWT HS256.
+- ✅ Registrar `/auth/login` como caminho público no gateway.
+- ✅ Adicionar capability `auth.login` no EventRouter.
+- Critério de aceite: POST /auth/login com credenciais válidas retorna JWT aceito pelo gateway nas requisições seguintes; credenciais inválidas retornam 401. ✅ (testado)
 
 ---
 
@@ -213,12 +213,12 @@ PersistenceService ──subscreve──> acumula em buffer interno ──batch 
 - `request_history`: retenção de 90 dias; job periódico (`pg_cron` ou processo externo) remove registros antigos.
 - `capability_metrics`: registros brutos retidos 30 dias; agregações diárias/semanais mantidas por 1 ano.
 
-- ⬜ Definir e publicar eventos `request.completed` e `metrics.snapshot` no EventBus do gateway.
-- ⬜ Implementar `PersistenceService` com buffer interno e batch upsert no PostgreSQL.
-- ⬜ Criar migrations Flyway para `request_history` e `capability_metrics`.
+- ✅ Definir e publicar eventos `request.completed` e `metrics.snapshot` no EventBus do gateway.
+- ✅ Implementar `PersistenceService` com buffer interno e batch upsert no PostgreSQL.
+- ✅ Criar migrations Flyway para `request_history` e `capability_metrics`.
 - ⬜ Implementar job de cleanup de registros antigos.
-- ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11).
-- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão.
+- ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11) — depende do `Plano_Deployment.md`.
+- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão. ✅ (testado)
 
 ---
 
@@ -237,6 +237,10 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 - ⬜ Criar workflow `deploy.yml`: triggered em merge na main; para container anterior, sobe novo.
 - ⬜ Configurar secrets no GitHub (credenciais do banco, API keys de teste).
 - Critério de aceite: PR abre → CI roda automaticamente; merge na main → novo container em produção sem intervenção manual.
+
+**Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
+
+**Instalação como serviço systemd — nota SELinux:** o runner precisa ficar em `/opt/actions-runner` (não em `~/tools/actions-runner` ou qualquer path dentro do home do usuário). No Fedora, SELinux enforcing bloqueia o `systemd` de executar `runsvc.sh` quando o diretório está em contexto `user_home_t`, mesmo com `chmod +x` (erro `status=203/EXEC` / `Permission denied` no `journalctl`). Diagnóstico: `getenforce` + `sudo ausearch -m avc -ts recent | grep runsvc`. Para mover um runner já configurado sem gerar token novo, copiar a pasta inteira (`.runner`, `.credentials`, `.credentials_rsaparams` etc.) com `rsync -a` para o novo path e rodar `svc.sh install`/`start` de lá — **não** rodar `config.sh` de novo (token só é necessário na primeira configuração).
 
 ### Fase 11 - Observabilidade de Logs (Loki + Grafana)
 
@@ -291,5 +295,33 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
+### Fase 14 - Escalabilidade horizontal do Gateway (baixa prioridade, backlog)
+
+**Contexto:** o `HttpGateway`/`ServiceGateway` hoje assume instância única. Levantamento feito em 2026-07-06 identificou os seguintes acoplamentos de estado local que impedem rodar múltiplas réplicas atrás de um load balancer:
+
+- Backends (ex. Sensor Simulator) se conectam via socket TCP/Unix a **uma instância específica** do gateway; `ServiceRegistry`/`activeConnections`/`pendingRequests` vivem só na memória do processo (`Services/ServiceGateway.h:66-73`). Não há discovery compartilhado entre instâncias — uma request roteada para a instância errada falha.
+- Unix socket em path fixo `/tmp/service_gateway.sock` (`Services/ServiceGateway.h:53`) colide entre instâncias no mesmo host/container.
+- `GatewayConfig` (capabilities/feature flags) e `EventRouter` (regras de roteamento) persistem em **arquivo JSON local** — mudanças via `PATCH /config/...` numa instância não propagam para as outras.
+- `EventBus` interno é só em memória por processo — métricas/eventos (`request.completed`, `metrics.snapshot`) refletem apenas o que aquela instância processou, sem agregação entre réplicas.
+
+**Decisão:** não priorizar agora. Finalizar as implementações e o deployment single-instance atuais antes de investir em multi-réplica. Este item fica no final do backlog geral (depois de `Plano_Deployment.md` e `Plano_SensorSimulatorService.md`).
+
+**Exceção já decidida:** mover `routes.json` (EventRouter) e demais configurações hoje persistidas em arquivo local (`GatewayConfig`) para o banco de dados, em vez de arquivo — isso pode ser feito no mesmo esforço da Fase 10a (PersistenceService) ou como preparação leve para esta fase, sem exigir o resto do trabalho de multi-instância.
+
+- ⬜ Migrar `GatewayConfig` (capabilities/features) de arquivo JSON para tabela no banco via `PersistenceService`.
+- ⬜ Migrar `EventRouter` (`routes.json`) de arquivo para tabela no banco.
+- ⬜ (Backlog, sem data) Discovery compartilhado entre instâncias do gateway (ex. Redis) para registro de serviços conectados.
+- ⬜ (Backlog, sem data) Agregação de métricas entre instâncias (fora do processo, via `PersistenceService`).
+- ⬜ (Backlog, sem data) Definir estratégia de roteamento cross-instância vs. afinidade backend→instância.
+- Critério de aceite (só da parte de config em banco): `PATCH /config/capabilities/{cap}` e alterações de rotas persistem no banco e sobrevivem a restart sem depender de arquivo local.
+
+---
+
 ## Próximo passo sugerido
-Concluir a **Fase 5** com testes HTTP end-to-end: levantar um service mock via socket, disparar requests HTTP reais ao gateway e validar respostas — cobrindo cenários de sucesso, timeout e auth rejeitada. Isso fecha o único gap de cobertura antes de avançar para Fase 10.
+Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
+passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
+`Plano_Deployment.md`. `Plano_Ingestion.md` (RabbitMQ) entra depois, reaproveitando o
+mesmo pipeline de CI/CD e a mesma instância de Grafana. O `Plano_SensorSimulatorService.md`
+(ferramenta de apoio para o pipeline de ingestão) só é executado depois — por último na
+ordem de implementação do `Plano_Deployment.md` (§6, passo 8), após tudo dockerizado e
+rodando em QA e prod.

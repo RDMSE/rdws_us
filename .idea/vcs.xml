@@ -12,6 +12,8 @@
     <mapping directory="$PROJECT_DIR$/build/_deps/tl_expected-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug/_deps/fmt-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug/_deps/spdlog-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-release/_deps/fmt-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-release/_deps/spdlog-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/third_party/dotenv-cpp" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/third_party/inih" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/third_party/valijson" vcs="Git" />
