@@ -1,9 +1,15 @@
 # syntax=docker/dockerfile:1
+#
+# Generic Dockerfile, reused by all services (gateway + microservices)
+# via --build-arg SERVICE=<nome-do-target-cmake>. Default: service_gateway_http.
+# Examples:
+#   docker build --build-arg SERVICE=service_gateway_http -t rdws_us-gateway:qa .
+#   docker build --build-arg SERVICE=auth_service         -t rdws_us-auth:qa .
 
 # --- Stage: builder -----------------------------------------------------
-# Toolchain completa (GCC, CMake, headers de dev) para compilar e testar.
-# Ubuntu 24.04 (não Debian bookworm): precisa de libpqxx-dev >= 7.x
-# (bookworm só tem 6.4.5, e o código usa API do libpqxx 7 — pqxx::params/pqxx::prepped).
+# Complete toolchain (GCC, CMake, development headers) for compiling and testing.
+# Ubuntu 24.04 (not Debian bookworm): requires libpqxx-dev >= 7.x
+# (bookworm only has 6.4.5, and the code uses libpqxx 7 API — pqxx::params/pqxx::prepped).
 FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -20,11 +26,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 
+# Complete build (all targets, including tests) — does not reference SERVICE on purpose,
+# so this layer (the most expensive one) is cached between builds of different services.
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
     && cmake --build build -j"$(nproc)"
 
+ARG SERVICE=service_gateway_http
+
+# Binary files are located in different places depending on the target (gateway does not have
+# a fixed RUNTIME_OUTPUT_DIRECTORY, the other services go to build/bin/) — we locate
+# them by name instead of fixing the path.
+RUN mkdir -p /out \
+    && cp "$(find build -maxdepth 4 -type f -name "${SERVICE}" -perm -u+x | head -1)" /out/service
+
 # --- Stage: runtime ------------------------------------------------------
-# Imagem final mínima, só com as libs de runtime e o binário do gateway.
+# Minimal final image, only with the runtime libs and the service binary.
 FROM ubuntu:24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -36,10 +52,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /src/build/src/service_broker/service_gateway_http ./service_gateway_http
+COPY --from=builder /out/service ./service
 COPY --from=builder /src/routes.json ./routes.json
 
-# broker TCP (registro de serviços) + HTTP API
+# TCP broker (service registry) + HTTP API — only the gateway listens, but harmless
+# to declare for the other services as well.
 EXPOSE 8080 3001
 
-ENTRYPOINT ["./service_gateway_http"]
+ENTRYPOINT ["./service"]
