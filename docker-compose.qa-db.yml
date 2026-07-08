@@ -14,6 +14,11 @@ services:
       POSTGRES_USER: ${DB_USER:-rdws_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.qa.example)}
       POSTGRES_DB: ${DB_NAME:-rdws_qa}
+    ports:
+      # 5433 (não 5432, já usado pelo rdws_dev no mesmo host) — exposto pra acesso via
+      # DBeaver/psql direto via Tailscale. Serviços do compose de QA continuam usando
+      # DNS interno ("postgres:5432"), não essa porta publicada.
+      - "5433:5432"
     volumes:
       - postgres_qa_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +26,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    # Sem porta publicada: só os serviços do compose de QA (via DNS "postgres") acessam.
 
   migrate:
     image: flyway/flyway:10

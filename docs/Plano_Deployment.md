@@ -292,8 +292,11 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    - Homelab foi reformatado (ambiente limpo) — sem dados a migrar do antigo Postgres
      nativo (`db/init_server.sh` fica obsoleto, mantido só de referência histórica).
    - `rdws_dev` publica a porta 5432 no host (acesso via Tailscale do notebook);
-     `rdws_qa` fica só na rede interna do compose (sem porta publicada), pois só os
-     serviços do próprio compose de QA acessam.
+     `rdws_qa` publica 5433→5432 (atualizado em 2026-07-09 — inicialmente sem porta
+     publicada, mudou pra permitir inspeção via DBeaver/psql direto via Tailscale; porta
+     diferente de 5432 pra não colidir com `rdws_dev` no mesmo host). Serviços do
+     próprio compose de QA continuam acessando via DNS interno (`postgres:5432`), a
+     porta publicada é só pra acesso externo de ferramentas.
    - Cada compose tem `name:` explícito (`rdws_dev_db` / `rdws_qa`) — **achado
      importante**: sem isso, os dois arquivos compartilhariam o mesmo nome de projeto
      Compose (derivado do diretório) e colidiriam na mesma rede, fazendo um serviço
