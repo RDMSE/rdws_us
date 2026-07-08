@@ -3,3 +3,6 @@ cmake-build-*
 build*
 logs/
 *.log
+.env.qa
+.env.dev-db
+.env.prod

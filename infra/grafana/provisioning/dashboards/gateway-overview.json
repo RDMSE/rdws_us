@@ -1,0 +1,104 @@
+{
+  "title": "RDWS Gateway — Overview",
+  "uid": "rdws-gateway-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Healthy Services / total",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rdws_gateway_services_healthy",
+          "legendFormat": "healthy"
+        },
+        {
+          "refId": "B",
+          "expr": "rdws_gateway_services_total",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active Connections / Pending Requests",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rdws_gateway_active_connections",
+          "legendFormat": "active_connections"
+        },
+        {
+          "refId": "B",
+          "expr": "rdws_gateway_pending_requests",
+          "legendFormat": "pending_requests"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Requests per Capability (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(rdws_gateway_requests_total[5m])",
+          "legendFormat": "{{capability}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Errors per Capability (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(rdws_gateway_errors_total[5m])",
+          "legendFormat": "{{capability}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Average Latency per Capability (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rdws_gateway_latency_avg_ms",
+          "legendFormat": "{{capability}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Logs",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "loki", "uid": "rdws-loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{env=~\".+\"}"
+        }
+      ]
+    }
+  ]
+}

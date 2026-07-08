@@ -71,6 +71,49 @@ Pipeline de escrita desacoplado do CRUD via HTTP: `Device --CoAP/DTLS--> Ingesti
 
 O diretório `bruno/IoT Sensor API/` contém uma coleção [Bruno](https://www.usebruno.com/) com as requisições HTTP de cada endpoint (Farms, Fields, Devices, Sensors, etc.), prontas para importar e testar o gateway manualmente. Abra a pasta `bruno/IoT Sensor API/` diretamente no Bruno.
 
+## Observabilidade (Prometheus + Loki + Grafana)
+
+O gateway expõe métricas em `GET /metrics/prometheus` (formato texto do Prometheus) além
+do `GET /metrics` em JSON. Logs estruturados JSON já são escritos por padrão (`stdout` +
+arquivo rotativo `logs/rdws-gateway.log`, sem configuração extra). Duas pilhas de
+observabilidade, uma por ambiente — nunca dividem dados entre si e têm ciclo de vida
+diferente:
+
+| | QA (homelab) | dev (sua máquina) |
+|---|---|---|
+| Arquivo | `docker-compose.qa-observability.yml` | `docker-compose.dev-observability.yml` |
+| Ciclo de vida | sempre no ar (`restart: unless-stopped`) | sob demanda — sem `restart:`, sobe só quando precisar |
+| Prometheus escrapa | `gateway:3001` via DNS interno do Compose | `host.docker.internal:3001` (gateway roda nativo no host) |
+| Promtail coleta logs | `stdout` dos containers via Docker service discovery | arquivo `logs/rdws-gateway.log` montado read-only |
+| Portas | Prometheus 9090, Loki 3100, Grafana 3300 | Prometheus 9091, Loki 3101, Grafana 3301 |
+
+Datasources e um dashboard inicial (`RDWS Gateway — Overview`) já vêm provisionados via
+arquivo (`infra/grafana/provisioning/`) — nada pra configurar manualmente na UI do
+Grafana.
+
+### Usando em dev
+
+1. Rode o gateway localmente como sempre (task `run-gateway` do VS Code, ou direto):
+   ```bash
+   ./build/src/service_broker/service_gateway_http 8080 3001 /tmp/service_gateway.sock
+   ```
+2. Suba a pilha de observabilidade só quando for investigar algo:
+   ```bash
+   docker compose -f docker-compose.dev-observability.yml up -d
+   ```
+3. Acesse o Grafana em [http://localhost:3301](http://localhost:3301) (`admin`/`admin` no
+   primeiro acesso — ou defina `GRAFANA_ADMIN_PASSWORD` antes do `up`). O dashboard
+   `RDWS Gateway — Overview` já mostra métricas (Prometheus) e logs (Loki) do gateway
+   local. Prometheus cru em [http://localhost:9091](http://localhost:9091).
+4. Quando terminar, derrube pra não deixar consumindo recursos à toa:
+   ```bash
+   docker compose -f docker-compose.dev-observability.yml down
+   ```
+
+Em QA, a pilha já sobe junto com o resto do ambiente na homelab — ver
+`docs/Plano_Deployment.md` §3 para os detalhes de infraestrutura e a decisão de design
+por trás da separação dev/QA.
+
 ## Documentação de planejamento (`docs/`)
 
 - `Plano_API_REST.md` — endpoints/capabilities de cada microserviço e contrato de payload.

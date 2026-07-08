@@ -115,6 +115,11 @@ target_link_libraries(rdws_shared_database
     pq
 )
 
+# Falhar cedo se usarmos API deprecated do libpqxx (ex.: exec_prepared em favor de
+# exec(prepped, params) em versões mais novas) — evita divergência silenciosa entre
+# a versão do libpqxx local e a do container CI/CD.
+target_compile_options(rdws_shared_database PRIVATE -Werror=deprecated-declarations)
+
 # Linux Mint Debian Edition
 # target_link_libraries(rdws_shared_database PUBLIC
 #     rdws_shared_config

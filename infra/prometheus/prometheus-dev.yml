@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # dev gateway runs natively (outside Docker) on the same machine where this compose is
+  # executed — host.docker.internal:host-gateway (see docker-compose.dev-observability.yml)
+  # resolves to the host outside the container.
+  - job_name: rdws_gateway_dev
+    metrics_path: /metrics/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:3001"]
+        labels:
+          env: dev

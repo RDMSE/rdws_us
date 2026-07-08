@@ -3,6 +3,7 @@
 #include "../../shared/utils/json_helper.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>

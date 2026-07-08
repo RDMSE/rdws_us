@@ -1,0 +1,46 @@
+# Postgres standalone for dev environment (notebook, local CMake flow without Docker).
+# Runs only on the homelab; the notebook connects via Tailscale to fedora-server:5432.
+# Usage (on the homelab): docker compose -f docker-compose.dev-db.yml --env-file .env.dev-db up -d
+#
+# name: explicit — avoids project/network collision with docker-compose.qa.yml when
+# both run on the same host (Compose uses the directory name as the project by default,
+# which would make the two files share the network and recreate the "postgres" service from
+# the other).
+name: rdws_dev_db
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: rdws_postgres_dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-rdws_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.dev-db.example)}
+      POSTGRES_DB: ${DB_NAME:-rdws_us_dev}
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rdws_user} -d ${DB_NAME:-rdws_us_dev}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: flyway/flyway:10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - "-url=jdbc:postgresql://postgres:5432/${DB_NAME:-rdws_us_dev}"
+      - "-user=${DB_USER:-rdws_user}"
+      - "-password=${DB_PASSWORD}"
+      - "-baselineOnMigrate=true"
+      - migrate
+    volumes:
+      - ./db/migrations:/flyway/sql
+    profiles:
+      - migrate
+
+volumes:
+  postgres_dev_data:
