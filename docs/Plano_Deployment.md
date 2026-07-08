@@ -327,8 +327,11 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
      `logs/rdws-gateway.log` (montado read-only) e entrega no Loki, consultável via
      `{job="rdws_dev"}` — inclusive os logs JSON estruturados que o `logger.cpp` já
      escrevia, sem precisar mudar nada na aplicação.
-7. **CI/CD** (GitHub Actions: build → GHCR → deploy-qa → deploy-prod) — por último, pra
+7. 🟡 **CI/CD** (GitHub Actions: build → GHCR → deploy-qa → deploy-prod) — por último, pra
    automatizar um fluxo que já foi validado manualmente em cada etapa anterior.
+   - ✅ `ci.yml` (build + `ctest` no runner self-hosted) validado com PR real (ver
+     `Plano_Gateway_HTTP.md` Fase 10b para o detalhe do bug de submodules corrigido).
+   - ⬜ Push pro GHCR, `deploy-qa.yml`, `deploy-prod.yml`, secrets no GitHub — pendente.
 8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
    (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
    pipeline de ingestão já estável, plano próprio detalha seu desenho.

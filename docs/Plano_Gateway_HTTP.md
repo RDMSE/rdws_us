@@ -246,10 +246,19 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
   homelab, docker, embedded`; serviço systemd em `/opt/actions-runner`).
 - ✅ Criar workflow `ci.yml`: builda o estágio `builder` (compila + `ctest`) e o estágio
   `runtime` completo em todo push/PR, rodando no runner self-hosted.
+  - **Validado em produção (2026-07-08)**: PR real pra branch `dev` disparou o workflow
+    no runner self-hosted (`fedora-server`) — primeira run falhou (`actions/checkout@v4`
+    não inicializa git submodules por padrão; `src/third_party/{inih,valijson,
+    dotenv-cpp}` são submodules, ficavam vazios no runner → cmake configure quebrava com
+    "does not contain a CMakeLists.txt file"). Corrigido com `submodules: recursive` no
+    step de checkout. Segunda run: build + 134 testes + imagem runtime, tudo verde.
 - ⬜ Criar workflow `deploy.yml`: triggered em merge na main; para container anterior, sobe novo.
-  - Depende do `docker-compose.qa.yml` (ver `Plano_Deployment.md` §2, ainda não criado).
-- ⬜ Configurar secrets no GitHub (credenciais do banco, API keys de teste).
-- Critério de aceite: PR abre → CI roda automaticamente; merge na main → novo container em produção sem intervenção manual.
+  - `docker-compose.qa-db.yml` + `docker-compose.qa-app.yml` já existem (ver
+    `Plano_Deployment.md` §2/§6) — dependência resolvida, falta só escrever o workflow.
+- ⬜ Configurar secrets no GitHub (credenciais do banco, JWT secret — mesmos valores já
+  usados em `.env.qa` na homelab).
+- Critério de aceite: PR abre → CI roda automaticamente ✅ (validado); merge na main →
+  novo container em produção sem intervenção manual ⬜ (pendente, depende do `deploy.yml`).
 
 **Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
 
