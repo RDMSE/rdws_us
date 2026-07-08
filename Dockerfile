@@ -54,9 +54,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /out/service ./service
 COPY --from=builder /src/routes.json ./routes.json
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 # TCP broker (service registry) + HTTP API — only the gateway listens, but harmless
 # to declare for the other services as well.
 EXPOSE 8080 3001
 
-ENTRYPOINT ["./service"]
+ENTRYPOINT ["./docker-entrypoint.sh"]
