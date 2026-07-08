@@ -18,7 +18,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build builder stage (compila e prepara os testes)
+      - name: Build builder stage (build and prepare tests)
         run: |
           docker build --target builder -t rdws_us-builder:${{ github.sha }} .
 
@@ -27,7 +27,7 @@ jobs:
           docker run --rm rdws_us-builder:${{ github.sha }} \
             ctest --test-dir build --output-on-failure
 
-      - name: Build runtime image (valida o multi-stage completo)
+      - name: Build runtime image (validate complete multi-stage)
         run: |
           docker build -t rdws_us-gateway:${{ github.sha }} .
 
