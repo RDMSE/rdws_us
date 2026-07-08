@@ -262,3 +262,81 @@ TEST_F(GatewayIntegrationTest, ServiceDisconnects_InFlight_RequestFails) {
   EXPECT_EQ(result.state, RequestState::FAILED);
   EXPECT_EQ(result.statusCode, 503);
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 6 — Service reconnects with the same serviceId → new request must
+// reach the NEW connection, not the stale one.
+//
+// Regressão: ServiceGateway::closeConnection não removia a entrada de
+// activeConnections nem fechava o fd no SO. Numa reconexão do mesmo serviço,
+// sendDirectRequest (que itera o map em ordem ascendente de fd) quase sempre
+// encontrava a entrada antiga e morta antes da nova, roteando a mensagem pro
+// buraco — sem erro, sem timeout, silenciosamente perdida. Só aparecia após a
+// PRIMEIRA reconexão (deploy, restart, crash), nunca na conexão inicial.
+// ---------------------------------------------------------------------------
+TEST_F(GatewayIntegrationTest, ServiceReconnects_SameId_NewRequestReachesNewConnection) {
+  const std::string sock = "/tmp/rdws_gw_integ_6.sock";
+  ASSERT_TRUE(startGateway(19205, sock)) << "Gateway failed to start";
+
+  // First connection: register, then disconnect cleanly (no in-flight request).
+  startClient(makeIdentity("integ_reconnect_001", {"reconnect"}), "unix://" + sock);
+  client->setRequestHandler([](const rapidjson::Document&) -> rapidjson::Document {
+    rapidjson::Document resp;
+    resp.SetObject();
+    return resp;
+  });
+  ASSERT_TRUE(waitForRegistration(*gw)) << "Service did not register in time";
+
+  client->stop();
+  if (clientThread.joinable()) {
+    clientThread.join();
+  }
+
+  // Second connection, same serviceId — simulates a container/process restart.
+  auto secondHandlerCalled = std::make_shared<std::atomic<bool>>(false);
+  auto secondClient =
+      std::make_unique<ServiceClient>(makeIdentity("integ_reconnect_001", {"reconnect"}),
+                                      "unix://" + sock);
+  secondClient->setRequestHandler(
+      [secondHandlerCalled](const rapidjson::Document&) -> rapidjson::Document {
+        secondHandlerCalled->store(true);
+        rapidjson::Document resp;
+        resp.SetObject();
+        resp.AddMember("status", "success", resp.GetAllocator());
+        return resp;
+      });
+  std::thread secondClientThread([&secondClient]() { secondClient->run(); });
+
+  // Wait for the new connection to register (gw->getHealth() will show 1 service
+  // again once re-registered — same count as before, so poll for a fresh response
+  // instead of relying on waitForRegistration's "non-empty" check).
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+  bool reconnected = false;
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto health = gw->getHealth();
+    if (health.HasMember("services") && health["services"].IsArray() &&
+        !health["services"].GetArray().Empty()) {
+      reconnected = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  ASSERT_TRUE(reconnected) << "Service did not re-register in time";
+
+  rapidjson::Document payload;
+  payload.SetObject();
+
+  const std::string requestId = gw->sendRequest("reconnect", payload);
+  ASSERT_FALSE(requestId.empty()) << "sendRequest should find the reconnected service";
+
+  const PendingRequest result = gw->waitForResponse(requestId, std::chrono::milliseconds(2000));
+
+  secondClient->stop();
+  secondClientThread.join();
+
+  EXPECT_TRUE(secondHandlerCalled->load())
+      << "Request was not delivered to the reconnected (new) connection — "
+         "likely routed to a stale/dead connection left in activeConnections";
+  EXPECT_EQ(result.state, RequestState::COMPLETED);
+  EXPECT_EQ(result.statusCode, 200);
+}

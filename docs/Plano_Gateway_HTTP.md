@@ -218,7 +218,51 @@ PersistenceService ──subscreve──> acumula em buffer interno ──batch 
 - ✅ Criar migrations Flyway para `request_history` e `capability_metrics`.
 - ⬜ Implementar job de cleanup de registros antigos.
 - ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11) — depende do `Plano_Deployment.md`.
-- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão. ✅ (testado)
+- Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão. ✅ (corrigido e testado em 2026-07-08 — ver bugs abaixo; o critério original estava marcado ✅ mas não tinha sido validado de ponta a ponta contra reconexão real)
+
+**Três bugs reais encontrados e corrigidos no primeiro deploy real em QA (2026-07-08)** — nenhum
+pego pelos 134 testes existentes, porque nenhum cobria o ciclo completo
+gateway↔EventBus↔PersistenceService com dados reais nem reconexão de serviço:
+
+1. **Bridge `request.completed`/`metrics.snapshot` não injetava `capability` no payload.**
+   `ServiceGateway::start()` encaminha o evento cru como payload da chamada
+   `persistence.save.request`/`persistence.save.metrics`, mas todo serviço despacha a
+   capability lendo `request["capability"]` (`ServiceClient::handleRequest` só repassa
+   `message["data"]`, descartando o `capability` do envelope de fio). Fluxos HTTP normais
+   funcionam porque `HttpGateway` injeta `capability` manualmente no payload — o bridge
+   interno não fazia o mesmo. Resultado: 100% dos eventos bridged eram rejeitados como
+   "Unknown capability" (para `request.completed`, o payload *tinha* um campo
+   `capability`, mas era o da requisição original, ex. `farm.list` — nunca batia com
+   nenhum handler do PersistenceService). Corrigido injetando `capability` corretamente
+   nos dois bridges (renomeando o campo original pra `originalCapability` no caso de
+   `request.completed`, já que `handleSaveRequest` precisa dele pra gravar no histórico).
+2. **`PersistenceService::flushMetricsBuffer` esperava o formato errado de JSON.**
+   `metrics.snapshot` tem a forma `{"capabilities": [...], "snapshotAt": "..."}` (array),
+   mas o parser iterava os membros do documento como se fosse um objeto plano
+   `{"cap": {...}}` — `"capabilities"` é array (`IsObject()` retorna falso), então o loop
+   nunca executava nenhum `INSERT`, silenciosamente (sem exceção, sem erro nos logs,
+   `capability_metrics` ficava vazia pra sempre).
+3. **`ServiceGateway::closeConnection` nunca removia a entrada de `activeConnections`
+   nem fechava o file descriptor no SO — o mais grave dos três.** Ao desconectar, a
+   entrada antiga (com `identified=true` e o mesmo `serviceId`) permanecia no
+   `std::map<int, ClientConnection>` pra sempre. Numa reconexão do mesmo serviço,
+   `sendDirectRequest` (que itera o map em ordem ascendente de fd e usa o primeiro match)
+   quase sempre encontrava a entrada **antiga e morta** antes da nova — todo request
+   subsequente pra esse serviço era roteado silenciosamente pro fd morto. Isso explica
+   por que o problema só aparece **depois** de pelo menos uma reconexão (deploy,
+   restart, crash) — a primeira conexão de vida do processo funciona normalmente.
+   Reproduzido de forma determinística rodando gateway + PersistenceService nativos
+   (fora de container) e forçando um disconnect/reconnect; confirmado com `gdb -p <pid>
+   -batch -ex "thread apply all bt"` (nenhuma thread em deadlock — o bug não trava nada,
+   só rotea mensagens pro buraco) e logs de instrumentação temporários mostrando
+   `activeConnections.size() == 2` e o fd escolhido sendo sempre o antigo. Corrigido:
+   `closeConnection` agora chama `activeConnections.erase(it)` e `::close(clientFd)`.
+   Validado com 4 ciclos consecutivos de `metrics.snapshot` pós-reconexão, todos
+   `state=completed`.
+
+**Nota:** o bug nº3 potencialmente afeta *qualquer* serviço que reconecta (não só
+PersistenceService) — vale considerar se o hang observado no `ctest` do runner
+self-hosted (Fase 10b) tinha relação, embora não tenha sido confirmado.
 
 ---
 
