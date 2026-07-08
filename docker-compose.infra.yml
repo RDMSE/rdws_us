@@ -1,0 +1,16 @@
+# Homelab infra tools, independent of environment (dev/qa/prod) — do not
+# belong to the lifecycle of any specific project, so they have their own compose.
+name: rdws_infra
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: rdws_portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  portainer_data:

@@ -63,6 +63,12 @@ O `PLANO_GATEWAY_HTTP.md` (Fase 11) já define Grafana como ferramenta de observ
 
 ## Ordem de implementação e dependências com o plano gateway
 
+**Nota (2026-07-08, `Plano_Deployment.md` §6 passo 5):** RabbitMQ containerizado foi
+adiado nesse plano de deployment — sem `IngestionService`/`ReadingWriterService`
+implementados, não há nada publicando/consumindo a fila pra validar o container de
+ponta a ponta. RabbitMQ só deve ser containerizado junto com a implementação destes
+dois serviços (ver passo 1 abaixo), não isoladamente antes deles.
+
 1. **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta. Observabilidade é aditiva e não deve bloquear a funcionalidade.
 2. **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
 3. **Plugar o ingestion na mesma instância**: adicionar Prometheus + RabbitMQ exporter como datasource no Grafana já existente.

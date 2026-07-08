@@ -18,7 +18,16 @@ pqxx::result exec_prepared_helper(Transaction& txn, const std::string& stmt_name
   for (const auto& param : params) {
     p.append(param);
   }
+#if defined(PQXX_VERSION_MAJOR) && \
+    (PQXX_VERSION_MAJOR > 7 || (PQXX_VERSION_MAJOR == 7 && PQXX_VERSION_MINOR >= 9))
+  // libpqxx >= 7.9: exec_prepared(stmt, params) is deprecated in favor of
+  // exec(prepped, params).
   return txn.exec(pqxx::prepped{stmt_name}, p);
+#else
+  // libpqxx < 7.9 (ex.: 7.8.1 no Ubuntu 24.04, usado no build de CI/CD) não tem
+  // pqxx::prepped.
+  return txn.exec_prepared(stmt_name, p);
+#endif
 }
 
 } // namespace

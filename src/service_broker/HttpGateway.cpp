@@ -12,10 +12,121 @@
 #include <chrono>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <sstream>
 #include <string_view>
 #include <utility>
 
 namespace servicegateway {
+
+namespace json = rdws::utils::json;
+
+namespace {
+
+std::string escapePrometheusLabel(const std::string& value) {
+  std::string escaped;
+  escaped.reserve(value.size());
+  for (const char c : value) {
+    if (c == '\\' || c == '"') {
+      escaped += '\\';
+    }
+    if (c == '\n') {
+      escaped += "\\n";
+      continue;
+    }
+    escaped += c;
+  }
+  return escaped;
+}
+
+/// Formata as métricas por capability (rdws_shared_utils MetricsTracker) e o resumo do
+/// gateway (conexões, serviços registrados) no formato texto de exposição do Prometheus.
+/// Reaproveita os dados já expostos em /metrics (JSON) e /status — sem lib nova.
+std::string formatPrometheusMetrics(const rapidjson::Document& metrics,
+                                     const rapidjson::Document& status) {
+  std::ostringstream out;
+
+  out << "# HELP rdws_gateway_requests_total Total de requests por capability\n"
+      << "# TYPE rdws_gateway_requests_total counter\n";
+  if (const auto* capabilities = json::getArray(metrics, "capabilities")) {
+    for (const auto& cap : capabilities->GetArray()) {
+      const auto name = json::getString(cap, "capability").value_or("unknown");
+      const auto count = json::getInt64(cap, "requestCount").value_or(0);
+      out << "rdws_gateway_requests_total{capability=\"" << escapePrometheusLabel(name)
+          << "\"} " << count << '\n';
+    }
+  }
+
+  out << "# HELP rdws_gateway_errors_total Total de erros por capability\n"
+      << "# TYPE rdws_gateway_errors_total counter\n";
+  if (const auto* capabilities = json::getArray(metrics, "capabilities")) {
+    for (const auto& cap : capabilities->GetArray()) {
+      const auto name = json::getString(cap, "capability").value_or("unknown");
+      const auto count = json::getInt64(cap, "errorCount").value_or(0);
+      out << "rdws_gateway_errors_total{capability=\"" << escapePrometheusLabel(name)
+          << "\"} " << count << '\n';
+    }
+  }
+
+  out << "# HELP rdws_gateway_timeouts_total Total de timeouts por capability\n"
+      << "# TYPE rdws_gateway_timeouts_total counter\n";
+  if (const auto* capabilities = json::getArray(metrics, "capabilities")) {
+    for (const auto& cap : capabilities->GetArray()) {
+      const auto name = json::getString(cap, "capability").value_or("unknown");
+      const auto count = json::getInt64(cap, "timeoutCount").value_or(0);
+      out << "rdws_gateway_timeouts_total{capability=\"" << escapePrometheusLabel(name)
+          << "\"} " << count << '\n';
+    }
+  }
+
+  out << "# HELP rdws_gateway_latency_avg_ms Latência média (ms) por capability\n"
+      << "# TYPE rdws_gateway_latency_avg_ms gauge\n";
+  if (const auto* capabilities = json::getArray(metrics, "capabilities")) {
+    for (const auto& cap : capabilities->GetArray()) {
+      const auto name = json::getString(cap, "capability").value_or("unknown");
+      const auto avg = json::getDouble(cap, "avgLatencyMs").value_or(0.0);
+      out << "rdws_gateway_latency_avg_ms{capability=\"" << escapePrometheusLabel(name)
+          << "\"} " << avg << '\n';
+    }
+  }
+
+  out << "# HELP rdws_gateway_latency_p99_ms Latência p99 (ms) por capability\n"
+      << "# TYPE rdws_gateway_latency_p99_ms gauge\n";
+  if (const auto* capabilities = json::getArray(metrics, "capabilities")) {
+    for (const auto& cap : capabilities->GetArray()) {
+      const auto name = json::getString(cap, "capability").value_or("unknown");
+      const auto p99 = json::getDouble(cap, "p99LatencyMs").value_or(0.0);
+      out << "rdws_gateway_latency_p99_ms{capability=\"" << escapePrometheusLabel(name)
+          << "\"} " << p99 << '\n';
+    }
+  }
+
+  out << "# HELP rdws_gateway_active_connections Conexões TCP ativas de backends\n"
+      << "# TYPE rdws_gateway_active_connections gauge\n"
+      << "rdws_gateway_active_connections " << json::getInt64(status, "activeConnections").value_or(0)
+      << '\n';
+
+  out << "# HELP rdws_gateway_pending_requests Requests pendentes (aguardando resposta)\n"
+      << "# TYPE rdws_gateway_pending_requests gauge\n"
+      << "rdws_gateway_pending_requests " << json::getInt64(status, "trackedRequests").value_or(0)
+      << '\n';
+
+  if (const auto registryStatus = status.FindMember("registryStatus");
+      registryStatus != status.MemberEnd() && registryStatus->value.IsObject()) {
+    out << "# HELP rdws_gateway_services_total Serviços backend registrados\n"
+        << "# TYPE rdws_gateway_services_total gauge\n"
+        << "rdws_gateway_services_total "
+        << json::getInt64(registryStatus->value, "totalServices").value_or(0) << '\n';
+
+    out << "# HELP rdws_gateway_services_healthy Serviços backend saudáveis\n"
+        << "# TYPE rdws_gateway_services_healthy gauge\n"
+        << "rdws_gateway_services_healthy "
+        << json::getInt64(registryStatus->value, "healthyServices").value_or(0) << '\n';
+  }
+
+  return out.str();
+}
+
+} // namespace
 
 using rdws::types::LambdaContext;
 using rdws::types::LambdaEvent;
@@ -138,6 +249,16 @@ void HttpGateway::registerRoutes() {
     const rapidjson::Document metrics = gateway_.getMetrics();
     response.status = 200;
     response.set_content(json::docToString(metrics), "application/json");
+  });
+
+  // Formato texto de exposição do Prometheus — scrape target (ver Plano_Deployment.md §3).
+  server_.Get("/metrics/prometheus", [this](const httplib::Request&, httplib::Response& response) {
+    rdws::utils::Profiler profiler("gateway");
+    auto t = profiler.scoped("GET /metrics/prometheus");
+    const rapidjson::Document metrics = gateway_.getMetrics();
+    const rapidjson::Document status = gateway_.getGatewayStatus();
+    response.status = 200;
+    response.set_content(formatPrometheusMetrics(metrics, status), "text/plain; version=0.0.4");
   });
 
   server_.Get("/health", [this](const httplib::Request&, httplib::Response& response) {

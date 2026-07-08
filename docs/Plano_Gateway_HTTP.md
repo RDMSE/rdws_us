@@ -231,12 +231,34 @@ PersistenceService ──subscreve──> acumula em buffer interno ──batch 
 push/PR → build Docker → testes unitários + e2e → (merge main) → deploy container
 ```
 
-- ⬜ Criar `Dockerfile` de build multi-stage (builder com GCC/CMake → imagem final mínima).
-- ⬜ Instalar e registrar self-hosted runner no servidor Fedora.
-- ⬜ Criar workflow `ci.yml`: build + testes em todo PR.
+- ✅ Criar `Dockerfile` de build multi-stage (builder com GCC/CMake → imagem final mínima).
+  - Base `ubuntu:24.04` (não Debian bookworm): bookworm só tem `libpqxx-dev` 6.4.5, e o
+    código (`postgresql_database.cpp`) usa API do libpqxx 7 (`pqxx::params`,
+    `exec_prepared`). Ubuntu 24.04 tem `libpqxx-dev` 7.8.1, compatível.
+  - Corrigidos de passagem includes faltantes que só compilavam por inclusão transitiva
+    no GCC local (`<optional>` em `GatewayConfig.h`, `<iomanip>`/`<ctime>` em
+    `ServiceMonitor.cpp`, `<array>` em `AuthMiddleware.cpp`) e troca de
+    `pqxx::prepped{...}` (não existe no 7.8) por `exec_prepared(...)`.
+  - Validado localmente: build do estágio `builder` compila, 134 testes passam via
+    `ctest` dentro do container, e o binário do estágio `runtime` sobe e responde em
+    `GET /health` e `GET /status`.
+- ✅ Instalar e registrar self-hosted runner no servidor Fedora (labels `self-hosted,
+  homelab, docker, embedded`; serviço systemd em `/opt/actions-runner`).
+- ✅ Criar workflow `ci.yml`: builda o estágio `builder` (compila + `ctest`) e o estágio
+  `runtime` completo em todo push/PR, rodando no runner self-hosted.
+  - **Validado em produção (2026-07-08)**: PR real pra branch `dev` disparou o workflow
+    no runner self-hosted (`fedora-server`) — primeira run falhou (`actions/checkout@v4`
+    não inicializa git submodules por padrão; `src/third_party/{inih,valijson,
+    dotenv-cpp}` são submodules, ficavam vazios no runner → cmake configure quebrava com
+    "does not contain a CMakeLists.txt file"). Corrigido com `submodules: recursive` no
+    step de checkout. Segunda run: build + 134 testes + imagem runtime, tudo verde.
 - ⬜ Criar workflow `deploy.yml`: triggered em merge na main; para container anterior, sobe novo.
-- ⬜ Configurar secrets no GitHub (credenciais do banco, API keys de teste).
-- Critério de aceite: PR abre → CI roda automaticamente; merge na main → novo container em produção sem intervenção manual.
+  - `docker-compose.qa-db.yml` + `docker-compose.qa-app.yml` já existem (ver
+    `Plano_Deployment.md` §2/§6) — dependência resolvida, falta só escrever o workflow.
+- ⬜ Configurar secrets no GitHub (credenciais do banco, JWT secret — mesmos valores já
+  usados em `.env.qa` na homelab).
+- Critério de aceite: PR abre → CI roda automaticamente ✅ (validado); merge na main →
+  novo container em produção sem intervenção manual ⬜ (pendente, depende do `deploy.yml`).
 
 **Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
 

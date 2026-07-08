@@ -1,0 +1,152 @@
+# Gateway + microservices for the QA environment. Lifecycle separate from the database
+# (docker-compose.qa-db.yml) — redeploy (pull/up) runs only this file, without touching
+# Postgres. The db compose must be running (docker-compose.qa-db.yml up -d) before
+# this one, so the services can resolve "postgres" via the shared network
+# (name: rdws_qa is the same in both files).
+name: rdws_qa
+
+x-db-env: &db-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: ${DB_USER:-rdws_user}
+  DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.qa.example)}
+  DB_NAME: ${DB_NAME:-rdws_qa}
+
+services:
+  gateway:
+    build:
+      context: .
+      target: runtime
+    image: rdws_us-gateway:qa
+    container_name: rdws_gateway_qa
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # TCP — backends registry (ServiceGateway)
+      - "3001:3001" # HTTP — gateway API
+    environment:
+      RDWS_AUTH_MODE: jwt
+      RDWS_JWT_SECRET: ${RDWS_JWT_SECRET:?RDWS_JWT_SECRET não definido (ver .env.qa.example)}
+      RDWS_JWT_ISSUER: ${RDWS_JWT_ISSUER:-}
+      RDWS_JWT_AUDIENCE: ${RDWS_JWT_AUDIENCE:-}
+    volumes:
+      - gateway_data:/app/data
+    command: ["8080", "3001", "/tmp/service_gateway.sock", "/app/data/routes.json"]
+
+  auth_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: auth_service
+    image: rdws_us-auth:qa
+    container_name: rdws_auth_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment:
+      <<: *db-env
+      # Mesmo segredo do gateway (RDWS_JWT_SECRET) — nome de env diferente porque o
+      # auth_service lê JWT_SECRET diretamente, sem o prefixo RDWS_.
+      JWT_SECRET: ${RDWS_JWT_SECRET:?RDWS_JWT_SECRET não definido (ver .env.qa.example)}
+    command: ["auth_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  farm_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: farm_service
+    image: rdws_us-farm:qa
+    container_name: rdws_farm_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["farm_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  field_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: field_service
+    image: rdws_us-field:qa
+    container_name: rdws_field_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["field_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  device_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: device_service
+    image: rdws_us-device:qa
+    container_name: rdws_device_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["device_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  device_config_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: device_config_service
+    image: rdws_us-device-config:qa
+    container_name: rdws_device_config_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["device_config_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  sensor_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: sensor_service
+    image: rdws_us-sensor:qa
+    container_name: rdws_sensor_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["sensor_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  sensor_reading_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: sensor_reading_service
+    image: rdws_us-sensor-reading:qa
+    container_name: rdws_sensor_reading_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["sensor_reading_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  persistence_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: persistence_service
+    image: rdws_us-persistence:qa
+    container_name: rdws_persistence_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment: *db-env
+    command: ["persistence_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+volumes:
+  gateway_data:

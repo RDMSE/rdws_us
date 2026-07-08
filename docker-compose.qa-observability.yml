@@ -1,0 +1,59 @@
+# Prometheus + Loki + Promtail + Grafana do ambiente QA. mesmo `name: rdws_qa` dos
+# outros compose de QA de propósito — entra na mesma rede/projeto Compose, então o
+# Prometheus resolve "gateway" por DNS (ver docker-compose.qa-db.yml/qa-app.yml).
+# Precisa do compose de app já rodando (docker-compose.qa-app.yml up -d) — Prometheus
+# escrapa /metrics/prometheus do gateway.
+name: rdws_qa
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: rdws_prometheus_qa
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/prometheus-qa.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_qa_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  loki:
+    image: grafana/loki:2.9.6
+    container_name: rdws_loki_qa
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_qa_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.6
+    container_name: rdws_promtail_qa
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./infra/promtail/promtail-qa.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: rdws_grafana_qa
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_qa_data:/var/lib/grafana
+    ports:
+      - "3300:3000"
+    depends_on:
+      - prometheus
+      - loki
+
+volumes:
+  prometheus_qa_data:
+  loki_qa_data:
+  grafana_qa_data:

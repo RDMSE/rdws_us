@@ -1,0 +1,43 @@
+# QA environment Postgres + migrations. Lifecycle separate from the app (docker-compose.qa-app.yml)
+# — gateway redeploy don’t ever bring the database up/down.
+#
+# name: equals the one in docker-compose.qa-app.yml on purpose — both share the
+# same Compose project/network (rdws_qa_default), so the gateway resolves "postgres" via
+# DNS even when in separate `up` files/commands.
+name: rdws_qa
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: rdws_postgres_qa
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-rdws_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.qa.example)}
+      POSTGRES_DB: ${DB_NAME:-rdws_qa}
+    volumes:
+      - postgres_qa_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rdws_user} -d ${DB_NAME:-rdws_qa}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Sem porta publicada: só os serviços do compose de QA (via DNS "postgres") acessam.
+
+  migrate:
+    image: flyway/flyway:10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - "-url=jdbc:postgresql://postgres:5432/${DB_NAME:-rdws_qa}"
+      - "-user=${DB_USER:-rdws_user}"
+      - "-password=${DB_PASSWORD}"
+      - "-baselineOnMigrate=true"
+      - migrate
+    volumes:
+      - ./db/migrations:/flyway/sql
+    profiles:
+      - migrate
+
+volumes:
+  postgres_qa_data:
