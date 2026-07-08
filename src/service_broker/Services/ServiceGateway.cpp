@@ -58,6 +58,16 @@ bool ServiceGateway::start() {
   healthCheckThread = std::thread(&ServiceGateway::startHealthChecker, this);
 
   // Bridge request.completed → persistence.save.request (fire-and-forget)
+  //
+  // NOTE: sendRequest() só encaminha o "capability" resolvido no envelope de fio
+  // ("type":"REQUEST"), não dentro de "data" — mas PersistenceService (como qualquer
+  // serviço) despacha a capability lendo o campo "capability" de dentro do próprio
+  // payload (ver ServiceClient::handleRequest, que só repassa message["data"] pro
+  // requestHandler). Pra chamadas HTTP normais isso funciona porque o HttpGateway
+  // injeta "capability" dentro do payload; aqui precisamos fazer o mesmo manualmente —
+  // e como o evento "request.completed" já tem seu próprio campo "capability" (a
+  // capability da requisição ORIGINAL, usada por handleSaveRequest pra gravar no
+  // histórico), renomeamos pra "originalCapability" antes de sobrescrever.
   bus_.subscribe("request.completed", [this](const std::string&, const rapidjson::Document& ev) {
     // Skip forwarding persistence-internal requests to avoid loops
     const auto capability = json::getString(ev, "capability");
@@ -66,13 +76,23 @@ bool ServiceGateway::start() {
     }
     rapidjson::Document payload;
     payload.CopyFrom(ev, payload.GetAllocator());
+    auto& alloc = payload.GetAllocator();
+    if (payload.HasMember("capability")) {
+      rapidjson::Value originalCapability;
+      originalCapability.CopyFrom(payload["capability"], alloc);
+      payload.RemoveMember("capability");
+      payload.AddMember("originalCapability", originalCapability, alloc);
+    }
+    payload.AddMember("capability", rapidjson::Value("persistence.save.request", alloc), alloc);
     sendRequest("persistence.save.request", payload, LoadBalancingStrategy::ROUND_ROBIN);
   });
 
-  // Bridge metrics.snapshot → persistence.save.metrics
+  // Bridge metrics.snapshot → persistence.save.metrics (mesmo motivo do bridge acima)
   bus_.subscribe("metrics.snapshot", [this](const std::string&, const rapidjson::Document& ev) {
     rapidjson::Document payload;
     payload.CopyFrom(ev, payload.GetAllocator());
+    auto& alloc = payload.GetAllocator();
+    payload.AddMember("capability", rapidjson::Value("persistence.save.metrics", alloc), alloc);
     sendRequest("persistence.save.metrics", payload, LoadBalancingStrategy::ROUND_ROBIN);
   });
 
@@ -700,8 +720,16 @@ void ServiceGateway::closeConnection(const int clientFd) {
         logger::info("service_disconnected", it->second.serviceId + " connection closed");
         registry.unregisterService(it->second.serviceId);
       }
+
+      // Bug real: a entrada nunca era removida daqui, nem o fd fechado no SO. Numa
+      // reconexão do mesmo serviço, a entrada antiga (fd menor, primeira no std::map
+      // ordenado) era encontrada por sendDirectRequest() antes da nova — todo request
+      // seguinte era roteado pra uma conexão morta, silenciosamente, pra sempre.
+      activeConnections.erase(it);
     }
   }
+
+  ::close(clientFd);
 
   // Publish disconnect event outside the mutex
   if (!disconnectedServiceId.empty()) {

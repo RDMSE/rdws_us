@@ -156,10 +156,14 @@ private:
   }
 
   // Enqueue a single request.completed event
+  //
+  // "capability" no payload é a capability do PersistenceService (persistence.save.request
+  // — usada só pra dispatch, ver ServiceGateway::start()); a capability da requisição
+  // original registrada no histórico vem em "originalCapability".
   rapidjson::Document handleSaveRequest(const rapidjson::Document& req) {
     RequestRecord r{
         .requestId = json::getString(req, "requestId").value_or(std::string{}),
-        .capability = json::getString(req, "capability").value_or(std::string{}),
+        .capability = json::getString(req, "originalCapability").value_or(std::string{}),
         .serviceId = json::getString(req, "serviceId").value_or(std::string{}),
         .success = json::getBool(req, "success").value_or(false),
         .latencyMs = json::getInt(req, "latencyMs").value_or(0),
@@ -257,19 +261,16 @@ private:
           continue;
         }
 
-        const std::string windowStart =
-            snapshotAt.empty() ? "now()" : ("to_timestamp(" + snapshotAt + ")");
+        // metrics.snapshot tem a forma {"capabilities": [{...},{...}], "snapshotAt": "..."}
+        // — um array de objetos, um por capability (ver MetricsTracker::toJson) —, não um
+        // objeto plano {"cap": {...}}.
+        const auto* capabilitiesArray = json::getArray(doc, "capabilities");
+        if (capabilitiesArray == nullptr) {
+          continue;
+        }
 
-        for (auto it = doc.MemberBegin(); it != doc.MemberEnd(); ++it) {
-          const std::string key = it->name.GetString();
-          if (key == "snapshotAt") {
-            continue;
-          }
-          if (!it->value.IsObject()) {
-            continue;
-          }
-
-          const auto& stats = it->value;
+        for (const auto& stats : capabilitiesArray->GetArray()) {
+          const std::string key = json::getString(stats, "capability").value_or("unknown");
           auto getNum = [&](const char* k) -> std::string {
             if (const auto valInt = json::getInt(stats, k); valInt.has_value()) {
               return std::to_string(valInt.value());
