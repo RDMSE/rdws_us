@@ -1,0 +1,21 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  #  Dev gateway/services run natively (outside Docker) — no container to discover
+  # via Docker SD. logger.cpp already writes to a rotating file (logs/<name>.log), mounted
+  # read-only here (see docker-compose.dev-observability.yml).
+  - job_name: dev_logfiles
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: rdws_dev
+          env: dev
+          __path__: /var/log/rdws/*.log
