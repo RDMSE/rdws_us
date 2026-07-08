@@ -139,6 +139,13 @@ e logs é fundamentalmente diferente entre os dois:
   montado read-only, em vez de Docker SD.
 - Portas diferentes por ambiente pra rodar os dois no mesmo host sem conflito: QA
   9090 (Prometheus) / 3100 (Loki) / 3300 (Grafana); dev 9091 / 3101 / 3301.
+- **Ciclo de vida diferente por ambiente**: QA roda na homelab, sempre no ar
+  (`restart: unless-stopped`, igual aos demais compose de QA). Dev roda na máquina do
+  desenvolvedor e é **sob demanda** — sem `restart:` no
+  `docker-compose.dev-observability.yml` — sobe só quando for investigar algo
+  (`up -d`) e derruba depois (`down`); não faz sentido Prometheus/Loki/Grafana
+  consumindo recursos da máquina de dev o tempo todo, nem voltando sozinhos a cada
+  reinício do Docker Desktop.
 - Grafana provisionado 100% via arquivo (`infra/grafana/provisioning/`) — datasources
   (`Prometheus`/`Loki`, UIDs fixos `rdws-prometheus`/`rdws-loki`) e um dashboard inicial
   (`gateway-overview.json`: painéis de serviços saudáveis, conexões ativas, requests/erros
@@ -304,11 +311,22 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    quando o `IngestionService`/`ReadingWriterService` forem implementados, não antes.
    Pulado por ora — seguindo pro passo 6 (observabilidade), que já tem o que observar
    (gateway + 8 serviços rodando).
-6. 🟡 **Prometheus + Loki + Promtail + Grafana containerizados** — implementado, validação
-   em andamento. `docker-compose.qa-observability.yml` + `docker-compose.dev-observability.yml`
-   (ver §3 para o detalhe da separação por ambiente). `GET /metrics/prometheus` novo no
-   gateway (ver §3). Portainer (infra, não observabilidade de app) já estava ✅ desde
-   antes, em `docker-compose.infra.yml`.
+6. ✅ **Prometheus + Loki + Promtail + Grafana containerizados**.
+   `docker-compose.qa-observability.yml` + `docker-compose.dev-observability.yml` (ver §3
+   para o detalhe da separação por ambiente). `GET /metrics/prometheus` novo no gateway
+   (ver §3). Portainer (infra, não observabilidade de app) já estava ✅ desde antes, em
+   `docker-compose.infra.yml`.
+   - Validado QA: Prometheus raspa `gateway:3001/metrics/prometheus` via DNS interno
+     (target `up`, query `rdws_gateway_services_healthy` retorna valor real); Grafana
+     provisiona os 2 datasources (`Prometheus`/`Loki`, UIDs fixos) e o dashboard
+     (`rdws-gateway-overview`) automaticamente, sem setup manual; Promtail (Docker SD,
+     filtrado por `com.docker.compose.project=rdws_qa`) entrega logs no Loki, consultável
+     via `{env="qa"}` — inclusive logs dos próprios containers de infra (Grafana).
+   - Validado dev: rodando o gateway nativo no host (`./build/.../service_gateway_http`),
+     Prometheus alcança via `host.docker.internal:3001` (target `up`); Promtail lê
+     `logs/rdws-gateway.log` (montado read-only) e entrega no Loki, consultável via
+     `{job="rdws_dev"}` — inclusive os logs JSON estruturados que o `logger.cpp` já
+     escrevia, sem precisar mudar nada na aplicação.
 7. **CI/CD** (GitHub Actions: build → GHCR → deploy-qa → deploy-prod) — por último, pra
    automatizar um fluxo que já foi validado manualmente em cada etapa anterior.
 8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
