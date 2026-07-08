@@ -1,0 +1,60 @@
+name: Deploy QA
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, homelab, docker]
+    environment: qa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Gerar .env.qa a partir dos secrets do environment
+        run: |
+          cat > .env.qa <<EOF
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT }}
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=${{ secrets.DB_NAME }}
+          RDWS_JWT_SECRET=${{ secrets.RDWS_JWT_SECRET }}
+          RDWS_JWT_ISSUER=
+          RDWS_JWT_AUDIENCE=
+          EOF
+
+      - name: Subir/atualizar banco de QA
+        run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa up -d postgres
+
+      - name: Rodar migrations Flyway
+        run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa --profile migrate run --rm migrate
+
+      - name: Build e deploy do gateway + serviços
+        run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/health > /dev/null; then
+              echo "Gateway saudável."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Gateway não respondeu saudável a tempo." >&2
+          docker compose -f docker-compose.qa-app.yml --env-file .env.qa logs --tail=100
+          exit 1
+
+      - name: Limpar .env.qa
+        if: always()
+        run: rm -f .env.qa
