@@ -5,6 +5,7 @@
 #include "../../shared/utils/response_helper.h"
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -181,7 +182,6 @@ void ServiceClient::stop() {
 
 int ServiceClient::createConnection() const {
   if (gatewayAddress.starts_with("tcp://")) {
-    // TCP connection
     std::string address = gatewayAddress.substr(6); // Remove "tcp://"
     const size_t colonPos = address.find(':');
     if (colonPos == std::string::npos) {
@@ -190,28 +190,35 @@ int ServiceClient::createConnection() const {
     }
 
     const std::string host = address.substr(0, colonPos);
-    const int port = std::stoi(address.substr(colonPos + 1));
+    const std::string port = address.substr(colonPos + 1);
 
-    const int sockFd = socket(AF_INET, SOCK_STREAM, 0);
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo* resolved = nullptr;
+    const int rc = getaddrinfo(host.c_str(), port.c_str(), &hints, &resolved);
+    if (rc != 0 || resolved == nullptr) {
+      logger::error("Failed to resolve TCP address", host + ":" + port);
+      return -1;
+    }
+
+    int sockFd = -1;
+    for (const addrinfo* rp = resolved; rp != nullptr; rp = rp->ai_next) {
+      sockFd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+      if (sockFd == -1) {
+        continue;
+      }
+      if (::connect(sockFd, rp->ai_addr, rp->ai_addrlen) == 0) {
+        break;
+      }
+      close(sockFd);
+      sockFd = -1;
+    }
+    freeaddrinfo(resolved);
+
     if (sockFd == -1) {
-      logger::error("Failed to create TCP socket");
-      return -1;
-    }
-
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(port);
-
-    if (inet_pton(AF_INET, host.c_str(), &serverAddr.sin_addr) <= 0) {
-      logger::error("Invalid TCP address", host);
-      close(sockFd);
-      return -1;
-    }
-
-    if (::connect(sockFd, reinterpret_cast<struct sockaddr*>(&serverAddr), sizeof(serverAddr)) <
-        0) {
-      logger::error("Failed to connect to TCP", host + ":" + std::to_string(port));
-      close(sockFd);
+      logger::error("Failed to connect to TCP", host + ":" + port);
       return -1;
     }
 
