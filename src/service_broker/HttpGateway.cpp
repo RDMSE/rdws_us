@@ -190,6 +190,21 @@ void HttpGateway::registerRoutes() {
       return;
     }
 
+    // Bug real (2026-07-09): body inválido era ignorado silenciosamente por
+    // documentFromRequest (campos do body simplesmente não eram mesclados no payload),
+    // fazendo um JSON malformado parecer "campo obrigatório faltando" em vez de "JSON
+    // inválido" — confuso pra quem está chamando a API.
+    if (!request.body.empty()) {
+      rapidjson::Document bodyCheck;
+      bodyCheck.Parse(request.body.c_str());
+      if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
+        response.status = 400;
+        response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+                             "application/json");
+        return;
+      }
+    }
+
     rapidjson::Document eventDocument = documentFromRequest(request, capability);
     if (identity) {
       AuthMiddleware::injectIdentity(*identity, eventDocument);
@@ -572,6 +587,19 @@ void HttpGateway::registerRoutes() {
     }
 
     const std::string capability = match->capability;
+
+    // Body inválido ignorado silenciosamente sem isso — ver comentário no handler de
+    // /invoke/:capability.
+    if (!request.body.empty()) {
+      rapidjson::Document bodyCheck;
+      bodyCheck.Parse(request.body.c_str());
+      if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
+        response.status = 400;
+        response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+                             "application/json");
+        return;
+      }
+    }
 
     // Build event document with path params injected
     rapidjson::Document eventDocument = documentFromRequest(request, capability);
