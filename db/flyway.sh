@@ -13,7 +13,7 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 flyway \
-    -url="jdbc:postgresql://${DB_HOST:-fedora-server.local}:${DB_PORT:-5432}/${DB_NAME:-rdws_us_dev}" \
+    -url="jdbc:postgresql://${DB_HOST:-fedora-server}:${DB_PORT:-5432}/${DB_NAME:-rdws_us_dev}" \
     -user="${DB_USER:-rdws_user}" \
     -password="${DB_PASSWORD:-rdws_password}" \
     -locations="filesystem:${SCRIPT_DIR}/migrations" \

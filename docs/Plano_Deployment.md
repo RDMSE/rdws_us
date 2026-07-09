@@ -85,7 +85,7 @@ de build CMake e mesma lista de dependências):
 
 Homelab reformatado (ambiente limpo) e acessado agora via **Tailscale** (MagicDNS) —
 o hostname continua `fedora-server`, só que resolvido pela rede Tailscale em vez do
-`.local` (mDNS) anterior. Isso substitui `DB_HOST=fedora-server.local` por
+`.local` (mDNS) anterior. Isso substitui `DB_HOST=fedora-server` por
 `DB_HOST=fedora-server` (ou o IP Tailscale) em toda configuração, e também simplifica o
 acesso do notebook/CI ao homelab (mesma rede virtual, sem depender de estar na LAN física).
 
