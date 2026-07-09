@@ -1,5 +1,6 @@
 #pragma once
 #include "../repository/DeviceConfigRepository.h"
+#include "../types/service_result.h"
 
 namespace rdws::device_config {
 
@@ -9,8 +10,9 @@ public:
 
   [[nodiscard]] std::optional<DeviceConfig> findByDeviceId(const std::string& deviceId);
   [[nodiscard]] std::string create(const DeviceConfigCreate& data);
-  [[nodiscard]] bool update(const std::string& deviceId, const DeviceConfigUpdate& data);
-  [[nodiscard]] bool remove(const std::string& deviceId);
+  [[nodiscard]] rdws::types::OperationResult update(const std::string& deviceId,
+                                                    const DeviceConfigUpdate& data);
+  [[nodiscard]] rdws::types::OperationResult remove(const std::string& deviceId);
 
 private:
   IDeviceConfigRepository& repo_;

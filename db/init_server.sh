@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # db/init_server.sh — configure PostgreSQL on Fedora server
 # run on server via SSH:
-#   ssh user@fedora-server.local 'bash -s' < db/init_server.sh
+#   ssh user@fedora-server 'bash -s' < db/init_server.sh
 # Or copy and run directly:
-#   scp db/init_server.sh user@fedora-server.local:~/ && ssh user@fedora-server.local 'sudo bash init_server.sh'
+#   scp db/init_server.sh user@fedora-server:~/ && ssh user@fedora-server 'sudo bash init_server.sh'
 set -euo pipefail
 
 DB_NAME="rdws_us_dev"
@@ -73,4 +73,4 @@ fi
 
 echo ""
 echo "==> Done. Check the connection with:"
-echo "    psql -h fedora-server.local -U ${DB_USER} -d ${DB_NAME}"
+echo "    psql -h fedora-server -U ${DB_USER} -d ${DB_NAME}"

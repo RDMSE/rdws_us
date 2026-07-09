@@ -23,7 +23,7 @@ void Config::set(const std::string& key, const std::string& value) {
 }
 
 std::string Config::getDatabaseHost() const {
-  return get("DB_HOST").value_or("fedora-server.local");
+  return get("DB_HOST").value_or("fedora-server");
 }
 
 std::string Config::getDatabasePort() const {

@@ -186,9 +186,10 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: config");
     }
 
-    const bool ok = svc.update(deviceId, {configJson});
-    return ok ? ResponseHelper::returnSuccessDoc()
-              : ResponseHelper::returnErrorDoc("Failed to update configuration", 500);
+    const auto result = svc.update(deviceId, {configJson});
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -198,9 +199,10 @@ private:
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    const bool ok = svc.remove(deviceId);
-    return ok ? ResponseHelper::returnSuccessDoc(204)
-              : ResponseHelper::returnErrorDoc("Failed to delete configuration", 500);
+    const auto result = svc.remove(deviceId);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc(204)
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 };
 

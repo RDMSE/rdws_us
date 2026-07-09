@@ -5,9 +5,13 @@ meta {
 }
 
 put {
-  url: {{baseUrl}}/devices/1/config
+  url: {{baseUrl}}/devices/:devId/config
   body: json
   auth: bearer
+}
+
+params:path {
+  devId: 3
 }
 
 auth:bearer {
@@ -17,13 +21,8 @@ auth:bearer {
 body:json {
   {
     "config": {
-      "sampleIntervalSec": 30,
-      "transmitIntervalSec": 120,
-      "alertThresholds": {
-        "temperature": { "min": -10, "max": 50 },
-        "humidity":    { "min": 5,   "max": 99 }
-      },
-      "firmware": "v2.4.0"
-    }
+        "report_interval_s": 120,
+        "sampling_interval_s": 66
+      }
   }
 }
