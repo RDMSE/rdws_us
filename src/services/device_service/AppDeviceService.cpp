@@ -211,9 +211,10 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: status");
     }
 
-    const bool ok = svc.update(id, {.type=type, .status=status});
-    return ok ? ResponseHelper::returnSuccessDoc()
-              : ResponseHelper::returnErrorDoc("Failed to update device", 500);
+    const auto result = svc.update(id, {.type=type, .status=status});
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
   static rapidjson::Document handleDelete(const rapidjson::Document& req,
@@ -223,9 +224,10 @@ private:
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
-    const bool ok = svc.remove(id);
-    return ok ? ResponseHelper::returnSuccessDoc(204)
-              : ResponseHelper::returnErrorDoc("Failed to delete device", 500);
+    const auto result = svc.remove(id);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc(204)
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 };
 
