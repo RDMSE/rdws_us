@@ -5,9 +5,13 @@ meta {
 }
 
 put {
-  url: {{baseUrl}}/devices/1/config
+  url: {{baseUrl}}/devices/:devId/config
   body: json
   auth: bearer
+}
+
+params:path {
+  devId: 100
 }
 
 auth:bearer {
