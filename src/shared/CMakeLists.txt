@@ -53,6 +53,8 @@ target_link_libraries(rdws_shared_types PUBLIC
 add_library(rdws_shared_json_utils
     utils/json_helper.cpp
     utils/json_helper.h
+    utils/json_merge.cpp
+    utils/json_merge.h
 )
 
 target_include_directories(rdws_shared_json_utils PUBLIC

@@ -23,6 +23,17 @@ target_link_libraries(shared_metrics_tests PRIVATE
 )
 gtest_discover_tests(shared_metrics_tests)
 
+# --- JSON merge patch unit tests ---
+add_executable(shared_json_merge_tests
+    test_json_merge.cpp
+)
+target_link_libraries(shared_json_merge_tests PRIVATE
+    rdws_shared_json_utils
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_json_merge_tests)
+
 # --- Logger unit tests ---
 add_executable(shared_logger_tests
     test_logger.cpp
