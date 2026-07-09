@@ -1,5 +1,6 @@
 #pragma once
 #include "../repository/DeviceRepository.h"
+#include "../types/service_result.h"
 
 namespace rdws::device {
 
@@ -10,8 +11,9 @@ public:
   [[nodiscard]] std::vector<Device> findAll(const std::string& fieldId = {});
   [[nodiscard]] std::optional<Device> findById(const std::string& id);
   [[nodiscard]] std::string create(const DeviceCreate& data);
-  [[nodiscard]] bool update(const std::string& id, const DeviceUpdate& data);
-  [[nodiscard]] bool remove(const std::string& id);
+  [[nodiscard]] rdws::types::OperationResult update(const std::string& id,
+                                                    const DeviceUpdate& data);
+  [[nodiscard]] rdws::types::OperationResult remove(const std::string& id);
 
 private:
   IDeviceRepository& repo_;
