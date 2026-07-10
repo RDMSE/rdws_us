@@ -135,8 +135,22 @@ using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 namespace json = rdws::utils::json;
 
+namespace {
+// Each /invoke handler blocks in waitForResponse() until the capability
+// timeout (default 30s) — even after the HTTP client gives up and closes
+// the connection (httplib doesn't expose "client still connected" check in a normal
+// synchronous handler, only in streamed/chunked responses). Fast retries against a
+// stuck service quickly exhaust the default pool (max(8, cores-1)), and new
+// connections have no free thread to serve — symptom: gateway "doesn't accept"
+// the next request. A much larger pool gives more margin before exhausting; it doesn't
+// solve the waste of the thread being stuck itself.
+constexpr size_t kHttpThreadPoolSize = 64;
+} // namespace
+
 HttpGateway::HttpGateway(ServiceGateway& gateway, int port, std::string host, AuthConfig authConfig)
-    : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig)) {}
+    : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig)) {
+  server_.new_task_queue = [] { return new httplib::ThreadPool(kHttpThreadPoolSize); };
+}
 
 bool HttpGateway::start() {
   if (running_.load()) {
