@@ -1,8 +1,12 @@
 //
-// DeviceConfigService — capabilities: device_config.get, device_config.create,
-//                                      device_config.update, device_config.delete
+// DeviceConfigService — capabilities: device_config.get, device_config.update
 // Path parameter {id} refers to device_id.
 //
+// device_config is 1:1 with device (see Plano_DB_IOT_Sensors.md) — a default
+// empty config ('{}') is created alongside the device via a trigger in Postgres
+// (db/migrations/V3__device_config_one_to_one.sql), so there is no
+// device_config.create nor device_config.delete: only GET (always exists) and UPDATE
+// (merge patch — see src/shared/utils/json_merge.h).
 
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
@@ -55,8 +59,7 @@ public:
     identity.version = "v1.0.0";
     identity.environment = "prod";
     identity.maxConcurrent = 20;
-    identity.capabilities = {"device_config.get", "device_config.create", "device_config.update",
-                             "device_config.delete"};
+    identity.capabilities = {"device_config.get", "device_config.update"};
   }
 
   bool initialize() {
@@ -103,9 +106,7 @@ private:
         rdws::utils::CapabilityHandler<rdws::device_config::DeviceConfigService>>
         handlers = {
             {"device_config.get", handleGet},
-            {"device_config.create", handleCreate},
             {"device_config.update", handleUpdate},
-            {"device_config.delete", handleDelete},
         };
 
     try {
@@ -145,32 +146,6 @@ private:
     });
   }
 
-  static rapidjson::Document handleCreate(const rapidjson::Document& req,
-                                          rdws::device_config::DeviceConfigService& svc) {
-    const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    if (deviceId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
-    }
-
-    std::string configJson;
-    if (const auto configField = req.FindMember("config"); configField != req.MemberEnd()) {
-      configJson = json::docToString(configField->value);
-    }
-    if (configJson.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: config");
-    }
-
-    const std::string id = svc.create({.deviceId=deviceId, .configJson=configJson});
-    if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Failed to create configuration", 500);
-    }
-
-
-    return ResponseHelper::returnDataDoc([&](auto& alloc){
-      return JsonObj(alloc).set("id", id).take();
-    }, 201);
-  }
-
   static rapidjson::Document handleUpdate(const rapidjson::Document& req,
                                           rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
@@ -189,19 +164,6 @@ private:
     const auto result = svc.update(deviceId, {configJson});
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()
-               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
-  }
-
-  static rapidjson::Document handleDelete(const rapidjson::Document& req,
-                                          rdws::device_config::DeviceConfigService& svc) {
-    const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    if (deviceId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
-    }
-
-    const auto result = svc.remove(deviceId);
-    return result.isSuccess()
-               ? ResponseHelper::returnSuccessDoc(204)
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 };

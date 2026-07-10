@@ -668,6 +668,9 @@ void HttpGateway::registerRoutes() {
                restHandler);
   server_.Put(R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
               restHandler);
+  server_.Patch(
+      R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
+      restHandler);
   server_.Delete(
       R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
       restHandler);
