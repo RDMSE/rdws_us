@@ -4,8 +4,10 @@
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/config/config.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceRepository.h"
+#include "../../shared/repository/FieldRepository.h"
 #include "../../shared/service/DeviceService.h"
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/json_helper.h"
@@ -66,19 +68,25 @@ private:
   // DB/repo/svc — declared in dependency order
   PostgreSQLDatabase db_;
   DeviceRepository repo_;
+  rdws::field::FieldRepository fieldRepo_; // valida field_id (FK) em list/create
   rdws::device::DeviceService svc_;
 
 public:
   AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), fieldRepo_(db_), svc_(repo_, fieldRepo_) {
     identity.machineName = machineName;
     identity.serviceName = "device_service";
     identity.serviceId = serviceId;
     identity.version = "v1.0.0";
-    identity.environment = "prod";
+    identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
-    identity.capabilities = {"device.list", "device.get", "device.create", "device.update",
-                             "device.delete"};
+    identity.capabilities = {
+        "device.list",
+        "device.get",
+        "device.create",
+        "device.update",
+        "device.delete"
+    };
   }
 
   bool initialize() {
@@ -144,10 +152,14 @@ private:
                                         rdws::device::DeviceService& svc) {
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
-    const auto devices = svc.findAll(fieldId);
+    const auto result = svc.findAll(fieldId);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
-      for (const auto& d : devices) {
+      for (const auto& d : result.getData()) {
         arr.PushBack(deviceToJson(d, alloc), alloc);
       }
       return arr;
@@ -183,14 +195,17 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: type");
     }
 
-    const std::string id = svc.create({.fieldId=fieldId, .type=type, .status=status});
-    if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Failed to create device", 500);
+    DeviceCreate data{.fieldId = fieldId, .type = type, .status = status};
+    data.installationDate = json::getString(req, "installation_date").value_or(std::string{});
+
+    const auto result = svc.create(data);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          return JsonObj(alloc).set("id", id).take();
+          return JsonObj(alloc).set("id", result.getData()).take();
         },
         201);
   }
