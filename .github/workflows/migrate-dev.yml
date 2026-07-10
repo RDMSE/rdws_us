@@ -1,0 +1,38 @@
+name: Migrate Dev DB
+
+# Only migrations — the dev app/gateway continues 100% manual (runs natively on the developer's machine,
+# outside of Docker; see README.md §Observability and Plano_Deployment.md). The rdws_dev database is shared
+# (hosted in the homelab), so it makes sense for at least the schema to stay synchronized automatically
+# on every push to the dev branch, even without a full CI/build.
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: [self-hosted, homelab, docker]
+    environment: development
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Generate .env.dev-db from environment secrets
+        run: |
+          cat > .env.dev-db <<EOF
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=${{ secrets.DB_NAME }}
+          EOF
+
+      - name: Ensure dev Postgres is up
+        run: docker compose -f docker-compose.dev-db.yml --env-file .env.dev-db up -d postgres
+
+      - name: Run Flyway migrations
+        run: docker compose -f docker-compose.dev-db.yml --env-file .env.dev-db --profile migrate run --rm migrate
+
+      - name: Clean up .env.dev-db
+        if: always()
+        run: rm -f .env.dev-db

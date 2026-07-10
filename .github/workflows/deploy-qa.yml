@@ -20,7 +20,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Gerar .env.qa a partir dos secrets do environment
+      - name: Generate .env.qa from environment secrets
         run: |
           cat > .env.qa <<EOF
           DB_HOST=${{ secrets.DB_HOST }}
@@ -33,13 +33,13 @@ jobs:
           RDWS_JWT_AUDIENCE=
           EOF
 
-      - name: Subir/atualizar banco de QA
+      - name: Ensure QA Postgres is up
         run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa up -d postgres
 
-      - name: Rodar migrations Flyway
+      - name: Run Flyway migrations
         run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa --profile migrate run --rm migrate
 
-      - name: Build e deploy do gateway + serviços
+      - name: Build and deploy gateway + services
         run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
 
       - name: Health check
@@ -55,6 +55,6 @@ jobs:
           docker compose -f docker-compose.qa-app.yml --env-file .env.qa logs --tail=100
           exit 1
 
-      - name: Limpar .env.qa
+      - name: Clean up .env.qa
         if: always()
         run: rm -f .env.qa

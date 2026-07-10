@@ -32,6 +32,8 @@ INSERT INTO devices (field_id, type, status, installation_date) VALUES
 
 -- ─── device_configurations ────────────────────────────────────────────────────
 
+-- device_configurations already exists (empty) for every device via trigger
+-- (V3__device_config_one_to_one.sql) — ON CONFLICT performs an upsert instead of a plain INSERT.
 INSERT INTO device_configurations (device_id, config) VALUES
     (1, '{"sampling_interval_s": 60, "report_interval_s": 300, "alerts": {"temp_max": 40, "humidity_min": 20}}'),
     (2, '{"sampling_interval_s": 30, "report_interval_s": 120}'),
@@ -40,12 +42,13 @@ INSERT INTO device_configurations (device_id, config) VALUES
     (5, '{"sampling_interval_s": 60, "report_interval_s": 600}'),
     (6, '{"sampling_interval_s": 15, "report_interval_s": 60}'),
     (7, '{"mode": "bridge", "max_devices": 16}'),
-    (8, '{"sampling_interval_s": 120, "report_interval_s": 600}');
+    (8, '{"sampling_interval_s": 120, "report_interval_s": 600}')
+ON CONFLICT (device_id) DO UPDATE SET config = EXCLUDED.config;
 
 -- ─── sensors ──────────────────────────────────────────────────────────────────
 
 INSERT INTO sensors (device_id, type, unit) VALUES
-    -- device 1 (weather_station) — múltiplos sensores
+    -- device 1 (weather_station) — multiple sensors
     (1, 'temperature', '°C'),
     (1, 'humidity',    '%'),
     (1, 'luminosity',  'lux'),
@@ -57,15 +60,15 @@ INSERT INTO sensors (device_id, type, unit) VALUES
     -- device 4 (weather_station)
     (4, 'temperature', '°C'),
     (4, 'humidity',    '%'),
-    -- device 5 (em manutenção)
+    -- device 5 (under maintenance)
     (5, 'temperature', '°C'),
     -- device 6
     (6, 'moisture',    '%'),
-    -- device 8 (inativo)
+    -- device 8 (inactive)
     (8, 'temperature', '°C');
 
 -- ─── sensor_readings ─────────────────────────────────────────────────────────
--- Gera ~48 leituras por sensor ativo (últimas 24h, a cada 30min)
+-- Generates ~48 readings per active sensor (last 24h, every 30min)
 
 INSERT INTO sensor_readings (sensor_id, timestamp, value)
 SELECT
