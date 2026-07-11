@@ -389,6 +389,32 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
+### Fase 13b - Validação de input (POST/PUT) contra schema
+
+**Contexto:** hoje cada handler valida campo a campo na mão (ex.: `handleUpdate` do
+`device_config_service` só checa se `config` está vazio) — inconsistente entre serviços
+e fácil de esquecer um campo obrigatório ou tipo errado. O projeto já tem a infra pra
+schema validation (`valijson` + `rapidjson`, `src/shared/validator/schema_validator.h`)
+desde a Fase 0/0b, mas ela não está conectada no pipeline de request — `src/service_broker/schemas/`
+existe mas está vazio.
+
+**Decisão de design proposta:**
+- Um arquivo de schema JSON por capability de escrita (`farm.create`, `farm.update`,
+  `device_config.update`, etc.) em `src/service_broker/schemas/`.
+- Validação acontece no `HttpGateway` (ou no `dispatchCapability`/`capability_router.h`,
+  a decidir) antes de rotear pro serviço — request malformado nunca chega no backend,
+  retorna 400 com mensagem de validação clara direto do `SchemaValidator`.
+- Reaproveita o `ServiceResult`/`OperationResult` (ver decisão da sessão de 2026-07-09)
+  pro formato de erro devolvido.
+
+- ⬜ Definir schemas JSON pras capabilities de escrita de cada serviço.
+- ⬜ Conectar `SchemaValidator` no pipeline de request (gateway, antes do dispatch).
+- ⬜ Testes cobrindo payload inválido → 400 com mensagem de campo específico.
+- Critério de aceite: POST/PUT com campo obrigatório faltando ou tipo errado nunca chega
+  no serviço de domínio — 400 direto do gateway.
+
+---
+
 ### Backlog — `identity.environment` hardcoded como `"prod"` em todos os serviços
 
 **Contexto (2026-07-09):** todo `App*Service.cpp` seta `identity.environment = "prod"` na
@@ -481,32 +507,6 @@ mesmo merge-patch (`mergePatch`, `src/shared/utils/json_merge.h`) já usado por
   maior, criar índice de expressão `CREATE INDEX ON devices ((metadata->>'manufacturer'))`
   para os campos mais buscados, ou um índice `GIN` genérico (`USING GIN (metadata)`) com
   operador `@>` se a busca precisar cobrir múltiplos campos sem saber quais de antemão.
-
----
-
-### Fase 13b - Validação de input (POST/PUT) contra schema
-
-**Contexto:** hoje cada handler valida campo a campo na mão (ex.: `handleUpdate` do
-`device_config_service` só checa se `config` está vazio) — inconsistente entre serviços
-e fácil de esquecer um campo obrigatório ou tipo errado. O projeto já tem a infra pra
-schema validation (`valijson` + `rapidjson`, `src/shared/validator/schema_validator.h`)
-desde a Fase 0/0b, mas ela não está conectada no pipeline de request — `src/service_broker/schemas/`
-existe mas está vazio.
-
-**Decisão de design proposta:**
-- Um arquivo de schema JSON por capability de escrita (`farm.create`, `farm.update`,
-  `device_config.update`, etc.) em `src/service_broker/schemas/`.
-- Validação acontece no `HttpGateway` (ou no `dispatchCapability`/`capability_router.h`,
-  a decidir) antes de rotear pro serviço — request malformado nunca chega no backend,
-  retorna 400 com mensagem de validação clara direto do `SchemaValidator`.
-- Reaproveita o `ServiceResult`/`OperationResult` (ver decisão da sessão de 2026-07-09)
-  pro formato de erro devolvido.
-
-- ⬜ Definir schemas JSON pras capabilities de escrita de cada serviço.
-- ⬜ Conectar `SchemaValidator` no pipeline de request (gateway, antes do dispatch).
-- ⬜ Testes cobrindo payload inválido → 400 com mensagem de campo específico.
-- Critério de aceite: POST/PUT com campo obrigatório faltando ou tipo errado nunca chega
-  no serviço de domínio — 400 direto do gateway.
 
 ---
 
