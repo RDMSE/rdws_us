@@ -222,11 +222,11 @@ private:
                                        rdws::device::DeviceService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric");
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
     const auto device = svc.findById(id);
