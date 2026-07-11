@@ -251,7 +251,7 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric", 400);
     }
     if (type.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
 
     const auto installationDate =
