@@ -282,10 +282,10 @@ private:
     const std::string status = json::getString(req, "status").value_or(std::string{});
 
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
     if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric");
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type");
