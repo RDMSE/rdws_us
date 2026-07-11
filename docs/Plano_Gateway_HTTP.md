@@ -398,6 +398,27 @@ revisados, um de cada vez (mesmo ritmo do resto do CRUD hardening desta sessão)
 
 ---
 
+### Backlog — catch genérico vazando detalhes internos (`e.what()`) pro cliente
+
+**Contexto (2026-07-10, achado em code review):** `PostgreSQLDatabase::execQuery`/
+`execCommand` fazem `throw std::runtime_error(...)` em erro de SQL/conexão
+(`src/shared/database/postgresql_database.cpp`). Como nenhuma camada de serviço captura
+essas exceções, elas sobem até o catch genérico de `processRequest` em cada
+`App*Service.cpp`, que devolvia `"Internal error: " + e.what()` — vazando texto do driver
+Postgres (nomes de coluna, fragmento de query, etc.) direto na resposta HTTP pro cliente.
+
+**Corrigido no `device_service`** (prova de conceito): o catch genérico continua logando
+`e.what()` completo no servidor, mas devolve pro cliente apenas `"Internal server error"`
+com status 500 — sem detalhes internos. Decisão: resolver no ponto único do catch genérico
+por serviço, não com try/catch espalhado em cada método de `*Service` (menos duplicação,
+mesmo raciocínio do fix de `identity.environment` acima).
+
+- ⬜ Replicar o mesmo fix nos outros 7 serviços (`auth_service`, `farm_service`,
+  `field_service`, `device_config_service`, `sensor_service`, `sensor_reading_service`,
+  `persistence_service`) conforme forem sendo revisados.
+
+---
+
 ### Backlog — auditoria (`updated_by`/`updated_at`) e localização de device via GPS
 
 **Contexto (2026-07-10):** ao estender `device.create` para aceitar `installation_date`
