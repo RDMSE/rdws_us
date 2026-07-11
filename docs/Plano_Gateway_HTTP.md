@@ -510,6 +510,30 @@ mesmo merge-patch (`mergePatch`, `src/shared/utils/json_merge.h`) já usado por
 
 ---
 
+### Backlog — wrappers semânticos para `ResponseHelper::returnErrorDoc`
+
+**Contexto (2026-07-11):** ao corrigir os retornos 500 indevidos em validações de CRUD
+(`ResponseHelper::returnErrorDoc`/`returnError` — o parâmetro `statusCode` deixou de ter
+default e agora é obrigatório em `returnErrorDoc`, forçando todo call site a ser explícito),
+ficou claro que os handlers ainda escrevem o código HTTP na mão em cada chamada
+(`returnErrorDoc("Device not found", 404)`, `returnErrorDoc("Missing field: type", 400)`,
+etc.) — fácil de errar o número ou ser inconsistente entre serviços.
+
+**Ideia:** adicionar wrappers semânticos em `ResponseHelper` (`src/shared/utils/response_helper.h/.cpp`)
+que fixam o status code pelo nome do método, ex.:
+- `returnErrorNotFound(message)` → 404
+- `returnErrorBadRequest(message)` → 400 (o caso mais comum: campo/parâmetro inválido ou faltando)
+- `returnErrorInternalError(message)` → 500
+- `returnErrorUnauthorized(message)` / `returnErrorForbidden(message)` → 401/403
+
+- ⬜ Adicionar os wrappers em `ResponseHelper`.
+- ⬜ Migrar os `App*Service.cpp` (todos os 8 serviços) pra usar os wrappers em vez de
+  `returnErrorDoc(msg, <código na mão>)`.
+- ⬜ Critério de aceite: nenhum código HTTP mágico espalhado pelos handlers — só nos
+  wrappers do `ResponseHelper`.
+
+---
+
 ### Fase 14 - Escalabilidade horizontal do Gateway (baixa prioridade, backlog)
 
 **Contexto:** o `HttpGateway`/`ServiceGateway` hoje assume instância única. Levantamento feito em 2026-07-06 identificou os seguintes acoplamentos de estado local que impedem rodar múltiplas réplicas atrás de um load balancer:
