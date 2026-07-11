@@ -80,6 +80,16 @@ bool isValidInstallationDate(const std::string& value) {
     if (hour > 23 || minute > 59 || second > 59) {
       return false;
     }
+
+    if (m[9].matched && m[9].str() != "Z") {
+      std::string tz = m[9].str(); // "+HH:MM", "+HHMM", "-HH:MM", "-HHMM"
+      tz.erase(std::remove(tz.begin(), tz.end(), ':'), tz.end());
+      const int offsetHour = std::stoi(tz.substr(1, 2));
+      const int offsetMinute = std::stoi(tz.substr(3, 2));
+      if (offsetHour > 23 || offsetMinute > 59) {
+        return false;
+      }
+    }
   }
   return true;
 }
