@@ -224,6 +224,12 @@ documento para detalhes.
   docker-compose.prod.yml pull && up -d`.
 - Migrations do Flyway rodam como step/job dedicado antes do `up -d` dos serviços, em
   ambos os pipelines de deploy.
+- **`.github/workflows/migrate-dev.yml`** (2026-07-09): dev continua 100% manual pro
+  app/gateway (roda nativo fora do Docker), mas o banco `rdws_dev` é compartilhado
+  (fica na homelab) — esse workflow só roda o Flyway a cada push na branch `dev`,
+  mantendo o schema sincronizado automaticamente sem precisar de build/CI completo.
+  Usa o Environment `development` do GitHub (secrets `DB_USER`/`DB_PASSWORD`/`DB_NAME`),
+  que já existia mas ficava sem uso.
 
 ## 5. Documentação
 

@@ -135,8 +135,22 @@ using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 namespace json = rdws::utils::json;
 
+namespace {
+// Each /invoke handler blocks in waitForResponse() until the capability
+// timeout (default 30s) — even after the HTTP client gives up and closes
+// the connection (httplib doesn't expose "client still connected" check in a normal
+// synchronous handler, only in streamed/chunked responses). Fast retries against a
+// stuck service quickly exhaust the default pool (max(8, cores-1)), and new
+// connections have no free thread to serve — symptom: gateway "doesn't accept"
+// the next request. A much larger pool gives more margin before exhausting; it doesn't
+// solve the waste of the thread being stuck itself.
+constexpr size_t kHttpThreadPoolSize = 64;
+} // namespace
+
 HttpGateway::HttpGateway(ServiceGateway& gateway, int port, std::string host, AuthConfig authConfig)
-    : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig)) {}
+    : gateway_(gateway), host_(std::move(host)), port_(port), auth_(std::move(authConfig)) {
+  server_.new_task_queue = [] { return new httplib::ThreadPool(kHttpThreadPoolSize); };
+}
 
 bool HttpGateway::start() {
   if (running_.load()) {
@@ -188,6 +202,21 @@ void HttpGateway::registerRoutes() {
       response.set_header("WWW-Authenticate", R"(Bearer realm="rdws-gateway")");
       response.set_content(ResponseHelper::returnError(message, statusCode), "application/json");
       return;
+    }
+
+    // Bug real (2026-07-09): body inválido era ignorado silenciosamente por
+    // documentFromRequest (campos do body simplesmente não eram mesclados no payload),
+    // fazendo um JSON malformado parecer "campo obrigatório faltando" em vez de "JSON
+    // inválido" — confuso pra quem está chamando a API.
+    if (!request.body.empty()) {
+      rapidjson::Document bodyCheck;
+      bodyCheck.Parse(request.body.c_str());
+      if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
+        response.status = 400;
+        response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+                             "application/json");
+        return;
+      }
     }
 
     rapidjson::Document eventDocument = documentFromRequest(request, capability);
@@ -573,6 +602,19 @@ void HttpGateway::registerRoutes() {
 
     const std::string capability = match->capability;
 
+    // Body inválido ignorado silenciosamente sem isso — ver comentário no handler de
+    // /invoke/:capability.
+    if (!request.body.empty()) {
+      rapidjson::Document bodyCheck;
+      bodyCheck.Parse(request.body.c_str());
+      if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
+        response.status = 400;
+        response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+                             "application/json");
+        return;
+      }
+    }
+
     // Build event document with path params injected
     rapidjson::Document eventDocument = documentFromRequest(request, capability);
     auto& alloc = eventDocument.GetAllocator();
@@ -640,6 +682,9 @@ void HttpGateway::registerRoutes() {
                restHandler);
   server_.Put(R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
               restHandler);
+  server_.Patch(
+      R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
+      restHandler);
   server_.Delete(
       R"(/(?!invoke|status|metrics|health|connections|requests|routes|config|features).*)",
       restHandler);

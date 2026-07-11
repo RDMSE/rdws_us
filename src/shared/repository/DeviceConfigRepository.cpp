@@ -24,27 +24,10 @@ std::optional<DeviceConfig> DeviceConfigRepository::findByDeviceId(const std::st
   return configFromRow(*rs);
 }
 
-std::string DeviceConfigRepository::create(const DeviceConfigCreate& data) {
-  std::string query =
-      "INSERT INTO device_configurations (device_id, config) VALUES ($1, $2::jsonb) RETURNING id";
-  std::vector<std::string> params = {data.deviceId, data.configJson};
-  auto rs = db_.execQuery(query, params);
-  if (!rs->next()) {
-    return {};
-  }
-  return rs->getString("id");
-}
-
 bool DeviceConfigRepository::update(const std::string& deviceId, const DeviceConfigUpdate& data) {
   std::string query =
       "UPDATE device_configurations SET config=$1::jsonb, updated_at=now() WHERE device_id=$2";
   std::vector<std::string> params = {data.configJson, deviceId};
-  return db_.execCommand(query, params);
-}
-
-bool DeviceConfigRepository::remove(const std::string& deviceId) {
-  std::string query = "DELETE FROM device_configurations WHERE device_id = $1";
-  std::vector<std::string> params = {deviceId};
   return db_.execCommand(query, params);
 }
 

@@ -278,6 +278,20 @@ container com volume vazio:
 PersistenceService) — vale considerar se o hang observado no `ctest` do runner
 self-hosted (Fase 10b) tinha relação, embora não tenha sido confirmado.
 
+**5º achado (2026-07-09), fora do ciclo de bugs acima — esgotamento do thread pool do
+gateway HTTP.** Encontrado testando timeout de serviço lento via Bruno: cada handler de
+`/invoke`/REST fica bloqueado em `ServiceGateway::waitForResponse()` até o timeout da
+capability (30s default), mesmo depois do cliente HTTP desistir e fechar a conexão — o
+`cpp-httplib` não avisa o handler que o cliente saiu (só detecta isso em respostas
+streamed/chunked, não em handlers síncronos normais como os nossos). Retries rápidos
+contra um serviço travado esgotavam o pool padrão do httplib (`max(8, cores-1)`), e
+novas conexões ficavam sem thread livre — sintoma: gateway "não aceita" a próxima
+requisição. Mitigado (não resolvido na raiz) aumentando o pool explicitamente pra 64
+threads (`HttpGateway::HttpGateway`, `server_.new_task_queue`). A correção de raiz
+(abortar a espera assim que o cliente desconecta, liberando a thread na hora) exigiria
+reestruturar o handler pra usar resposta streamed/chunked — backlog, só se o pool maior
+não for suficiente na prática.
+
 ---
 
 #### 10b — CI/CD (GitHub Actions + self-hosted runner + Docker)
@@ -372,6 +386,32 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 - ⬜ Atualizar seed de dados fake.
 - ⬜ Validação de ownership nos handlers usando `lambdaContext.identity.claims`.
 - Critério de aceite: nenhum `BIGSERIAL` interno exposto na API; acesso cruzado entre usuários retorna 403.
+
+---
+
+### Fase 13b - Validação de input (POST/PUT) contra schema
+
+**Contexto:** hoje cada handler valida campo a campo na mão (ex.: `handleUpdate` do
+`device_config_service` só checa se `config` está vazio) — inconsistente entre serviços
+e fácil de esquecer um campo obrigatório ou tipo errado. O projeto já tem a infra pra
+schema validation (`valijson` + `rapidjson`, `src/shared/validator/schema_validator.h`)
+desde a Fase 0/0b, mas ela não está conectada no pipeline de request — `src/service_broker/schemas/`
+existe mas está vazio.
+
+**Decisão de design proposta:**
+- Um arquivo de schema JSON por capability de escrita (`farm.create`, `farm.update`,
+  `device_config.update`, etc.) em `src/service_broker/schemas/`.
+- Validação acontece no `HttpGateway` (ou no `dispatchCapability`/`capability_router.h`,
+  a decidir) antes de rotear pro serviço — request malformado nunca chega no backend,
+  retorna 400 com mensagem de validação clara direto do `SchemaValidator`.
+- Reaproveita o `ServiceResult`/`OperationResult` (ver decisão da sessão de 2026-07-09)
+  pro formato de erro devolvido.
+
+- ⬜ Definir schemas JSON pras capabilities de escrita de cada serviço.
+- ⬜ Conectar `SchemaValidator` no pipeline de request (gateway, antes do dispatch).
+- ⬜ Testes cobrindo payload inválido → 400 com mensagem de campo específico.
+- Critério de aceite: POST/PUT com campo obrigatório faltando ou tipo errado nunca chega
+  no serviço de domínio — 400 direto do gateway.
 
 ---
 
