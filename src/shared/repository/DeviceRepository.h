@@ -23,7 +23,8 @@ struct Device {
 struct DeviceCreate {
   std::string fieldId;
   std::string type;
-  std::string status; // defaults to "active" if empty
+  std::string status;           // defaults to "active" if empty
+  std::string installationDate; // empty = NULL
 };
 
 struct DeviceUpdate {

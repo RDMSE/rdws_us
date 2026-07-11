@@ -389,6 +389,101 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
+### Backlog — `identity.environment` hardcoded como `"prod"` em todos os serviços
+
+**Contexto (2026-07-09):** todo `App*Service.cpp` seta `identity.environment = "prod"` na
+construção, não importa se está rodando em dev, QA ou prod de verdade — apesar do
+`Config::getEnvironment()` (`src/shared/config/config.cpp`) já ler `RDWS_ENVIRONMENT` do
+ambiente pra exatamente esse propósito.
+
+**Corrigido no `device_service`** (prova de conceito): `identity.environment =
+rdws::Config().getEnvironment();` — replicar o mesmo padrão nos outros 7
+(`auth_service`, `farm_service`, `field_service`, `device_config_service`,
+`sensor_service`, `sensor_reading_service`, `persistence_service`) conforme forem sendo
+revisados, um de cada vez (mesmo ritmo do resto do CRUD hardening desta sessão).
+
+- ⬜ Replicar o fix nos 7 serviços restantes.
+- ⬜ Adicionar `RDWS_ENVIRONMENT: qa` no bloco `x-db-env` de `docker-compose.qa-app.yml`
+  (hoje nenhum serviço em QA recebe essa env var — cairia no default interno `"test"` do
+  `Config`, não `"qa"`).
+- Critério de aceite: `GET /status`/`GET /connections` do gateway mostram
+  `environment: "qa"` de verdade pros serviços rodando em QA (hoje mostram `"prod"`
+  sempre, independente do ambiente real).
+
+---
+
+### Backlog — catch genérico vazando detalhes internos (`e.what()`) pro cliente
+
+**Contexto (2026-07-10, achado em code review):** `PostgreSQLDatabase::execQuery`/
+`execCommand` fazem `throw std::runtime_error(...)` em erro de SQL/conexão
+(`src/shared/database/postgresql_database.cpp`). Como nenhuma camada de serviço captura
+essas exceções, elas sobem até o catch genérico de `processRequest` em cada
+`App*Service.cpp`, que devolvia `"Internal error: " + e.what()` — vazando texto do driver
+Postgres (nomes de coluna, fragmento de query, etc.) direto na resposta HTTP pro cliente.
+
+**Corrigido no `device_service`** (prova de conceito): o catch genérico continua logando
+`e.what()` completo no servidor, mas devolve pro cliente apenas `"Internal server error"`
+com status 500 — sem detalhes internos. Decisão: resolver no ponto único do catch genérico
+por serviço, não com try/catch espalhado em cada método de `*Service` (menos duplicação,
+mesmo raciocínio do fix de `identity.environment` acima).
+
+- ⬜ Replicar o mesmo fix nos outros 7 serviços (`auth_service`, `farm_service`,
+  `field_service`, `device_config_service`, `sensor_service`, `sensor_reading_service`,
+  `persistence_service`) conforme forem sendo revisados.
+
+---
+
+### Backlog — auditoria (`updated_by`/`updated_at`) e localização de device via GPS
+
+**Contexto (2026-07-10):** ao estender `device.create` para aceitar `installation_date`
+opcional (`DeviceCreate::installationDate`, `src/shared/repository/DeviceRepository.h/.cpp`,
+`src/services/device_service/AppDeviceService.cpp::handleCreate`), duas questões relacionadas
+ficaram de fora do escopo por decisão do usuário:
+
+- **`location` do device não vem no payload de create/update.** A localização de um device é
+  adquirida via GPS e chega através dos frames de leitura do sensor — a tabela `devices` deve
+  ser atualizada por esse fluxo (ainda não implementado), não por um campo `location` na
+  requisição de create como acontece em `farms`/`fields` (`FarmRepository`/`FieldRepository`,
+  que recebem `{lat, lng}` e convertem para WKT). Repositório de `Device` permanece sem
+  suporte a escrita de `location`.
+- **`updated_by`/`updated_at` não são setados em nenhum serviço hoje** (`farms`, `fields`,
+  `sensors`, `devices`, `device_config` — todos têm as colunas no schema e leem no SELECT, mas
+  nenhum `INSERT`/`UPDATE` as popula). Não há hoje nenhuma propagação da identidade do
+  chamador (claims do JWT) até a camada de repositório. Levantado como possível "sistema de
+  auditoria" completo (quem criou/alterou cada registro), não apenas os campos soltos.
+
+- ⬜ Definir e implementar propagação de identidade do chamador (JWT `sub`/claims) desde o
+  `HttpGateway`/middleware de auth até os handlers de cada serviço, para popular `updated_by`
+  de forma consistente em todos os CRUDs.
+- ⬜ Desenhar fluxo de atualização de `devices.location` a partir de leituras de GPS recebidas
+  via `sensor_reading_service` (ou capability dedicada), incluindo se `location` deve refletir
+  a última leitura ou ter histórico próprio.
+- ⬜ Avaliar se isso deve virar um sistema de auditoria mais amplo (ex. tabela de audit log com
+  quem/quando/o quê mudou) em vez de apenas preencher `updated_by`/`updated_at` inline.
+
+**Metadados livres do device (fabricante, número de série, modelo, etc.) — 2026-07-10:**
+levantada a necessidade de guardar informações do fabricante do device (fabricante, modelo,
+número de série, e o que mais surgir por tipo de device). Ideia: seguir o mesmo padrão já
+adotado em `device_config` — uma coluna `JSONB` (ex. `devices.metadata`, default `'{}'`) em
+vez de colunas fixas, já que o conjunto de atributos varia por fabricante/tipo de sensor e
+cresceria via migração toda hora se fossem colunas rígidas. Endpoint de update seguiria o
+mesmo merge-patch (`mergePatch`, `src/shared/utils/json_merge.h`) já usado por
+`device_config.update`, em vez de reescrever o objeto inteiro a cada PATCH.
+
+- ⬜ Adicionar coluna `devices.metadata JSONB NOT NULL DEFAULT '{}'` via migration Flyway.
+- ⬜ `device.create` aceita `metadata` opcional (objeto JSON livre); `device.update` (ou nova
+  capability `device.update-metadata`) faz merge-patch igual ao `device_config`.
+- ⬜ Decidir se `metadata` é exposto no mesmo endpoint de `device` ou se, a exemplo de
+  `device_config`, vale a pena separar em recurso próprio 1:1 (mesmo trade-off já discutido
+  para `device_config`: tudo num objeto só x endpoint dedicado).
+- ⬜ Suportar busca/filtro por campo dentro do `metadata` (ex. `device.list` com
+  `?manufacturer=X`) — JSONB permite `metadata->>'manufacturer' = $1` direto; para volume
+  maior, criar índice de expressão `CREATE INDEX ON devices ((metadata->>'manufacturer'))`
+  para os campos mais buscados, ou um índice `GIN` genérico (`USING GIN (metadata)`) com
+  operador `@>` se a busca precisar cobrir múltiplos campos sem saber quais de antemão.
+
+---
+
 ### Fase 13b - Validação de input (POST/PUT) contra schema
 
 **Contexto:** hoje cada handler valida campo a campo na mão (ex.: `handleUpdate` do
