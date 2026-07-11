@@ -269,6 +269,7 @@ private:
     if (!installationDate.empty() && !isValidInstallationDate(installationDate)) {
       return ResponseHelper::returnErrorDoc(
           "Invalid field: installation_date must be an ISO 8601 date or timestamp", 400);
+    }
 
     DeviceCreate data{.fieldId = fieldId, .type = type, .status = status};
     data.installationDate = installationDate;
