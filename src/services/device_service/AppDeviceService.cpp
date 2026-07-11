@@ -202,7 +202,7 @@ private:
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
     if (!fieldId.empty() && !isNumericId(fieldId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric");
+      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric", 400);
     }
     const auto result = svc.findAll(fieldId);
     if (result.isError()) {
