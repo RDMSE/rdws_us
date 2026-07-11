@@ -18,6 +18,9 @@ std::optional<Device> DeviceService::findById(const std::string& id) {
 }
 
 ServiceResult<std::string> DeviceService::create(const DeviceCreate& data) {
+  if (data.fieldId.empty()) {
+    return ServiceResult<std::string>::error("Missing field: field_id", 400);
+  }
   if (!fieldRepo_.findById(data.fieldId)) {
     return ServiceResult<std::string>::error("Field not found for id " + data.fieldId, 404);
   }
