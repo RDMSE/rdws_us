@@ -298,10 +298,10 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
     if (type.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
     if (status.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: status");
+      return ResponseHelper::returnErrorDoc("Missing field: status", 400);
     }
 
     const auto result = svc.update(id, {.type=type, .status=status});

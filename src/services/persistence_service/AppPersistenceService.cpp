@@ -170,7 +170,7 @@ private:
     };
 
     if (r.requestId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing requestId");
+      return ResponseHelper::returnErrorDoc("Missing requestId", 400);
     }
 
     {

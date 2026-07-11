@@ -125,7 +125,7 @@ private:
                                        rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const auto cfg = svc.findByDeviceId(deviceId);
@@ -150,7 +150,7 @@ private:
                                           rdws::device_config::DeviceConfigService& svc) {
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     std::string configJson;
@@ -158,7 +158,7 @@ private:
       configJson = json::docToString(configField->value);
     }
     if (configJson.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: config");
+      return ResponseHelper::returnErrorDoc("Missing field: config", 400);
     }
 
     const auto result = svc.update(deviceId, {configJson});

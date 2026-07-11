@@ -147,7 +147,7 @@ private:
                                        rdws::farm::FarmService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const auto farm = svc.findById(id);
@@ -163,7 +163,7 @@ private:
                                           rdws::farm::FarmService& svc) {
     const std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: name");
+      return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
     FarmCreate data;
@@ -194,12 +194,12 @@ private:
                                           rdws::farm::FarmService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: name");
+      return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
     FarmUpdate data;
@@ -223,7 +223,7 @@ private:
                                           rdws::farm::FarmService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const bool ok = svc.remove(id);

@@ -128,7 +128,7 @@ private:
                                         rdws::sensor_reading::SensorReadingService& svc) {
     const std::string sensorId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (sensorId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
@@ -152,7 +152,7 @@ private:
       rid = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "rid");
     }
     if (rid.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing reading id (rid)");
+      return ResponseHelper::returnErrorDoc("Missing reading id (rid)", 400);
     }
 
     const auto reading = svc.findById(rid);

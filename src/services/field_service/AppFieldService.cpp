@@ -156,7 +156,7 @@ private:
                                        rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const auto field = svc.findById(id);
@@ -174,10 +174,10 @@ private:
     std::string name = json::getString(req, "name").value_or(std::string{});
 
     if (farmId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: farm_id");
+      return ResponseHelper::returnErrorDoc("Missing field: farm_id", 400);
     }
     if (name.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: name");
+      return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
     auto getArea = [&]() -> std::string {
@@ -212,12 +212,12 @@ private:
                                           rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: name");
+      return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
     const bool ok = svc.update(id, {name});
@@ -229,7 +229,7 @@ private:
                                           rdws::field::FieldService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const bool ok = svc.remove(id);
