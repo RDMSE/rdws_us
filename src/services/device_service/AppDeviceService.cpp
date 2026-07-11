@@ -245,10 +245,10 @@ private:
     const auto status = json::getString(req, "status").value_or(std::string{});
 
     if (fieldId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: field_id");
+      return ResponseHelper::returnErrorDoc("Missing field: field_id", 400);
     }
     if (!isNumericId(fieldId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric");
+      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type");
