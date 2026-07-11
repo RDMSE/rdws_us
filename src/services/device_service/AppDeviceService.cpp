@@ -21,6 +21,7 @@
 #include <csignal>
 #include <memory>
 #include <rapidjson/document.h>
+#include <regex>
 #include <string>
 #include <utility>
 
@@ -33,6 +34,13 @@ using rdws::utils::ResponseHelper;
 using json::JsonObj;
 
 namespace {
+
+// Aceita "YYYY-MM-DD" ou timestamp ISO 8601 completo (ex. "YYYY-MM-DDTHH:MM:SSZ")
+bool isValidInstallationDate(const std::string& value) {
+  static const std::regex kPattern(
+      R"(^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$)");
+  return std::regex_match(value, kPattern);
+}
 
 rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
   JsonObj obj(alloc);
@@ -143,8 +151,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(),
-                                                         500);
+      return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 
@@ -195,8 +202,15 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: type");
     }
 
+    const auto installationDate =
+        json::getString(req, "installation_date").value_or(std::string{});
+    if (!installationDate.empty() && !isValidInstallationDate(installationDate)) {
+      return ResponseHelper::returnErrorDoc(
+          "Invalid field: installation_date must be an ISO 8601 date or timestamp");
+    }
+
     DeviceCreate data{.fieldId = fieldId, .type = type, .status = status};
-    data.installationDate = json::getString(req, "installation_date").value_or(std::string{});
+    data.installationDate = installationDate;
 
     const auto result = svc.create(data);
     if (result.isError()) {
