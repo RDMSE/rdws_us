@@ -213,8 +213,10 @@ void HttpGateway::registerRoutes() {
       bodyCheck.Parse(request.body.c_str());
       if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
         response.status = 400;
-        response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
-                             "application/json");
+        response.set_content(
+            ResponseHelper::returnError("Invalid JSON body", response.status),
+            "application/json"
+        );
         return;
       }
     }
@@ -240,8 +242,9 @@ void HttpGateway::registerRoutes() {
     };
 
     if (requestId.empty()) {
-      respond(503, ResponseHelper::returnError(
-                       "No backend service is available for capability: " + capability, 503));
+      const int statusCode = 503;
+      const std::string message = "No backend service is available for capability: " + capability;
+      respond(statusCode, ResponseHelper::returnError(message, statusCode));
       return;
     }
 
@@ -249,7 +252,9 @@ void HttpGateway::registerRoutes() {
         gateway_.waitForResponse(requestId, gateway_.getConfig().timeoutFor(capability));
 
     if (result.state == RequestState::TIMED_OUT) {
-      respond(504, ResponseHelper::returnError("Service response timed out", 504));
+      const int statusCode = 504;
+      const auto msg = "Service response timed out";
+      respond(statusCode, ResponseHelper::returnError(msg, statusCode));
       return;
     }
 
@@ -356,7 +361,7 @@ void HttpGateway::registerRoutes() {
     body.Parse(request.body.c_str());
     if (body.HasParseError() || !body.IsObject()) {
       response.status = 400;
-      response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+      response.set_content(ResponseHelper::returnError("Invalid JSON body", response.status),
                            "application/json");
       return;
     }
@@ -364,7 +369,7 @@ void HttpGateway::registerRoutes() {
     if (rule.inputCapability.empty() || rule.outputCapability.empty()) {
       response.status = 400;
       response.set_content(
-          ResponseHelper::returnError("inputCapability and outputCapability are required", 400),
+          ResponseHelper::returnError("inputCapability and outputCapability are required", response.status),
           "application/json");
       return;
     }
@@ -382,7 +387,10 @@ void HttpGateway::registerRoutes() {
     const auto rule = gateway_.getEventRouter().getRule(id);
     if (!rule) {
       response.status = 404;
-      response.set_content(ResponseHelper::returnError("Route not found", 404), "application/json");
+      response.set_content(
+        ResponseHelper::returnError("Route not found", response.status),
+        "application/json"
+      );
       return;
     }
     response.status = 200;
@@ -398,14 +406,14 @@ void HttpGateway::registerRoutes() {
     body.Parse(request.body.c_str());
     if (body.HasParseError() || !body.IsObject()) {
       response.status = 400;
-      response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+      response.set_content(ResponseHelper::returnError("Invalid JSON body", response.status),
                            "application/json");
       return;
     }
     servicegateway::RoutingRule rule = gateway_.getEventRouter().ruleFromJson(body);
     if (!gateway_.getEventRouter().updateRule(id, std::move(rule))) {
       response.status = 404;
-      response.set_content(ResponseHelper::returnError("Route not found", 404), "application/json");
+      response.set_content(ResponseHelper::returnError("Route not found", response.status), "application/json");
       return;
     }
     const auto updated = gateway_.getEventRouter().getRule(id);
@@ -420,7 +428,7 @@ void HttpGateway::registerRoutes() {
     const std::string id = request.matches[1];
     if (!gateway_.getEventRouter().removeRule(id)) {
       response.status = 404;
-      response.set_content(ResponseHelper::returnError("Route not found", 404), "application/json");
+      response.set_content(ResponseHelper::returnError("Route not found", response.status), "application/json");
       return;
     }
     response.status = 204;
@@ -444,7 +452,7 @@ void HttpGateway::registerRoutes() {
                    payload.Parse(request.body.c_str());
                    if (payload.HasParseError() || !payload.IsObject()) {
                      response.status = 400;
-                     response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+                     response.set_content(ResponseHelper::returnError("Invalid JSON body", response.status),
                                           "application/json");
                      return;
                    }
@@ -481,7 +489,7 @@ void HttpGateway::registerRoutes() {
 
     if (request.body.empty()) {
       response.status = 400;
-      response.set_content(ResponseHelper::returnError("Empty body", 400), "application/json");
+      response.set_content(ResponseHelper::returnError("Empty body", response.status), "application/json");
       return;
     }
 
@@ -489,7 +497,7 @@ void HttpGateway::registerRoutes() {
     body.Parse(request.body.c_str());
     if (body.HasParseError() || !body.IsObject()) {
       response.status = 400;
-      response.set_content(ResponseHelper::returnError("Invalid JSON", 400), "application/json");
+      response.set_content(ResponseHelper::returnError("Invalid JSON", response.status), "application/json");
       return;
     }
 
@@ -594,9 +602,8 @@ void HttpGateway::registerRoutes() {
     const auto match = gateway_.getEventRouter().resolveFromPath(request.method, request.path);
     if (!match) {
       response.status = 404;
-      response.set_content(ResponseHelper::returnError(
-                               "No route found for " + request.method + " " + request.path, 404),
-                           "application/json");
+      const auto msg = "No route found for " + request.method + " " + request.path;
+      response.set_content(ResponseHelper::returnError(msg, response.status), "application/json");
       return;
     }
 
@@ -609,7 +616,7 @@ void HttpGateway::registerRoutes() {
       bodyCheck.Parse(request.body.c_str());
       if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
         response.status = 400;
-        response.set_content(ResponseHelper::returnError("Invalid JSON body", 400),
+        response.set_content(ResponseHelper::returnError("Invalid JSON body", response.status),
                              "application/json");
         return;
       }
@@ -654,8 +661,9 @@ void HttpGateway::registerRoutes() {
     };
 
     if (requestId.empty()) {
-      respond(503, ResponseHelper::returnError(
-                       "No backend service available for capability: " + capability, 503));
+      const auto responseCode = 503;
+      const auto msg = "No backend service available for capability: " + capability;
+      respond(responseCode, ResponseHelper::returnError(msg, responseCode));
       return;
     }
 
@@ -663,7 +671,9 @@ void HttpGateway::registerRoutes() {
         gateway_.waitForResponse(requestId, gateway_.getConfig().timeoutFor(capability));
 
     if (result.state == RequestState::TIMED_OUT) {
-      respond(504, ResponseHelper::returnError("Service response timed out", 504));
+      const auto responseCode = 504;
+      const auto msg = "Service response timed out";
+      respond(responseCode, ResponseHelper::returnError(msg, responseCode));
       return;
     }
     if (result.state == RequestState::FAILED) {
