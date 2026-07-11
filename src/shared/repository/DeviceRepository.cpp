@@ -52,9 +52,28 @@ std::optional<Device> DeviceRepository::findById(const std::string& id) {
 
 std::string DeviceRepository::create(const DeviceCreate& data) {
   const std::string deviceStatus = data.status.empty() ? "active" : data.status;
-  std::string query =
-      "INSERT INTO devices (field_id, type, status) VALUES ($1, $2, $3) RETURNING id";
+  const bool hasInstallationDate = !data.installationDate.empty();
+
+  std::vector<std::string> columns = {"field_id", "type", "status"};
   std::vector<std::string> params = {data.fieldId, data.type, deviceStatus};
+  std::vector<std::string> placeholders = {"$1", "$2", "$3"};
+
+  if (hasInstallationDate) {
+    columns.emplace_back("installation_date");
+    params.push_back(data.installationDate);
+    placeholders.push_back("$" + std::to_string(params.size()));
+  }
+
+  std::string query = "INSERT INTO devices (";
+  for (size_t i = 0; i < columns.size(); ++i) {
+    query += (i > 0 ? ", " : "") + columns[i];
+  }
+  query += ") VALUES (";
+  for (size_t i = 0; i < placeholders.size(); ++i) {
+    query += (i > 0 ? ", " : "") + placeholders[i];
+  }
+  query += ") RETURNING id";
+
   auto rs = db_.execQuery(query, params);
   if (!rs->next()) {
     return {};
