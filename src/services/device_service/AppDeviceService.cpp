@@ -20,6 +20,8 @@
 #include <atomic>
 #include <csignal>
 #include <memory>
+#include <algorithm>
+#include <cctype>
 #include <rapidjson/document.h>
 #include <regex>
 #include <string>
@@ -35,11 +37,51 @@ using json::JsonObj;
 
 namespace {
 
-// Aceita "YYYY-MM-DD" ou timestamp ISO 8601 completo (ex. "YYYY-MM-DDTHH:MM:SSZ")
+// field_id/id são BIGINT no schema; string não-numérica causaria "invalid input syntax for
+// type bigint" no Postgres, virando 500 em vez de um 400 explicando o campo inválido.
+bool isNumericId(const std::string& value) {
+  return !value.empty() &&
+         std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isdigit(c); });
+}
+
+bool isLeapYear(int year) {
+  return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+// Aceita "YYYY-MM-DD" ou timestamp ISO 8601 completo (ex. "YYYY-MM-DDTHH:MM:SSZ"), validando
+// não só o formato mas também faixas de mês/dia/hora/minuto/segundo (incluindo ano bissexto).
 bool isValidInstallationDate(const std::string& value) {
   static const std::regex kPattern(
-      R"(^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$)");
-  return std::regex_match(value, kPattern);
+      R"(^(\d{4})-(\d{2})-(\d{2})([T ](\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$)");
+  std::smatch m;
+  if (!std::regex_match(value, m, kPattern)) {
+    return false;
+  }
+
+  const int year = std::stoi(m[1]);
+  const int month = std::stoi(m[2]);
+  const int day = std::stoi(m[3]);
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  static const int kDaysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int maxDay = kDaysInMonth[month - 1];
+  if (month == 2 && isLeapYear(year)) {
+    maxDay = 29;
+  }
+  if (day < 1 || day > maxDay) {
+    return false;
+  }
+
+  if (m[4].matched) {
+    const int hour = std::stoi(m[5]);
+    const int minute = std::stoi(m[6]);
+    const int second = std::stoi(m[7]);
+    if (hour > 23 || minute > 59 || second > 59) {
+      return false;
+    }
+  }
+  return true;
 }
 
 rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
@@ -159,6 +201,9 @@ private:
                                         rdws::device::DeviceService& svc) {
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
+    if (!fieldId.empty() && !isNumericId(fieldId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric");
+    }
     const auto result = svc.findAll(fieldId);
     if (result.isError()) {
       return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
@@ -180,6 +225,10 @@ private:
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
 
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric");
+    }
+
     const auto device = svc.findById(id);
     if (!device) {
       return ResponseHelper::returnErrorDoc("Device not found", 404);
@@ -197,6 +246,9 @@ private:
 
     if (fieldId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: field_id");
+    }
+    if (!isNumericId(fieldId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric");
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type");
@@ -233,6 +285,9 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
     }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric");
+    }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type");
     }
@@ -251,6 +306,9 @@ private:
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+    }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric");
     }
 
     const auto result = svc.remove(id);

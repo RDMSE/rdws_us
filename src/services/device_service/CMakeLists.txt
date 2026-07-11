@@ -7,6 +7,7 @@ add_executable(device_service AppDeviceService.cpp
 target_link_libraries(device_service PRIVATE
     service_gateway_core
     rdws_shared_database
+    rdws_shared_config
 )
 
 target_include_directories(device_service PRIVATE
