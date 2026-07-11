@@ -13,10 +13,10 @@ class ResponseHelper {
 public:
   [[nodiscard]] static std::string returnSuccess(const std::string& message = "", int statusCode = 200);
 
-  [[nodiscard]] static std::string returnError(const std::string& message, int statusCode = 500,
+  [[nodiscard]] static std::string returnError(const std::string& message, int statusCode = 400,
                                  const ::rapidjson::Value* details = nullptr);
 
-  [[nodiscard]] static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode = 500,
+  [[nodiscard]] static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode,
                                               const ::rapidjson::Value* details = nullptr);
 
   [[nodiscard]] static ::rapidjson::Document returnSuccessDoc(int statusCode = 200,

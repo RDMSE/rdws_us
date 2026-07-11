@@ -150,7 +150,7 @@ private:
                                        rdws::sensor::SensorService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const auto sensor = svc.findById(id);
@@ -169,13 +169,13 @@ private:
     const auto unit = json::getString(req, "unit").value_or(std::string{});
 
     if (deviceId.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: device_id");
+      return ResponseHelper::returnErrorDoc("Missing field: device_id", 400);
     }
     if (type.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
     if (unit.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: unit");
+      return ResponseHelper::returnErrorDoc("Missing field: unit", 400);
     }
 
     const std::string id = svc.create({.deviceId=deviceId, .type=type, .unit=unit});
@@ -199,13 +199,13 @@ private:
     const std::string unit = json::getString(req, "unit").value_or(std::string{});
 
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
     if (type.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: type");
+      return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
     if (unit.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing field: unit");
+      return ResponseHelper::returnErrorDoc("Missing field: unit", 400);
     }
 
     const bool ok = svc.update(id, {.type=type, .unit=unit});
@@ -217,7 +217,7 @@ private:
                                           rdws::sensor::SensorService& svc) {
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Missing path parameter: id");
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
     const bool ok = svc.remove(id);
