@@ -12,6 +12,7 @@
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/profiler.h"
+#include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
 
@@ -25,6 +26,7 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor_reading;
+using rdws::utils::isNumericId;
 using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 
@@ -130,6 +132,9 @@ private:
     if (sensorId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
+    if (!isNumericId(sensorId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    }
 
     const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
     const std::string to = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "to");
@@ -153,6 +158,9 @@ private:
     }
     if (rid.empty()) {
       return ResponseHelper::returnErrorDoc("Missing reading id (rid)", 400);
+    }
+    if (!isNumericId(rid)) {
+      return ResponseHelper::returnErrorDoc("Invalid reading id (rid): must be numeric", 400);
     }
 
     const auto reading = svc.findById(rid);

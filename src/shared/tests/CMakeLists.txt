@@ -44,3 +44,14 @@ target_link_libraries(shared_logger_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_logger_tests)
+
+# --- Shared ID validation tests ---
+add_executable(shared_id_validation_tests
+    test_validation.cpp
+)
+target_link_libraries(shared_id_validation_tests PRIVATE
+    rdws_shared_utils
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_id_validation_tests)
