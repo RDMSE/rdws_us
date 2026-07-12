@@ -17,6 +17,7 @@
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/profiler.h"
+#include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
 
@@ -31,11 +32,10 @@ namespace json = rdws::utils::json;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device_config;
+using rdws::utils::isNumericId;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 namespace logger = rdws::utils::logger;
-
-namespace {} // namespace
 
 class AppDeviceConfigService {
 private:
@@ -127,6 +127,9 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
+    if (!isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    }
 
     const auto cfg = svc.findByDeviceId(deviceId);
     if (!cfg) {
@@ -151,6 +154,9 @@ private:
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
     std::string configJson;

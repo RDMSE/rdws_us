@@ -14,6 +14,7 @@
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/profiler.h"
 #include "../../shared/utils/response_helper.h"
+#include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
 
@@ -32,17 +33,11 @@ namespace logger = rdws::utils::logger;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device;
+using rdws::utils::isNumericId;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 
 namespace {
-
-// field_id/id são BIGINT no schema; string não-numérica causaria "invalid input syntax for
-// type bigint" no Postgres, virando 500 em vez de um 400 explicando o campo inválido.
-bool isNumericId(const std::string& value) {
-  return !value.empty() &&
-         std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isdigit(c); });
-}
 
 bool isLeapYear(int year) {
   return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
