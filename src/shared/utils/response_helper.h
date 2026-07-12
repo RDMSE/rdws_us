@@ -16,7 +16,7 @@ public:
   [[nodiscard]] static std::string returnError(const std::string& message, int statusCode = 400,
                                  const ::rapidjson::Value* details = nullptr);
 
-  [[nodiscard]] static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode = 400,
+  [[nodiscard]] static ::rapidjson::Document returnErrorDoc(const std::string& message, int statusCode,
                                               const ::rapidjson::Value* details = nullptr);
 
   [[nodiscard]] static ::rapidjson::Document returnSuccessDoc(int statusCode = 200,
