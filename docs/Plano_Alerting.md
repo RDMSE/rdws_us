@@ -28,6 +28,18 @@ Duas camadas, com responsabilidades e requisitos de latência diferentes — por
 
 - Roda dentro do `ReadingWriterService` (ou antes, no `IngestionService`), no momento em que a leitura já está sendo processada — sem round-trip extra.
 - Testa a leitura isolada contra o(s) limite(s) simples configurado(s) pro sensor (min/max), lidos de `device_config` ou de `alarm_rules` (ver modelo de dados abaixo) — a decidir na implementação qual fonte é a autoritativa pra não duplicar configuração.
+
+**Nota (mecanismo de leitura do limite, 2026-07-12):** a premissa de "barato, sem
+round-trip extra" exige um desenho explícito — sem ele, a implementação óbvia é uma
+query por leitura processada, o que contradiz a própria premissa. Mesmo padrão já
+validado em `Plano_DeviceCredentials.md` (§5) para o mesmo tipo de problema (valor
+precisa estar disponível rápido, dentro de um consumer, sem round-trip por evento):
+cache em memória no `IngestionService`/`ReadingWriterService`, carregado no startup, com
+invalidação pontual via evento (`alarm_rule.changed`, publicado quando um limite muda) em
+vez de recarregar tudo ou fazer polling. Assim que a fonte autoritativa for decidida
+(`device_config` vs. `alarm_rules`), o cache espelha essa fonte; a decisão de qual é
+autoritativa continua em aberto (ver "Pontos em aberto"), mas o mecanismo de acesso
+barato já não precisa ser reinventado.
 - Só decide "essa leitura merece atenção" — não decide se um alarme deve ser aberto/fechado (isso é responsabilidade da Camada 2, que trata histerese). Publica um evento leve (`reading.threshold_breach`) sem bloquear nem atrasar a escrita da leitura em si.
 
 **Nota (transporte do evento, 2026-07-12):** "barramento interno" no parágrafo acima
@@ -89,6 +101,16 @@ esse `EventBus`. Duas questões ficam em aberto antes de implementar:
 
 > Índice único parcial recomendado: `(rule_id, sensor_id) WHERE status IN ('active', 'acknowledged')` — reforça a histerese no próprio banco (não é possível ter dois alarmes em aberto pra mesma regra+sensor simultaneamente).
 
+**Decisão (regra desabilitada com alarme ativo, 2026-07-12):** `alarm_rules.enabled = false`
+fecha automaticamente qualquer `alarm_event` `active`/`acknowledged` daquela regra
+(`resolved_at = now()`, `status = 'resolved'`) no momento em que a regra é desabilitada —
+não espera o próximo ciclo do `AlertingService` nem deixa o alarme órfão (aberto pra
+sempre, já que a avaliação que o fecharia parou de rodar). Executado no mesmo handler que
+seta `enabled = false` (capability de update de `alarm_rules`), não no `AlertingService` —
+evita depender do timing do próximo ciclo de avaliação para uma limpeza que deveria ser
+imediata. Sem essa regra, desabilitar uma regra problemática (ex.: sensor com ruído
+gerando alarme falso) deixaria lixo permanente em `alarm_events`.
+
 ## NotificationService
 
 Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa fechar o loop até uma pessoa agir, e fazer isso sem gastar dinheiro à toa (SMS é cobrado por mensagem).
@@ -107,6 +129,7 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
 
 ## Pontos em aberto
 
+- Evento `alarm_rule.changed` (invalidação do cache da Camada 1) — nome/payload/exchange ainda não definidos, mesmo racional do `device_credential.changed` em `Plano_DeviceCredentials.md`.
 - Transporte e consumidor do evento `reading.threshold_breach` da Camada 1 — não pode ser o `EventBus` do gateway (single-instância, por processo); definir se é fila/routing key própria no RabbitMQ e quem consome sem duplicar a avaliação já feita pela Camada 2 (ver nota na seção da Camada 1).
 - Se `sensor_readings` realmente será hypertable TimescaleDB (`create_hypertable`) ou particionamento nativo do Postgres — decisão hoje em aberto em `Plano_DB_IOT_Sensors.md`, da qual as queries janeladas deste plano dependem (ver nota na seção do `AlertingService`).
 - Qual sensor é "o principal" em `alarm_events.sensor_id` para métricas derivadas (dewpoint = temperatura + umidade) — o modelo de dados menciona a exceção mas não define o critério (sensor de temperatura? o primeiro listado na regra? outro critério?).
