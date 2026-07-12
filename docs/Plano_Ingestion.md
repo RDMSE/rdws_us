@@ -46,7 +46,10 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 ## ReadingWriterService
 
 - Consome da fila e grava em `sensor_reading`.
-- **Idempotência obrigatória**: se o consumer falhar e a mensagem for reprocessada, a escrita não pode duplicar a leitura. Usar chave única `(device_id, sensor_id, timestamp)` no banco.
+- **Idempotência obrigatória**: se o consumer falhar e a mensagem for reprocessada, a escrita não pode duplicar a leitura. Usar chave única `(sensor_id, timestamp)` no banco — `sensor_readings`
+  (`Plano_DB_IOT_Sensors.md`) só tem `sensor_id`, sem `device_id` (o device já é derivado via
+  `sensor.device_id`); adicionar `device_id` aqui seria dado redundante, o mesmo princípio que
+  levou à remoção de `farm_id` de `devices` no mesmo documento.
 - Não expõe endpoints HTTP — é um worker puro, sem capability registrada no gateway.
 
 ---
