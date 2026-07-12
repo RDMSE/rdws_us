@@ -11,6 +11,7 @@
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/profiler.h"
+#include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
 
@@ -26,6 +27,7 @@ namespace logger = rdws::utils::logger;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::field;
+using rdws::utils::isNumericId;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 
@@ -142,6 +144,9 @@ private:
   static rapidjson::Document handleList(const rapidjson::Document& req,
                                         rdws::field::FieldService& svc) {
     const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
+    if (!farmId.empty() && !isNumericId(farmId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be numeric", 400);
+    }
     const auto fields = svc.findAll(farmId);
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
@@ -157,6 +162,9 @@ private:
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
     const auto field = svc.findById(id);
@@ -175,6 +183,9 @@ private:
 
     if (farmId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: farm_id", 400);
+    }
+    if (!isNumericId(farmId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be numeric", 400);
     }
     if (name.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: name", 400);
@@ -214,6 +225,9 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    }
 
     std::string name = json::getString(req, "name").value_or(std::string{});
     if (name.empty()) {
@@ -230,6 +244,9 @@ private:
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
     const bool ok = svc.remove(id);

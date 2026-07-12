@@ -11,6 +11,7 @@
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/response_helper.h"
+#include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
 
@@ -24,6 +25,7 @@
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor;
+using rdws::utils::isNumericId;
 using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 namespace json = rdws::utils::json;
@@ -136,6 +138,9 @@ private:
                                         rdws::sensor::SensorService& svc) {
     const std::string deviceId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
+    if (!deviceId.empty() && !isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: device_id must be numeric", 400);
+    }
     const auto sensors = svc.findAll(deviceId);
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
@@ -151,6 +156,9 @@ private:
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
     const auto sensor = svc.findById(id);
@@ -170,6 +178,9 @@ private:
 
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: device_id", 400);
+    }
+    if (!isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: device_id must be numeric", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
@@ -201,6 +212,9 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
@@ -218,6 +232,9 @@ private:
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
     const bool ok = svc.remove(id);
