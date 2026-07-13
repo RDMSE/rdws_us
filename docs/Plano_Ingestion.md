@@ -46,7 +46,10 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 ## ReadingWriterService
 
 - Consome da fila e grava em `sensor_reading`.
-- **Idempotência obrigatória**: se o consumer falhar e a mensagem for reprocessada, a escrita não pode duplicar a leitura. Usar chave única `(device_id, sensor_id, timestamp)` no banco.
+- **Idempotência obrigatória**: se o consumer falhar e a mensagem for reprocessada, a escrita não pode duplicar a leitura. Usar chave única `(sensor_id, timestamp)` no banco — `sensor_readings`
+  (`Plano_DB_IOT_Sensors.md`) só tem `sensor_id`, sem `device_id` (o device já é derivado via
+  `sensor.device_id`); adicionar `device_id` aqui seria dado redundante, o mesmo princípio que
+  levou à remoção de `farm_id` de `devices` no mesmo documento.
 - Não expõe endpoints HTTP — é um worker puro, sem capability registrada no gateway.
 
 ---
@@ -54,8 +57,10 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 ## Pontos em aberto
 
 - Definir qual broker de fila será adotado (RabbitMQ é o candidato natural dado o resto da stack).
-- Definir o mecanismo de provisionamento de credenciais DTLS por device (na criação via `device.create`?).
+- Definir o mecanismo de provisionamento de credenciais DTLS por device (na criação via `device.create`?). — **Resolvido em `Plano_DeviceCredentials.md`.**
 - Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
+- Atualizar o `ENUM` de `sensors.type` em `Plano_DB_IOT_Sensors.md` com os novos tipos (bateria, solar, agregados de vento) — ver seção "Amostragem interna vs. taxa de transmissão".
+- Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
 
 ## Observabilidade da fila
 
@@ -84,23 +89,88 @@ A Fase 10b do `PLANO_GATEWAY_HTTP.md` define o pipeline de CI/CD (GitHub Actions
 
 ---
 
-## SensorSimulatorService (necessário enquanto o hardware não está pronto)
+## Amostragem interna vs. taxa de transmissão (2026-07-12)
 
-**Contexto:** o hardware físico dos sensores ainda não está finalizado, mas o restante da stack (IngestionService, fila, ReadingWriterService) precisa ser desenvolvido e testado de ponta a ponta. A solução é um simulador que se comporta exatamente como um device real do ponto de vista do IngestionService — o mesmo protocolo CoAP/DTLS, o mesmo formato de payload — de forma que o gateway/IngestionService seja totalmente transparente a estar falando com hardware real ou simulado.
+**Contexto:** o usuário configura de 1 a 24 transmissões/dia por device. Amostrar o
+sensor na mesma cadência da transmissão funciona bem para variáveis "lentas"
+(temperatura, pressão, umidade, bateria), mas é insuficiente para variáveis que variam
+rápido dentro do intervalo — o caso mais claro é vento, onde uma leitura pontual a cada
+transmissão perde rajadas inteiras, justamente o dado mais relevante para decisões como
+janela de pulverização.
 
-**Configuração por instância simulada:**
-- `sensorId` — identifica o sensor simulado (correlaciona com `SensorService`).
-- `tipo de sensor` — ex: temperatura, umidade, pressão.
-- `medida` — unidade de medida gerada (ex: °C, %, hPa).
-- `período agendado` — intervalo entre envios, simulando o ciclo de wake/sleep do device real.
-- `faixa de valores` — range (min/max) usado para gerar os valores simulados, possivelmente com variação aleatória/ruído para parecer mais realista.
+**Decisão de design:** desacoplar as duas taxas.
 
-**Responsabilidades:**
-- Gerar valores dentro da faixa configurada, no período agendado.
-- Enviar via CoAP/DTLS para o IngestionService, usando as mesmas credenciais (PSK/certificado) que um device real usaria.
-- Permitir rodar múltiplas instâncias simultâneas (múltiplos sensores/devices simulados) para testar carga e concorrência no IngestionService.
+- **Amostragem interna** (leitura do sensor pelo firmware): alta frequência para
+  sensores voláteis (vento, a cada poucos segundos), baixa/pontual para sensores lentos
+  (temperatura, pressão, umidade, bateria — uma leitura já representa bem o intervalo).
+  Amostrar custa pouca energia comparado a transmitir (rádio é o maior consumidor), então
+  não compete com o orçamento de bateria do device.
+- **Transmissão** (o payload CoAP enviado): para sensores lentos, carrega o valor
+  instantâneo mais recente. Para vento, carrega **agregados do intervalo desde a última
+  transmissão**, não um valor pontual:
+  - `wind_speed_avg` — velocidade média do intervalo.
+  - `wind_speed_gust` — rajada máxima do intervalo (o dado que importa para decisão de
+    pulverização/segurança, mais que a média).
+  - `wind_direction` — direção predominante do intervalo, calculada por **média
+    vetorial** (cada amostra convertida em vetor unitário, somada, ângulo resultante
+    extraído) — média aritmética simples de ângulo é incorreta (ex.: média entre 350° e
+    10° não é 180°, é 0°).
 
-**Configuração via banco (decisão):** o simulador lê seus parâmetros (`sensorId`, tipo, medida, período, faixa de valores) direto do cadastro real em `DeviceService`/`DeviceConfigService`/`SensorService`, em vez de arquivo local. Isso reforça a transparência do simulador — ele usa exatamente o mesmo cadastro que um device real usaria — e evita duplicar/dessincronizar configuração entre dois lugares.
+**Impacto no modelo de dados:** cabe como extensão do `ENUM` de `sensors.type` em
+`Plano_DB_IOT_Sensors.md`, sem mudança em `sensor_readings` — cada agregado de vento
+(`wind_speed_avg`, `wind_speed_gust`, `wind_direction`) é um sensor lógico próprio
+atrelado ao mesmo device físico, mesmo padrão já usado para bateria/solar:
 
-**Pontos em aberto:**
-- Definir se o simulador deve gerar cenários de falha propositais (payload fora da faixa, perda de pacote, device offline) para testar a robustez da validação no IngestionService.
+```sql
+type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity',
+            'battery_level', 'battery_voltage', 'solar_panel_voltage',
+            'wind_speed_avg', 'wind_speed_gust', 'wind_direction', 'other')
+```
+
+- **Pendente**: atualizar esse `ENUM` em `Plano_DB_IOT_Sensors.md` (este documento só
+  registra a decisão; a migration em si pertence àquele plano).
+
+## Envio antecipado por gatilho local (edge trigger) (2026-07-12)
+
+**Contexto:** com transmissão de até 1x/dia (o mínimo configurável), uma condição que
+merece alarme (geada, rajada perigosa, etc.) pode ocorrer logo após uma transmissão e só
+ser reportada até 24h depois — tarde demais para qualquer ação do produtor. O
+`Plano_Alerting.md` só avalia o que já chegou ao servidor; se o dado não chega, não tem
+o que avaliar.
+
+**Decisão de design:** o firmware mantém um conjunto pequeno de **regras de gatilho
+locais** — thresholds simples (sem correlação entre sinais, sem histerese sofisticada,
+sem janela deslizante — isso continua sendo responsabilidade do `AlertingService` do
+lado servidor) avaliados a cada amostragem interna (a mesma amostragem de alta
+frequência já descrita acima para vento, e também aplicável a temperatura quando a
+amostragem lenta ainda for suficiente para captar uma queda rápida). Ao violar uma
+regra local, o device dispara uma transmissão **imediata, fora do agendamento regular**
+— sem esperar o próximo ciclo.
+
+- **Sincronização das regras locais, sem canal de downlink dedicado:** carona na
+  resposta (ACK) de cada transmissão regular — o `IngestionService` devolve, junto da
+  confirmação CoAP, a versão atual das regras de gatilho relevantes para aquele device
+  (subconjunto simplificado de `alarm_rules`, ou uma tabela própria mais enxuta — a
+  decidir). Evita manter um mecanismo de polling/Observe só para isso; o device já fala
+  com o servidor a cada ciclo de qualquer forma.
+- **Cooldown local, no próprio firmware:** evita que uma condição que oscila perto do
+  limite (ex. vento variando ao redor do threshold de rajada) esgote a bateria disparando
+  transmissão extra repetidamente — intervalo mínimo entre disparos de gatilho,
+  independente do cooldown que já existe no `NotificationService` (`Plano_Alerting.md`),
+  que é uma camada de proteção diferente (evita SMS repetido, não transmissão repetida).
+- **Sem duplicar a lógica do `AlertingService`:** a leitura enviada por gatilho entra no
+  pipeline exatamente como qualquer outra (`IngestionService` → fila →
+  `ReadingWriterService` → banco → Camada 1/2 do `Plano_Alerting.md`), só que mais cedo.
+  O firmware não decide se é alarme — só decide que aquela leitura não pode esperar o
+  próximo ciclo regular. A avaliação completa (histerese, correlação, notificação)
+  continua sendo feita do lado servidor, como já desenhado.
+- Marcar o payload de gatilho com um campo simples (`trigger: true` ou similar) ajuda o
+  `IngestionService`/`AlertingService` a diferenciar de uma leitura regular, se algum
+  tratamento prioritário for necessário mais adiante (não obrigatório para o MVP).
+
+**Pontos em aberto (gatilho local):**
+- Formato/tabela das regras de gatilho locais — subconjunto simplificado de
+  `alarm_rules` ou tabela própria (`edge_trigger_rules`?) mais enxuta.
+- Conjunto inicial de condições que valem gatilho local (geada é o caso óbvio; rajada de
+  vento perigosa outro) vs. o que pode esperar o ciclo regular.
+- Duração do cooldown local no firmware, e se é fixo ou configurável por device/regra.

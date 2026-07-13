@@ -428,13 +428,17 @@ rdws::Config().getEnvironment();` — replicar o mesmo padrão nos outros 7
 `sensor_service`, `sensor_reading_service`, `persistence_service`) conforme forem sendo
 revisados, um de cada vez (mesmo ritmo do resto do CRUD hardening desta sessão).
 
-- ⬜ Replicar o fix nos 7 serviços restantes.
-- ⬜ Adicionar `RDWS_ENVIRONMENT: qa` no bloco `x-db-env` de `docker-compose.qa-app.yml`
-  (hoje nenhum serviço em QA recebe essa env var — cairia no default interno `"test"` do
-  `Config`, não `"qa"`).
-- Critério de aceite: `GET /status`/`GET /connections` do gateway mostram
-  `environment: "qa"` de verdade pros serviços rodando em QA (hoje mostram `"prod"`
-  sempre, independente do ambiente real).
+- ✅ (2026-07-13) Fix replicado nos 7 serviços restantes — todo `App*Service.cpp` real
+  agora usa `identity.environment = rdws::Config().getEnvironment();`. Único lugar que
+  ainda hardcoda é `example_service.cpp` (`devMode ? "dev" : "prod"`), mantido assim de
+  propósito por ser serviço de demo/exemplo, fora da suite real.
+- ✅ (2026-07-13) `RDWS_ENVIRONMENT: qa` adicionado ao bloco `x-db-env` de
+  `docker-compose.qa-app.yml`, propagado pra todos os `App*Service` que herdam `*db-env`
+  (default do `Config::getEnvironment()` era `"development"`, não `"test"` como constava
+  aqui antes — corrigido nesta nota).
+- ✅ Critério de aceite atendido: `GET /status`/`GET /connections` do gateway devem
+  mostrar `environment: "qa"` pros serviços rodando em QA a partir do próximo redeploy
+  de `docker-compose.qa-app.yml`.
 
 ---
 

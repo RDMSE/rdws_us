@@ -1,6 +1,7 @@
 #include "lambda_event.h"
 
 #include "../../shared/utils/json_helper.h"
+#include "../../shared/config/config.h"
 
 #include <algorithm>
 #include <chrono>
@@ -40,7 +41,7 @@ HttpRequestInfo::HttpRequestInfo(std::string method, const std::string& path, st
     : method(std::move(method)), path(path), resource(path), body(std::move(body)) {}
 
 RequestContext::RequestContext()
-    : requestId(generateRequestId()), stage("prod"), protocol("HTTP/1.1"), sourceIp("127.0.0.1"),
+    : requestId(generateRequestId()), stage(rdws::Config().getEnvironment()), protocol("HTTP/1.1"), sourceIp("127.0.0.1"),
       userAgent("rdws-gateway/1.0"),
       requestTimeEpoch(std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::system_clock::now().time_since_epoch())

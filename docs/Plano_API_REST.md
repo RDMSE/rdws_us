@@ -130,7 +130,12 @@ Todos os requests seguem o contrato `LambdaEvent` já estabelecido no gateway.
 
 ## Observações
 
-- `SensorReadingService` não expõe POST/PUT/DELETE — escrita vem dos devices diretamente via `PersistenceService` (ver `PLANO_GATEWAY_HTTP.md` fase 10a).
+- `SensorReadingService` não expõe POST/PUT/DELETE — é somente leitura via REST. A escrita de
+  leituras de sensor é um pipeline totalmente separado do gateway HTTP: device → CoAP →
+  `IngestionService` → RabbitMQ → `ReadingWriterService` → banco (ver `Plano_Ingestion.md`).
+  Não confundir com o `PersistenceService` da Fase 10a do `Plano_Gateway_HTTP.md`, que grava
+  apenas telemetria operacional do próprio gateway (`request_history`/`capability_metrics`),
+  sem relação com leituras de sensor.
 - Filtros hierárquicos (ex: campos de uma fazenda) são passados via `queryStringParameters` (`farm_id`, `field_id`, `device_id`).
 - Todos os microserviços se autenticam pelo mesmo mecanismo do gateway (API key ou JWT Bearer).
 - Implementação de cada microserviço segue o mesmo padrão dos demais serviços existentes no projeto.

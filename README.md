@@ -120,6 +120,7 @@ por trás da separação dev/QA.
 - `Plano_DB_IOT_Sensors.md` — modelo de dados, índices, particionamento e retenção.
 - `Plano_Gateway_HTTP.md` — histórico de evolução do gateway HTTP (fases concluídas e roadmap).
 - `Plano_Ingestion.md` — pipeline de ingestão de leituras (CoAP/DTLS → fila → escrita).
+- `Plano_Alerting.md` — detecção de condições anormais (limites, dewpoint) e geração de alarmes por fazenda.
 - `Plano_Deployment.md` — dockerização e CI/CD para os ambientes dev local, QA homelab e prod VPS.
 - `Plano_SensorSimulatorService.md` — plano da ferramenta `Sensor Simulator Service`, usada para simular dados de sensores enquanto o hardware físico não está disponível.
 

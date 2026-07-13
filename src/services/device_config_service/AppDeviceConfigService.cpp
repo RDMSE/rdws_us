@@ -57,7 +57,7 @@ public:
     identity.serviceName = "device_config_service";
     identity.serviceId = serviceId;
     identity.version = "v1.0.0";
-    identity.environment = "prod";
+    identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"device_config.get", "device_config.update"};
   }
