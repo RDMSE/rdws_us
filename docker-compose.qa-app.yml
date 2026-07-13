@@ -11,6 +11,7 @@ x-db-env: &db-env
   DB_USER: ${DB_USER:-rdws_user}
   DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.qa.example)}
   DB_NAME: ${DB_NAME:-rdws_qa}
+  RDWS_ENVIRONMENT: qa
 
 services:
   gateway:
