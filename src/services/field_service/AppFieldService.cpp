@@ -76,7 +76,7 @@ public:
     identity.serviceName = "field_service";
     identity.serviceId = serviceId;
     identity.version = "v1.0.0";
-    identity.environment = "prod";
+    identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"field.list", "field.get", "field.create", "field.update",
                              "field.delete"};
