@@ -64,7 +64,7 @@ public:
     identity.serviceName = "sensor_reading_service";
     identity.serviceId = serviceId;
     identity.version = "v1.0.0";
-    identity.environment = "prod";
+    identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 40;
     identity.capabilities = {"sensor_reading.list", "sensor_reading.get"};
   }
