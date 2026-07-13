@@ -37,11 +37,16 @@ static std::string generateRequestId() {
   return requestId;
 }
 
+static const std::string& getCachedEnvironment() {
+  static const std::string environment = rdws::Config().getEnvironment();
+  return environment;
+}
+
 HttpRequestInfo::HttpRequestInfo(std::string method, const std::string& path, std::string body)
     : method(std::move(method)), path(path), resource(path), body(std::move(body)) {}
 
 RequestContext::RequestContext()
-    : requestId(generateRequestId()), stage(rdws::Config().getEnvironment()), protocol("HTTP/1.1"), sourceIp("127.0.0.1"),
+    : requestId(generateRequestId()), stage(getCachedEnvironment()), protocol("HTTP/1.1"), sourceIp("127.0.0.1"),
       userAgent("rdws-gateway/1.0"),
       requestTimeEpoch(std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
@@ -102,7 +107,7 @@ LambdaEvent::LambdaEvent(const std::string& jsonString) {
   if (const auto* requestContext = json::getObject(doc, "requestContext"); requestContext != nullptr) {
     requestContext_.requestId =
         json::getString(*requestContext, "requestId").value_or(generateRequestId());
-    requestContext_.stage = json::getString(*requestContext, "stage").value_or("prod");
+    requestContext_.stage = json::getString(*requestContext, "stage").value_or(getCachedEnvironment());
     requestContext_.httpMethod =
         json::getString(*requestContext, "httpMethod").value_or(httpRequest_.method);
     requestContext_.resourcePath =
