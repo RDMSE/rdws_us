@@ -327,13 +327,29 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
     dotenv-cpp}` são submodules, ficavam vazios no runner → cmake configure quebrava com
     "does not contain a CMakeLists.txt file"). Corrigido com `submodules: recursive` no
     step de checkout. Segunda run: build + 134 testes + imagem runtime, tudo verde.
-- ⬜ Criar workflow `deploy.yml`: triggered em merge na main; para container anterior, sobe novo.
-  - `docker-compose.qa-db.yml` + `docker-compose.qa-app.yml` já existem (ver
-    `Plano_Deployment.md` §2/§6) — dependência resolvida, falta só escrever o workflow.
-- ⬜ Configurar secrets no GitHub (credenciais do banco, JWT secret — mesmos valores já
-  usados em `.env.qa` na homelab).
+- ✅ Criar workflow `deploy-qa.yml`: dispara em `workflow_run` do CI (sucesso na main) ou
+  manualmente (`workflow_dispatch`); gera `.env.qa` a partir do Environment `qa`, roda
+  Flyway, sobe `docker-compose.qa-app.yml --build`, valida `GET /health` com retry, limpa
+  `.env.qa` no final (`if: always()`).
+- ✅ Configurar secrets/vars no GitHub — Environments `development` e `qa` criados com
+  secrets (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `RDWS_JWT_SECRET`) e
+  vars (`LOG_LEVEL`, `PORT`, `RDWS_AUTH_MODE`, `RDWS_ENVIRONMENT`, `RDWS_JWT_ISSUER`).
+  - Achado: `deploy-qa.yml` gerava `RDWS_JWT_ISSUER=` vazio fixo no `.env.qa`, ignorando a
+    var configurada — validação de issuer não tinha efeito nenhum no deploy real. Corrigido
+    pra ler de `${{ vars.RDWS_JWT_ISSUER }}`.
+  - Achado: `RDWS_JWT_AUDIENCE` fica de fora de propósito — GitHub não aceita variável com
+    valor vazio na UI, e um valor não-vazio (ex. espaço) quebraria a validação de audience
+    pra todo mundo (`AuthMiddleware::jwtAudience.empty()` deixaria de pular o check). O
+    fallback vazio do compose (`${RDWS_JWT_AUDIENCE:-}`) já cobre o caso de não validar.
+  - Backlog: `RDWS_AUTH_MODE` e `RDWS_ENVIRONMENT` estão hardcoded em
+    `docker-compose.qa-app.yml` (não lidos de env) — as vars com esses nomes no GitHub
+    hoje não têm efeito. `LOG_LEVEL`/`PORT` também não chegam aos serviços (cai no default
+    `"info"` do código). Conectar via env se algum dia precisar variar por ambiente; sem
+    isso o comportamento atual em QA já está correto.
 - Critério de aceite: PR abre → CI roda automaticamente ✅ (validado); merge na main →
-  novo container em produção sem intervenção manual ⬜ (pendente, depende do `deploy.yml`).
+  novo container em produção sem intervenção manual ⬜ (workflow escrito e secrets/vars
+  configurados nesta sessão, mas ainda não executado — falta validar uma run real, seja
+  via merge na main ou `workflow_dispatch`).
 
 **Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
 
