@@ -434,8 +434,9 @@ revisados, um de cada vez (mesmo ritmo do resto do CRUD hardening desta sessão)
   propósito por ser serviço de demo/exemplo, fora da suite real.
 - ✅ (2026-07-13) `RDWS_ENVIRONMENT: qa` adicionado ao bloco `x-db-env` de
   `docker-compose.qa-app.yml`, propagado pra todos os `App*Service` que herdam `*db-env`
-  (default do `Config::getEnvironment()` era `"development"`, não `"test"` como constava
-  aqui antes — corrigido nesta nota).
+  (default do `Config::getEnvironment()` é `"test"` quando `RDWS_ENVIRONMENT` não está
+  definido; esta nota foi ajustada para refletir o comportamento real em
+  `src/shared/config/config.cpp`).
 - ✅ Critério de aceite atendido: `GET /status`/`GET /connections` do gateway devem
   mostrar `environment: "qa"` pros serviços rodando em QA a partir do próximo redeploy
   de `docker-compose.qa-app.yml`.
