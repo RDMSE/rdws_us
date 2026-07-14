@@ -23,11 +23,11 @@ jobs:
       - name: Generate .env.qa from environment secrets
         run: |
           cat > .env.qa <<EOF
-          DB_HOST=${{ secrets.DB_HOST }}
-          DB_PORT=${{ secrets.DB_PORT }}
-          DB_USER=${{ secrets.DB_USER }}
+          DB_HOST=${{ vars.DB_HOST }}
+          DB_PORT=${{ vars.DB_PORT }}
+          DB_USER=${{ vars.DB_USER }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          DB_NAME=${{ secrets.DB_NAME }}
+          DB_NAME=${{ vars.DB_NAME }}
           RDWS_JWT_SECRET=${{ secrets.RDWS_JWT_SECRET }}
           RDWS_JWT_ISSUER=${{ vars.RDWS_JWT_ISSUER }}
           RDWS_JWT_AUDIENCE=
