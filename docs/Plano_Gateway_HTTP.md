@@ -347,9 +347,8 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
     `"info"` do código). Conectar via env se algum dia precisar variar por ambiente; sem
     isso o comportamento atual em QA já está correto.
 - Critério de aceite: PR abre → CI roda automaticamente ✅ (validado); merge na main →
-  novo container em produção sem intervenção manual ⬜ (workflow escrito e secrets/vars
-  configurados nesta sessão, mas ainda não executado — falta validar uma run real, seja
-  via merge na main ou `workflow_dispatch`).
+  novo container em produção sem intervenção manual ✅ (validado em 2026-07-14 — merge na
+  main disparou `deploy-qa.yml` via `workflow_run`, deploy passou).
 
 **Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
 
