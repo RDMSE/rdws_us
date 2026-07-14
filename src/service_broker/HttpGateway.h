@@ -2,6 +2,7 @@
 
 #include "Auth/AuthMiddleware.h"
 #include "Services/ServiceGateway.h"
+#include "schemas/capability_schema_registry.h"
 
 #include <atomic>
 #include <httplib.h>
@@ -32,6 +33,7 @@ private:
   std::string host_;
   int port_;
   AuthMiddleware auth_;
+  schemas::CapabilitySchemaRegistry schemaRegistry_;
   std::atomic<bool> running_{false};
   httplib::Server server_;
   std::thread serverThread_;

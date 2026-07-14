@@ -431,11 +431,29 @@ existe mas está vazio.
 - Reaproveita o `ServiceResult`/`OperationResult` (ver decisão da sessão de 2026-07-09)
   pro formato de erro devolvido.
 
-- ⬜ Definir schemas JSON pras capabilities de escrita de cada serviço.
-- ⬜ Conectar `SchemaValidator` no pipeline de request (gateway, antes do dispatch).
-- ⬜ Testes cobrindo payload inválido → 400 com mensagem de campo específico.
+- ✅ (2026-07-14) Definidos schemas JSON (draft-07) pras 9 capabilities de escrita
+  (`farm.create/update`, `field.create/update`, `device.create/update`,
+  `sensor.create/update`, `device_config.update`) — embutidos como `const std::string`
+  em headers por serviço (`src/service_broker/schemas/{farm,field,device,sensor,
+  device_config}_schemas.h`), seguindo o mesmo padrão já usado em `schemas/service.h`.
+  `device_config.update` só exige a presença de `config` (shape interna arbitrária,
+  serializada como está pelo `DeviceConfigService`).
+- ✅ (2026-07-14) `SchemaValidator` conectado no `HttpGateway`, não no
+  `dispatchCapability`: novo `CapabilitySchemaRegistry`
+  (`src/service_broker/schemas/capability_schema_registry.{h,cpp}`) monta um mapa
+  capability → `SchemaValidator` na inicialização; `HttpGateway::registerRoutes()`
+  valida o body contra esse registro logo após o check de JSON sintaticamente válido
+  já existente e antes de `gateway_.sendRequest(...)` — capability sem schema
+  registrado (reads, deletes) simplesmente não é validada.
+- ✅ (2026-07-14) Testes em `src/service_broker/tests/test_http_e2e.cpp`: payload sem
+  campo obrigatório (`farm.create` sem `name`) → 400 com `details` citando o campo, e
+  confirma que o backend mockado **não** é chamado; `device_config.update` sem
+  `config` → 400; payload válido de `farm.create` segue validação e chega no backend
+  normalmente (regressão). Suite completa (`service_gateway_http_e2e_test`, 11 casos)
+  e `shared_validation_tests`/`service_gateway_test` passando.
 - Critério de aceite: POST/PUT com campo obrigatório faltando ou tipo errado nunca chega
-  no serviço de domínio — 400 direto do gateway.
+  no serviço de domínio — 400 direto do gateway. ✅ validado via teste e2e
+  (`SchemaValidation_MissingRequiredField_Returns400` confirma `backendCalled == false`).
 
 ---
 
