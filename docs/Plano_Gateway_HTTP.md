@@ -132,7 +132,7 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 - ✅ Limite de concorrência por capability (`maxConcurrency`).
 - ✅ Feature flags booleanas por nome (`isEnabled(feature)`).
 - ✅ Carregamento e persistência de config via arquivo JSON.
-- ⬜ API HTTP para leitura/atualização de config em runtime.
+- ✅ API HTTP para leitura/atualização de config em runtime — `GET /config` (snapshot completo), `PATCH`/`DELETE /config/capabilities/{cap}` (override e revert por capability), `GET /config/features` e `PUT /config/features/{name}` (feature flags), em `HttpGateway.cpp`.
 
 ### Fase 9b - AuthService e emissão de JWT
 
@@ -347,9 +347,8 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
     `"info"` do código). Conectar via env se algum dia precisar variar por ambiente; sem
     isso o comportamento atual em QA já está correto.
 - Critério de aceite: PR abre → CI roda automaticamente ✅ (validado); merge na main →
-  novo container em produção sem intervenção manual ⬜ (workflow escrito e secrets/vars
-  configurados nesta sessão, mas ainda não executado — falta validar uma run real, seja
-  via merge na main ou `workflow_dispatch`).
+  novo container em produção sem intervenção manual ✅ (validado em 2026-07-14 — merge na
+  main disparou `deploy-qa.yml` via `workflow_run`, deploy passou).
 
 **Labels do runner self-hosted (registrado em 2026-07-06):** `self-hosted, homelab, docker, embedded`. O label `embedded` foi adicionado antecipando um futuro firmware para os sensores/dispositivos — o mesmo runner poderá compilar toolchains embarcadas sem precisar ser reconfigurado. Workflows devem usar `runs-on: [self-hosted, homelab, docker]` (ou incluir `embedded` quando houver jobs de firmware).
 
@@ -359,14 +358,17 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 **Decisão de design:** logs não vão para o banco. O gateway já emite logs estruturados JSON via spdlog com arquivo rotativo. O Promtail lê esse arquivo e envia para o Loki; o Grafana consome ambos (PostgreSQL para métricas/requests, Loki para logs).
 
-- ⬜ Configurar **Loki** como datasource de logs (retenção configurável, ex: 30 dias).
-- ⬜ Configurar **Promtail** apontando para o log file rotativo do gateway (zero mudança no código C++).
-- ⬜ Adicionar datasource Loki no Grafana.
-- ⬜ Criar dashboard no Grafana unificando:
-    - Métricas por capability (latência, errorRate, throughput) — fonte: PostgreSQL.
-    - Exploração de logs por `requestId`, `capability`, `level` — fonte: Loki via LogQL.
-- ⬜ Definir política de retenção no Loki (período e compressão).
-- Critério de aceite: dado um `requestId`, conseguir navegar do painel de métricas até os logs daquele request no Grafana.
+- ✅ Configurar **Loki** como datasource de logs — `infra/loki/loki-config.yml`, sem retenção configurada ainda (ver pendência abaixo).
+- ✅ Configurar **Promtail** apontando para o log file rotativo do gateway (zero mudança no código C++) — `infra/promtail/promtail-{dev,qa}.yml`, validado com dados reais fluindo.
+- ✅ Adicionar datasource Loki no Grafana — `infra/grafana/provisioning/datasources/datasources.yml` (uid `rdws-loki`).
+- ✅ Criar dashboard no Grafana unificando métricas (Prometheus), logs (Loki) e histórico
+  (PersistenceService/PostgreSQL) — `gateway-overview.json`.
+- ⬜ Definir política de retenção no Loki (período e compressão) — `loki-config.yml` não
+  tem `compactor`/`retention_period`; hoje o Loki guarda tudo indefinidamente.
+- Critério de aceite: dado um `requestId`, conseguir navegar do painel de métricas até os
+  logs daquele request no Grafana. ⬜ — painéis existem lado a lado no mesmo dashboard, mas
+  sem derived fields/data link entre eles; hoje é preciso copiar o `requestId` e filtrar
+  manualmente no painel de Logs.
 
 ---
 
@@ -477,9 +479,11 @@ com status 500 — sem detalhes internos. Decisão: resolver no ponto único do 
 por serviço, não com try/catch espalhado em cada método de `*Service` (menos duplicação,
 mesmo raciocínio do fix de `identity.environment` acima).
 
-- ⬜ Replicar o mesmo fix nos outros 7 serviços (`auth_service`, `farm_service`,
+- ✅ Replicado o mesmo fix nos outros 7 serviços (`auth_service`, `farm_service`,
   `field_service`, `device_config_service`, `sensor_service`, `sensor_reading_service`,
-  `persistence_service`) conforme forem sendo revisados.
+  `persistence_service`) — catch genérico de `processRequest` em cada um devolve
+  `"Internal server error"` (500) pro cliente, mantendo `e.what()` só no log do servidor.
+  Build completo validado (`cmake --build`, todos os 8 serviços linkam sem erro).
 
 ---
 
