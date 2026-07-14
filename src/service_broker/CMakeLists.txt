@@ -24,6 +24,14 @@ add_library(service_gateway_core
         # Utils
         Utils/Utils.cpp
         Utils/Utils.h
+        # Request schema validation (capability -> SchemaValidator)
+        schemas/capability_schema_registry.h
+        schemas/capability_schema_registry.cpp
+        schemas/farm_schemas.h
+        schemas/field_schemas.h
+        schemas/device_schemas.h
+        schemas/sensor_schemas.h
+        schemas/device_config_schemas.h
 )
 
 # Compatibility alias — old name kept for external consumers.
