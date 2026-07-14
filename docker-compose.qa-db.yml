@@ -43,5 +43,32 @@ services:
     profiles:
       - migrate
 
+  # Daily cleanup of request_history (90d) / capability_metrics (30d) — calls the
+  # functions created in db/migrations/V2__persistence_tables.sql. No pg_cron (not
+  # bundled with the postgis/postgis image, would require building a custom image just
+  # for this): simple external loop, runs once at start and then every 24h. Daily
+  # granularity is enough for a retention policy measured in days.
+  db_cleanup:
+    image: postgres:16-alpine
+    container_name: rdws_db_cleanup_qa
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${DB_USER:-rdws_user}
+      PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.qa.example)}
+      PGDATABASE: ${DB_NAME:-rdws_qa}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          echo "[db_cleanup] $(date -Iseconds) running cleanup_old_request_history / cleanup_old_capability_metrics";
+          psql -v ON_ERROR_STOP=1 -c "SELECT cleanup_old_request_history();" -c "SELECT cleanup_old_capability_metrics();";
+          sleep 86400;
+        done
+
 volumes:
   postgres_qa_data:
