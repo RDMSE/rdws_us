@@ -21,7 +21,7 @@ services:
       - ./infra/prometheus/prometheus-qa.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_qa_data:/prometheus
     ports:
-      - "9090:9090"
+      - "9091:9090"
 
   loki:
     image: grafana/loki:2.9.6
