@@ -179,7 +179,7 @@ private:
       });
     } catch (const std::exception& e) {
       logger::error("DB error", identity.serviceId + " " + e.what());
-      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
+      return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 };

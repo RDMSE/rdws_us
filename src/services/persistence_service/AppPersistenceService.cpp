@@ -151,7 +151,7 @@ private:
       return rdws::utils::dispatchCapability(cap, request, *this, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
-      return ResponseHelper::returnErrorDoc(std::string("Internal error: ") + e.what(), 500);
+      return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 
