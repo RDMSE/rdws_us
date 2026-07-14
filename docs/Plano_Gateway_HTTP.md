@@ -451,9 +451,23 @@ existe mas está vazio.
   `config` → 400; payload válido de `farm.create` segue validação e chega no backend
   normalmente (regressão). Suite completa (`service_gateway_http_e2e_test`, 11 casos)
   e `shared_validation_tests`/`service_gateway_test` passando.
+- ✅ (2026-07-15) Achado durante debug manual: `HttpGateway` tem **duas** rotas de
+  entrada pras mesmas capabilities — o handler `POST /invoke/:capability` (onde a
+  validação acima foi plugada) e um `restHandler` catch-all separado (`server_.Put`/
+  `Patch`/`Delete`/`Get`/`Post` em rotas REST-style tipo `PUT /devices/:id`, que resolve
+  a capability via `EventRouter.resolveFromPath`). O `restHandler` despachava direto
+  pro bus sem passar pelo `CapabilitySchemaRegistry` — ex.: `PUT /devices/123` pra
+  `device.update` não era validado, só `POST /invoke/device.update` era. Corrigido
+  aplicando a mesma checagem (`schemaRegistry_.validate(capability, bodyCheck)`) dentro
+  do `restHandler`, antes do `gateway_.sendRequest(...)` — ambos os caminhos de entrada
+  agora validam contra o schema. Suite `service_gateway_http_e2e_test` (11 casos)
+  seguiu passando após a mudança.
 - Critério de aceite: POST/PUT com campo obrigatório faltando ou tipo errado nunca chega
   no serviço de domínio — 400 direto do gateway. ✅ validado via teste e2e
-  (`SchemaValidation_MissingRequiredField_Returns400` confirma `backendCalled == false`).
+  (`SchemaValidation_MissingRequiredField_Returns400` confirma `backendCalled == false`),
+  cobrindo a rota `/invoke/:capability`; a rota REST-style (`PUT /devices/:id` etc.)
+  reaproveita o mesmo registro de validação (ver nota acima), sem teste e2e dedicado
+  ainda — considerar adicionar um caso via `restHandler` numa próxima passada.
 
 ---
 
