@@ -358,13 +358,15 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 **Decisão de design:** logs não vão para o banco. O gateway já emite logs estruturados JSON via spdlog com arquivo rotativo. O Promtail lê esse arquivo e envia para o Loki; o Grafana consome ambos (PostgreSQL para métricas/requests, Loki para logs).
 
-- ✅ Configurar **Loki** como datasource de logs — `infra/loki/loki-config.yml`, sem retenção configurada ainda (ver pendência abaixo).
+- ✅ Configurar **Loki** como datasource de logs — `infra/loki/loki-config.yml`.
 - ✅ Configurar **Promtail** apontando para o log file rotativo do gateway (zero mudança no código C++) — `infra/promtail/promtail-{dev,qa}.yml`, validado com dados reais fluindo.
 - ✅ Adicionar datasource Loki no Grafana — `infra/grafana/provisioning/datasources/datasources.yml` (uid `rdws-loki`).
 - ✅ Criar dashboard no Grafana unificando métricas (Prometheus), logs (Loki) e histórico
   (PersistenceService/PostgreSQL) — `gateway-overview.json`.
-- ⬜ Definir política de retenção no Loki (período e compressão) — `loki-config.yml` não
-  tem `compactor`/`retention_period`; hoje o Loki guarda tudo indefinidamente.
+- ✅ Definir política de retenção no Loki (período e compressão) — `loki-config.yml` agora tem
+  `limits_config.retention_period: 720h` (30 dias) e `compactor` com `retention_enabled: true`
+  (`delete_request_store: filesystem`, `retention_delete_delay: 2h`); compressão de chunks
+  via `ingester.chunk_encoding: snappy`.
 - Critério de aceite: dado um `requestId`, conseguir navegar do painel de métricas até os
   logs daquele request no Grafana. ⬜ — painéis existem lado a lado no mesmo dashboard, mas
   sem derived fields/data link entre eles; hoje é preciso copiar o `requestId` e filtrar
