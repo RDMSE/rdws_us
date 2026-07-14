@@ -4,6 +4,14 @@
 # Precisa do compose de app já rodando (docker-compose.qa-app.yml up -d) — Prometheus
 # escrapa /metrics/prometheus do gateway.
 name: rdws_qa
+
+x-db-env: &db-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: ${DB_USER:-rdws_user}
+  DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.qa.example)}
+  DB_NAME: ${DB_NAME:-rdws_qa}
+
 services:
   prometheus:
     image: prom/prometheus:latest
@@ -43,6 +51,7 @@ services:
     container_name: rdws_grafana_qa
     restart: unless-stopped
     environment:
+      <<: *db-env
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
