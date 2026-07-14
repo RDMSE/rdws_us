@@ -54,9 +54,9 @@ std::string DeviceRepository::create(const DeviceCreate& data) {
   const std::string deviceStatus = data.status.empty() ? "active" : data.status;
   const bool hasInstallationDate = !data.installationDate.empty();
 
-  std::vector<std::string> columns = {"field_id", "type", "status"};
-  std::vector<std::string> params = {data.fieldId, data.type, deviceStatus};
-  std::vector<std::string> placeholders = {"$1", "$2", "$3"};
+  std::vector<std::string> columns = {"field_id", "type", "status", "updated_by"};
+  std::vector<std::string> params = {data.fieldId, data.type, deviceStatus, data.updatedBy};
+  std::vector<std::string> placeholders = {"$1", "$2", "$3", "$4"};
 
   if (hasInstallationDate) {
     columns.emplace_back("installation_date");
@@ -82,8 +82,9 @@ std::string DeviceRepository::create(const DeviceCreate& data) {
 }
 
 bool DeviceRepository::update(const std::string& id, const DeviceUpdate& data) {
-  std::string query = "UPDATE devices SET type=$1, status=$2, updated_at=now() WHERE id=$3";
-  std::vector<std::string> params = {data.type, data.status, id};
+  std::string query =
+      "UPDATE devices SET type=$1, status=$2, updated_at=now(), updated_by=$3 WHERE id=$4";
+  std::vector<std::string> params = {data.type, data.status, data.updatedBy, id};
   return db_.execCommand(query, params);
 }
 

@@ -189,7 +189,13 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: unit", 400);
     }
 
-    const std::string id = svc.create({.deviceId=deviceId, .type=type, .unit=unit});
+    const SensorCreate data{
+        .deviceId = deviceId,
+        .type = type,
+        .unit = unit,
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
+    const std::string id = svc.create(data);
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
     }
@@ -222,7 +228,12 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: unit", 400);
     }
 
-    const bool ok = svc.update(id, {.type=type, .unit=unit});
+    const SensorUpdate data{
+        .type = type,
+        .unit = unit,
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
+    const bool ok = svc.update(id, data);
     return ok ? ResponseHelper::returnSuccessDoc()
               : ResponseHelper::returnErrorDoc("Failed to update sensor", 500);
   }

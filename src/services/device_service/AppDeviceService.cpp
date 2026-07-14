@@ -265,8 +265,13 @@ private:
       return ResponseHelper::returnErrorDoc(
           "Invalid field: installation_date must be an ISO 8601 date or timestamp", 400);
     }
-    DeviceCreate data{.fieldId = fieldId, .type = type, .status = status};
-    data.installationDate = installationDate;
+    const DeviceCreate data{
+        .fieldId = fieldId,
+        .type = type,
+        .status = status,
+        .installationDate = installationDate,
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
 
     const auto result = svc.create(data);
     if (result.isError()) {
@@ -299,7 +304,12 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: status", 400);
     }
 
-    const auto result = svc.update(id, {.type=type, .status=status});
+    DeviceUpdate data{
+        .type = type,
+        .status = status,
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
+    const auto result = svc.update(id, data);
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());

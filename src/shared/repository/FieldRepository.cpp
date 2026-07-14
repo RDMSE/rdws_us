@@ -56,11 +56,12 @@ std::string FieldRepository::create(const FieldCreate& data) {
   std::vector<std::string> params = {};
 
   if (data.area.empty()) {
-    query = "INSERT INTO fields (farm_id, name) VALUES ($1, $2) RETURNING id";
-    params = {data.farmId, data.name};
+    query = "INSERT INTO fields (farm_id, name, updated_by) VALUES ($1, $2, $3) RETURNING id";
+    params = {data.farmId, data.name, data.updatedBy};
   } else {
-    query = "INSERT INTO fields (farm_id, name, area) VALUES ($1, $2, $3) RETURNING id";
-    params = {data.farmId, data.name, data.area};
+    query =
+        "INSERT INTO fields (farm_id, name, area, updated_by) VALUES ($1, $2, $3, $4) RETURNING id";
+    params = {data.farmId, data.name, data.area, data.updatedBy};
   }
 
   const auto rs = db_.execQuery(query, params);
@@ -72,8 +73,8 @@ std::string FieldRepository::create(const FieldCreate& data) {
 }
 
 bool FieldRepository::update(const std::string& id, const FieldUpdate& data) {
-  std::string query = "UPDATE fields SET name=$1, updated_at=now() WHERE id=$2";
-  std::vector<std::string> params = {data.name, id};
+  std::string query = "UPDATE fields SET name=$1, updated_at=now(), updated_by=$2 WHERE id=$3";
+  std::vector<std::string> params = {data.name, data.updatedBy, id};
 
   return db_.execCommand(query, params);
 }

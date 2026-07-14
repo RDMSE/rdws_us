@@ -23,11 +23,13 @@ struct SensorCreate {
   std::string deviceId;
   std::string type;
   std::string unit;
+  std::string updatedBy;
 };
 
 struct SensorUpdate {
   std::string type;
   std::string unit;
+  std::string updatedBy;
 };
 
 class ISensorRepository {

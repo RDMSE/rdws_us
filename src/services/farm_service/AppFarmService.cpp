@@ -35,6 +35,19 @@ using json::JsonObj;
 
 namespace {
 
+std::string parseLocationWkt(const rapidjson::Document& req) {
+  const auto* location = json::getObject(req, "location");
+  if (location == nullptr) {
+    return {};
+  }
+  const auto lat = json::getDouble(*location, "lat");
+  const auto lng = json::getDouble(*location, "lng");
+  if (!lat.has_value() || !lng.has_value()) {
+    return {};
+  }
+  return "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";
+}
+
 rapidjson::Value farmToJson(const Farm& f, rapidjson::Document::AllocatorType& alloc) {
   JsonObj obj(alloc);
   obj.set("id", f.id)
@@ -171,17 +184,11 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
-    FarmCreate data;
-    data.name = name;
-    if (const auto* location = json::getObject(req, "location"); location != nullptr) {
-      const auto& loc = *location;
-      const auto lat = json::getDouble(loc, "lat");
-      const auto lng = json::getDouble(loc, "lng");
-      if (lat.has_value() && lng.has_value()) {
-        data.locationWkt =
-            "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";
-      }
-    }
+    const FarmCreate data{
+        .name = name,
+        .locationWkt = parseLocationWkt(req),
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
 
     const std::string id = svc.create(data);
     if (id.empty()) {
@@ -210,17 +217,11 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
-    FarmUpdate data;
-    data.name = name;
-    if (const auto* location = json::getObject(req, "location"); location != nullptr) {
-      const auto& loc = *location;
-      const auto lat = json::getDouble(loc, "lat");
-      const auto lng = json::getDouble(loc, "lng");
-      if (lat.has_value() && lng.has_value()) {
-        data.locationWkt =
-            "POINT(" + std::to_string(lng.value()) + " " + std::to_string(lat.value()) + ")";
-      }
-    }
+    const FarmUpdate data{
+        .name = name,
+        .locationWkt = parseLocationWkt(req),
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
 
     const bool ok = svc.update(id, data);
     return ok ? ResponseHelper::returnSuccessDoc()

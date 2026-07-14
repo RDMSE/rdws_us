@@ -65,6 +65,29 @@ const rapidjson::Value* getArray(const rapidjson::Value& doc, const std::string&
   return nullptr;
 }
 
+std::optional<std::string> getActorSubject(const rapidjson::Value& req) {
+  const auto* lambdaContext = getObject(req, "lambdaContext");
+  if (!lambdaContext) {
+    return std::nullopt;
+  }
+  const auto* identity = getObject(*lambdaContext, "identity");
+  if (!identity) {
+    return std::nullopt;
+  }
+  // Prefer the human-readable "username" claim (e.g. JWT payload) over the
+  // raw "sub" (often just a numeric user id) when both are available.
+  if (const auto* claims = getObject(*identity, "claims"); claims) {
+    if (const auto username = getString(*claims, "username")) {
+      return username;
+    }
+  }
+  return getString(*identity, "subject");
+}
+
+std::string getActorSubjectOrDefault(const rapidjson::Value& req) {
+  return getActorSubject(req).value_or("system");
+}
+
 std::string docToString(const rapidjson::Value& doc) {
   rapidjson::StringBuffer buf;
   rapidjson::Writer<rapidjson::StringBuffer> w(buf);

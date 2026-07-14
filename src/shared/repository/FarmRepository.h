@@ -20,11 +20,13 @@ struct Farm {
 struct FarmCreate {
   std::string name;
   std::string locationWkt; // empty = no geometry
+  std::string updatedBy;
 };
 
 struct FarmUpdate {
   std::string name;
   std::string locationWkt;
+  std::string updatedBy;
 };
 
 class IFarmRepository {
