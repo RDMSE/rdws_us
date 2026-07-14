@@ -349,6 +349,10 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    por instância); ver `Plano_Gateway_HTTP.md` (Fase 14) para o levantamento completo e o
    plano de migração de `routes.json`/`GatewayConfig` para o banco. Só entra depois de
    todas as etapas acima estarem estáveis em produção.
+10. **Habilitar Log volume no Loki** — backlog, sem data. `infra/loki/loki-config.yml`
+    não tem `limits_config.volume_enabled: true`; sem isso, o recurso de "Log volume"
+    do Explore do Grafana (histograma de volume de logs) mostra aviso de não configurado.
+    Não afeta o dashboard principal (`gateway-overview.json`), só o Explore.
 
 ## Verificação
 
