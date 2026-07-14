@@ -1,16 +1,16 @@
-# Prometheus + Loki + Promtail + Grafana do ambiente dev. Projeto Compose próprio
-# (não junta rede com dev-db/qa) — o gateway de dev roda nativo (fora do Docker, via
-# CMake) na mesma máquina onde este compose é executado, não como container.
-# Prometheus escrapa via host.docker.internal; Promtail lê o arquivo de log local
-# (logs/rdws-gateway.log), montado read-only — sem mudança nenhuma no logger.cpp.
+# Prometheus + Loki + Promtail + Grafana for the dev environment. Own Compose project
+# (doesn't join the dev-db/qa network) — the dev gateway runs natively (outside Docker,
+# via CMake) on the same machine this compose runs on, not as a container.
+# Prometheus scrapes via host.docker.internal; Promtail reads the local log file
+# (logs/rdws-gateway.log), mounted read-only — no change to logger.cpp needed.
 #
-# Sob demanda, não sempre no ar (ao contrário do stack de QA na homelab): sem
-# `restart:` — não volta sozinho se o Docker Desktop reiniciar. Suba quando for
-# investigar algo e derrube depois (`down`), em vez de deixar rodando em background
-# o tempo todo:
+# On demand, not always up (unlike the QA stack on the homelab): no `restart:` — won't
+# come back on its own if Docker Desktop restarts. Bring it up when investigating
+# something and tear it down afterwards (`down`), instead of leaving it running in the
+# background all the time:
 #   docker compose -f docker-compose.dev-observability.yml --env-file .env.dev-db up -d
-# (--env-file necessário: datasource Postgres do Grafana usa as mesmas credenciais do
-# docker-compose.dev-db.yml pra acessar o Postgres de dev no fedora-server via Tailscale.)
+# (--env-file required: Grafana's Postgres datasource uses the same credentials as
+# docker-compose.dev-db.yml to reach the dev Postgres on fedora-server via Tailscale.)
 name: rdws_dev_obs
 services:
   prometheus:
@@ -47,10 +47,10 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: rdws_grafana_dev
-    # dns aponta pro resolver MagicDNS do Tailscale (100.100.100.100) — só assim o
-    # container resolve "fedora-server" (Postgres de dev). Rede continua bridge normal
-    # (não network_mode: host): host_mode quebrava a resolução dos nomes dos containers
-    # vizinhos (prometheus/loki), deixando os painéis desses datasources vazios.
+    # dns points to Tailscale's MagicDNS resolver (100.100.100.100) — that's the only
+    # way the container resolves "fedora-server" (dev Postgres). Network stays plain
+    # bridge (not network_mode: host): host mode broke resolution of sibling container
+    # names (prometheus/loki), leaving those datasources' panels empty.
     dns:
       - 100.100.100.100
     environment:
