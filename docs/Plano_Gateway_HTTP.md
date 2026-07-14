@@ -217,7 +217,10 @@ PersistenceService ──subscreve──> acumula em buffer interno ──batch 
 - ✅ Implementar `PersistenceService` com buffer interno e batch upsert no PostgreSQL.
 - ✅ Criar migrations Flyway para `request_history` e `capability_metrics`.
 - ⬜ Implementar job de cleanup de registros antigos.
-- ⬜ Adicionar `PersistenceService` como datasource no Grafana (fase 11) — depende do `Plano_Deployment.md`.
+- ✅ Adicionar `PersistenceService` como datasource no Grafana — datasource Postgres provisionado via arquivo (`infra/grafana/provisioning/datasources/datasources.yml`, uid `rdws-persistence`), credenciais injetadas via `$__env{...}` (compartilhando o mesmo `x-db-env` do QA). Testado de ponta a ponta contra o Postgres real de dev no fedora-server: `health` OK e query real em `capability_metrics`/`request_history`.
+  - Achado no teste: sintaxe de interpolação errada na primeira tentativa (`$ENV{...}` não existe; Grafana usa `$__env{...}`).
+  - Achado no teste: Grafana de dev roda em container e precisa resolver `fedora-server` via Tailscale MagicDNS — rede bridge comum não herda esse DNS do host. Tentativa inicial com `network_mode: host` resolveu o Postgres mas quebrou a resolução dos containers vizinhos (prometheus/loki), deixando os painéis desses datasources vazios. Fix definitivo: manter rede bridge e apontar `dns: [100.100.100.100]` (resolver MagicDNS do Tailscale) no serviço `grafana`, que preserva a resolução interna do Compose.
+  - Painéis adicionados ao dashboard `gateway-overview.json` usando o datasource `PersistenceService` (histórico independente do gateway estar rodando/scraped): requests por capability, latência avg/p99, tabela de request history recente.
 - Critério de aceite: queda do PersistenceService não afeta gateway; request history e métricas consultáveis no banco após reconexão. ✅ (corrigido e testado em 2026-07-08 — ver bugs abaixo; o critério original estava marcado ✅ mas não tinha sido validado de ponta a ponta contra reconexão real)
 
 **Quatro bugs reais encontrados e corrigidos no primeiro deploy real em QA (2026-07-08/09)**

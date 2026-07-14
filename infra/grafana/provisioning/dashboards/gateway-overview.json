@@ -99,6 +99,57 @@
           "expr": "{env=~\".+\"}"
         }
       ]
+    },
+    {
+      "id": 7,
+      "title": "Requests per Capability (history, PersistenceService)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT window_start AS time, capability, request_count FROM capability_metrics WHERE $__timeFilter(window_start) ORDER BY window_start",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Avg / p99 Latency per Capability (ms, history)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT window_start AS time, capability || ' avg' AS metric, avg_latency_ms AS value FROM capability_metrics WHERE $__timeFilter(window_start) ORDER BY window_start",
+          "rawQuery": true
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawSql": "SELECT window_start AS time, capability || ' p99' AS metric, p99_latency_ms AS value FROM capability_metrics WHERE $__timeFilter(window_start) ORDER BY window_start",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Recent Request History",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 40 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT recorded_at, request_id, capability, service_id, success, latency_ms FROM request_history WHERE $__timeFilter(recorded_at) ORDER BY recorded_at DESC LIMIT 200",
+          "rawQuery": true
+        }
+      ]
     }
   ]
 }
