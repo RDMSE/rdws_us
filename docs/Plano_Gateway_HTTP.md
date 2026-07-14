@@ -366,7 +366,8 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 - ✅ Definir política de retenção no Loki (período e compressão) — `loki-config.yml` agora tem
   `limits_config.retention_period: 720h` (30 dias) e `compactor` com `retention_enabled: true`
   (`delete_request_store: filesystem`, `retention_delete_delay: 2h`); compressão de chunks
-  via `ingester.chunk_encoding: snappy`.
+  via `ingester.chunk_encoding: snappy`. Validado em QA: compactor sobe e aplica retenção
+  (`applying retention with compaction`), sem erros nos logs.
 - Critério de aceite: dado um `requestId`, conseguir navegar do painel de métricas até os
   logs daquele request no Grafana. ⬜ — painéis existem lado a lado no mesmo dashboard, mas
   sem derived fields/data link entre eles; hoje é preciso copiar o `requestId` e filtrar
