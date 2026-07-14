@@ -14,3 +14,17 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
+  - name: PersistenceService
+    uid: rdws-persistence
+    type: postgres
+    access: proxy
+    url: $__env{DB_HOST}:$__env{DB_PORT}
+    database: $__env{DB_NAME}
+    user: $__env{DB_USER}
+    secureJsonData:
+      password: $__env{DB_PASSWORD}
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    editable: false
