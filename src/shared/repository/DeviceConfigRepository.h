@@ -13,10 +13,12 @@ struct DeviceConfig {
   std::string config; // JSON string (from JSONB)
   std::string createdAt;
   std::string updatedAt; // empty if NULL
+  std::string updatedBy;
 };
 
 struct DeviceConfigUpdate {
   std::string configJson; // serialized JSON
+  std::string updatedBy;
 };
 
 // device_config is 1:1 with device — the row is created by a trigger in Postgres alongside the

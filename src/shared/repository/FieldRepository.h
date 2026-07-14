@@ -23,10 +23,12 @@ struct FieldCreate {
   std::string farmId;
   std::string name;
   std::string area; // empty = no area
+  std::string updatedBy;
 };
 
 struct FieldUpdate {
   std::string name;
+  std::string updatedBy;
 };
 
 class IFieldRepository {

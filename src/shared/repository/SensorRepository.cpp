@@ -49,9 +49,9 @@ std::optional<Sensor> SensorRepository::findById(const std::string& id) {
 }
 
 std::string SensorRepository::create(const SensorCreate& data) {
-  std::string query =
-      "INSERT INTO sensors (device_id, type, unit) VALUES ($1, $2, $3) RETURNING id";
-  std::vector<std::string> params = {data.deviceId, data.type, data.unit};
+  std::string query = "INSERT INTO sensors (device_id, type, unit, updated_by) "
+                       "VALUES ($1, $2, $3, $4) RETURNING id";
+  std::vector<std::string> params = {data.deviceId, data.type, data.unit, data.updatedBy};
 
   auto rs = db_.execQuery(query, params);
   if (!rs->next()) {
@@ -61,8 +61,9 @@ std::string SensorRepository::create(const SensorCreate& data) {
 }
 
 bool SensorRepository::update(const std::string& id, const SensorUpdate& data) {
-  std::string query = "UPDATE sensors SET type=$1, unit=$2, updated_at=now() WHERE id=$3";
-  std::vector<std::string> params = {data.type, data.unit, id};
+  std::string query =
+      "UPDATE sensors SET type=$1, unit=$2, updated_at=now(), updated_by=$3 WHERE id=$4";
+  std::vector<std::string> params = {data.type, data.unit, data.updatedBy, id};
   return db_.execCommand(query, params);
 }
 

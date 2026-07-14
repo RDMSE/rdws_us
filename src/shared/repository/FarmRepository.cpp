@@ -41,13 +41,14 @@ std::optional<Farm> FarmRepository::findById(const std::string& id) {
 
 std::string FarmRepository::create(const FarmCreate& data) {
   const bool hasLocation = !data.locationWkt.empty();
-  const std::string sql = hasLocation ? "INSERT INTO farms (name, location) VALUES ($1, "
-                                        "ST_SetSRID(ST_GeomFromText($2),4326)) RETURNING id"
-                                      : "INSERT INTO farms (name) VALUES ($1) RETURNING id";
+  const std::string sql =
+      hasLocation ? "INSERT INTO farms (name, location, updated_by) VALUES ($1, "
+                    "ST_SetSRID(ST_GeomFromText($2),4326), $3) RETURNING id"
+                  : "INSERT INTO farms (name, updated_by) VALUES ($1, $2) RETURNING id";
 
   const std::vector<std::string> params =
-      hasLocation ? std::vector<std::string>{data.name, data.locationWkt}
-                  : std::vector<std::string>{data.name};
+      hasLocation ? std::vector<std::string>{data.name, data.locationWkt, data.updatedBy}
+                  : std::vector<std::string>{data.name, data.updatedBy};
 
   auto rs = db_.execQuery(sql, params);
   if (!rs->next()) {
@@ -60,12 +61,12 @@ bool FarmRepository::update(const std::string& id, const FarmUpdate& data) {
   const bool hasLocation = !data.locationWkt.empty();
   const std::string sql =
       hasLocation ? "UPDATE farms SET name=$1, location=ST_SetSRID(ST_GeomFromText($2),4326), "
-                    "updated_at=now() WHERE id=$3"
-                  : "UPDATE farms SET name=$1, updated_at=now() WHERE id=$2";
+                    "updated_at=now(), updated_by=$3 WHERE id=$4"
+                  : "UPDATE farms SET name=$1, updated_at=now(), updated_by=$2 WHERE id=$3";
 
   const std::vector<std::string> params =
-      hasLocation ? std::vector<std::string>{data.name, data.locationWkt, id}
-                  : std::vector<std::string>{data.name, id};
+      hasLocation ? std::vector<std::string>{data.name, data.locationWkt, data.updatedBy, id}
+                  : std::vector<std::string>{data.name, data.updatedBy, id};
 
   return db_.execCommand(sql, params);
 }
