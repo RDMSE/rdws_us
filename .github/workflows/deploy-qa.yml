@@ -29,7 +29,7 @@ jobs:
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
           DB_NAME=${{ secrets.DB_NAME }}
           RDWS_JWT_SECRET=${{ secrets.RDWS_JWT_SECRET }}
-          RDWS_JWT_ISSUER=
+          RDWS_JWT_ISSUER=${{ vars.RDWS_JWT_ISSUER }}
           RDWS_JWT_AUDIENCE=
           EOF
 
