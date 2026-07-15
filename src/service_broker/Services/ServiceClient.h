@@ -3,7 +3,11 @@
 #include "ServiceIdentity.h"
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <functional>
+#include <map>
+#include <mutex>
 #include <rapidjson/document.h>
 #include <string>
 #include <thread>
@@ -11,6 +15,14 @@
 namespace servicegateway {
 
 using RequestHandler = std::function<rapidjson::Document(const rapidjson::Document& request)>;
+
+// Result of a synchronous cross-service call made via ServiceClient::invoke().
+struct InvokeResult {
+  bool success = false;
+  int statusCode = 0;
+  std::string responsePayload; // raw JSON of the "data" field on success
+  std::string errorMessage;    // set when success is false
+};
 
 class ServiceClient {
 private:
@@ -24,6 +36,16 @@ private:
   std::thread pingThread;
 
   RequestHandler requestHandler;
+
+  // Pending outbound invoke() calls awaiting an INVOKE_RESPONSE, keyed by requestId.
+  struct PendingInvoke {
+    bool done = false;
+    InvokeResult result;
+  };
+  std::atomic<uint64_t> invokeCounter{0};
+  std::map<std::string, std::shared_ptr<PendingInvoke>> pendingInvokes;
+  std::mutex invokeMutex;
+  std::condition_variable invokeCv;
 
 public:
   explicit ServiceClient(ServiceIdentity serviceIdentity,
@@ -52,6 +74,13 @@ public:
   [[nodiscard]] bool sendResponse(const std::string& requestId,
                                   const rapidjson::Document& response) const;
 
+  // Synchronous call to another service's capability, routed through the gateway
+  // (ServiceGateway::handleInvokeMessage) — hides requestId generation, correlation
+  // and timeout from the caller. Blocks the calling thread until the response
+  // arrives or the timeout elapses.
+  [[nodiscard]] InvokeResult invoke(const std::string& capability, const rapidjson::Document& data,
+                                    std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
+
   // Main event loop
   void run();
   void stop();
@@ -66,6 +95,7 @@ private:
   // Message handlers
   void handleMessage(const std::string& message);
   void handleRequest(const rapidjson::Document& message);
+  void handleInvokeResponse(const rapidjson::Document& message);
   static void handlePong(const rapidjson::Document& message);
 };
 

@@ -352,6 +352,8 @@ void ServiceGateway::handleClientMessage(const int clientFd, const std::string& 
       handlePingMessage(clientFd, jsonMessage);
     } else if (messageType.value() == "RESPONSE") {
       handleResponseMessage(clientFd, jsonMessage);
+    } else if (messageType.value() == "INVOKE") {
+      handleInvokeMessage(clientFd, jsonMessage);
     } else {
       logger::warn("Unknown message type", messageType.value());
     }
@@ -552,6 +554,39 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
   logger::info("response_correlated", requestId.value() + " service=" + pending.targetServiceId + " state=" + requestStateToString(pending.state));
 
+  // Requests originated by another service via ServiceClient::invoke() (the INVOKE
+  // protocol) have no HTTP thread blocked in waitForResponse() to consume them —
+  // forward the result directly to the originating service's connection instead,
+  // and reclaim the slot since nothing else will erase it.
+  if (pending.originatorFd != -1) {
+    const int originatorFd = pending.originatorFd;
+
+    rapidjson::Document invokeResponse;
+    invokeResponse.SetObject();
+    auto& alloc = invokeResponse.GetAllocator();
+    json::JsonObj invokeResponseObj(alloc);
+    invokeResponseObj.set("type", "INVOKE_RESPONSE")
+        .set("requestId", requestId.value())
+        .set("statusCode", pending.statusCode)
+        .set("success", !isError);
+    if (isError) {
+      invokeResponseObj.set("error", pending.errorMessage);
+    } else {
+      rapidjson::Value data;
+      if (message.HasMember("data")) {
+        data.CopyFrom(message["data"], alloc);
+      } else {
+        data.SetObject();
+      }
+      invokeResponseObj.setValue("data", std::move(data));
+    }
+    rapidjson::Value invokeResponseValue = invokeResponseObj.take();
+    invokeResponse.Swap(invokeResponseValue);
+
+    sendMessage(originatorFd, json::docToString(invokeResponse));
+    pendingRequests.erase(it);
+  }
+
   // Publish request lifecycle event (bus_.publish is non-blocking)
   {
     rapidjson::Document ev;
@@ -568,6 +603,87 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
     evValue.Swap(ev);
     bus_.publish("request.completed", ev);
+  }
+
+  return true;
+}
+
+bool ServiceGateway::handleInvokeMessage(const int clientFd, const rapidjson::Document& message) {
+  const auto requestId = json::getString(message, "requestId");
+  const auto capability = json::getString(message, "capability");
+
+  if (!requestId.has_value() || !capability.has_value() || !message.HasMember("data")) {
+    logger::error("Invalid INVOKE message from client", "fd=" + std::to_string(clientFd));
+    return false;
+  }
+
+  rapidjson::Document invokeData;
+  invokeData.CopyFrom(message["data"], invokeData.GetAllocator());
+  const std::string resolvedCapability = router_.resolve(capability.value(), invokeData);
+  const LoadBalancingStrategy effectiveStrategy = config_.lbStrategyFor(resolvedCapability);
+  const std::string targetServiceId = registry.selectBestService(resolvedCapability, effectiveStrategy);
+
+  if (targetServiceId.empty()) {
+    logger::warn("No available service for capability", resolvedCapability);
+    rapidjson::Document errorResponse;
+    errorResponse.SetObject();
+    auto& alloc = errorResponse.GetAllocator();
+    rapidjson::Value errorValue = json::JsonObj(alloc)
+        .set("type", "INVOKE_RESPONSE")
+        .set("requestId", requestId.value())
+        .set("statusCode", 503)
+        .set("success", false)
+        .set("error", "No available service for capability " + resolvedCapability)
+        .take();
+    errorResponse.Swap(errorValue);
+    sendMessage(clientFd, json::docToString(errorResponse));
+    return false;
+  }
+
+  PendingRequest pending;
+  pending.requestId = requestId.value();
+  pending.targetServiceId = targetServiceId;
+  pending.capability = resolvedCapability;
+  pending.requestPayload = json::docToString(message["data"]);
+  pending.state = RequestState::QUEUED;
+  pending.statusCode = 202;
+  pending.createdAt = std::chrono::steady_clock::now();
+  pending.updatedAt = pending.createdAt;
+  pending.originatorFd = clientFd;
+
+  {
+    std::scoped_lock lock(requestsMutex);
+    pendingRequests[requestId.value()] = pending;
+  }
+
+  rapidjson::Document requestMessage;
+  requestMessage.SetObject();
+  auto& allocator = requestMessage.GetAllocator();
+
+  rapidjson::Value data;
+  data.CopyFrom(message["data"], allocator);
+
+  rapidjson::Value requestMessageValue = json::JsonObj(allocator)
+      .set("type", "REQUEST")
+      .set("requestId", requestId.value())
+      .set("capability", resolvedCapability)
+      .setValue("data", std::move(data))
+      .take();
+  requestMessage.Swap(requestMessageValue);
+
+  if (!sendDirectRequest(targetServiceId, requestMessage)) {
+    std::scoped_lock lock(requestsMutex);
+    pendingRequests.erase(requestId.value());
+    return false;
+  }
+
+  {
+    std::scoped_lock lock(requestsMutex);
+    auto it = pendingRequests.find(requestId.value());
+    if (it != pendingRequests.end() && it->second.state == RequestState::QUEUED) {
+      it->second.state = RequestState::IN_FLIGHT;
+      it->second.updatedAt = std::chrono::steady_clock::now();
+    }
   }
 
   return true;

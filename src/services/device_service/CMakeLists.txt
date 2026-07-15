@@ -1,6 +1,6 @@
 add_executable(device_service AppDeviceService.cpp
+    FieldServiceClient.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceRepository.cpp
-    ${CMAKE_SOURCE_DIR}/src/shared/repository/FieldRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceService.cpp
 )
 
