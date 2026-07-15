@@ -41,12 +41,19 @@ target_include_directories(rapidjson_wrapper INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/valijson/thirdparty/rapidjson/include
 )
 
+# Third-party deps below use URL (tarball) downloads instead of GIT_REPOSITORY —
+# a plain HTTPS GET has a bounded TIMEOUT/INACTIVITY_TIMEOUT and fails fast on a
+# flaky/blocked connection, whereas `git clone` (no timeout by default) can hang the
+# whole CI job indefinitely on a network hiccup (same reasoning as googletest above).
+
 # tl::expected (header-only library)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     tl_expected
-    GIT_REPOSITORY https://github.com/TartanLlama/expected.git
-    GIT_TAG v1.1.0
+    URL https://github.com/TartanLlama/expected/archive/refs/tags/v1.1.0.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(tl_expected)
 
@@ -58,8 +65,10 @@ target_include_directories(expected_wrapper INTERFACE
 # cpp-httplib (header-only HTTP server)
 FetchContent_Declare(
     httplib
-    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-    GIT_TAG v0.15.3
+    URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.15.3.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(httplib)
 
@@ -71,8 +80,10 @@ target_include_directories(httplib_wrapper INTERFACE
 # fmt (string formatting — used directly and by spdlog)
 FetchContent_Declare(
     fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG 11.0.2
+    URL https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(fmt)
 
@@ -80,8 +91,10 @@ FetchContent_MakeAvailable(fmt)
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.14.1
+    URL https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(spdlog)
 

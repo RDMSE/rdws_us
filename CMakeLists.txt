@@ -38,6 +38,8 @@ if(BUILD_TESTING)
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
   )
   FetchContent_MakeAvailable(googletest)
 endif()

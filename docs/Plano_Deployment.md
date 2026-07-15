@@ -340,7 +340,21 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    automatizar um fluxo que já foi validado manualmente em cada etapa anterior.
    - ✅ `ci.yml` (build + `ctest` no runner self-hosted) validado com PR real (ver
      `Plano_Gateway_HTTP.md` Fase 10b para o detalhe do bug de submodules corrigido).
-   - ⬜ Push pro GHCR, `deploy-qa.yml`, `deploy-prod.yml`, secrets no GitHub — pendente.
+   - ✅ `deploy-qa.yml` já existia e funciona (build local no runner self-hosted, sem
+     depender do GHCR — homelab builda e sobe direto).
+   - ✅ Job `push-ghcr` adicionado ao `ci.yml` (matrix por serviço, publica
+     `ghcr.io/rdmeneze/rdws_us/<service>:<sha|qa|latest>` só em push na `main`, usando
+     `GITHUB_TOKEN`, sem secret novo).
+   - ✅ `docker-compose.prod-db.yml`/`docker-compose.prod-app.yml` criados (mesmo padrão
+     de QA, mas puxando imagem do GHCR via `IMAGE_TAG` em vez de buildar; limites de
+     memória por serviço somando ao teto de 1GB da VPS) e `deploy-prod.yml` criado
+     (gatilho `workflow_dispatch` com input `image_tag`, `environment: production`,
+     roda via `DOCKER_HOST=ssh://...` contra a VPS, sem rebuild — promoção de imagem já
+     testada em QA). `.env.prod.example` documenta as variáveis esperadas.
+   - ⬜ **Pendente, fora do alcance de automação**: provisionar a VPS (Docker instalado,
+     chave SSH autorizada), criar o GitHub Environment `production` com os secrets/vars
+     reais (`PROD_SSH_KEY`, `PROD_SSH_USER`, `PROD_HOST`, `DB_PASSWORD`,
+     `RDWS_JWT_SECRET` de prod) e disparar o primeiro `workflow_dispatch` de verdade.
 8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
    (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
    pipeline de ingestão já estável, plano próprio detalha seu desenho.
