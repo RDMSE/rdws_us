@@ -544,9 +544,14 @@ ficaram de fora do escopo por decisão do usuário:
 - ✅ Definir e implementar propagação de identidade do chamador (JWT `sub`/claims) desde o
   `HttpGateway`/middleware de auth até os handlers de cada serviço, para popular `updated_by`
   de forma consistente em todos os CRUDs.
-- ⬜ Desenhar fluxo de atualização de `devices.location` a partir de leituras de GPS recebidas
+- ✅ Desenhar fluxo de atualização de `devices.location` a partir de leituras de GPS recebidas
   via `sensor_reading_service` (ou capability dedicada), incluindo se `location` deve refletir
-  a última leitura ou ter histórico próprio.
+  a última leitura ou ter histórico próprio. Decisão: `devices.location` continua sendo
+  sobrescrito a cada leitura (reflete a posição atual); histórico fica em nova tabela
+  `device_location_history`, populada por trigger em `devices` (`AFTER UPDATE OF location`)
+  que só grava uma nova linha quando o deslocamento ultrapassa um limiar configurável por
+  device (`device_configurations.config->>'location_threshold_m'`, fallback 10m), para
+  filtrar ruído de imprecisão de GPS. Ver `db/migrations/V4__device_location_history.sql`.
 - ⬜ Avaliar se isso deve virar um sistema de auditoria mais amplo (ex. tabela de audit log com
   quem/quando/o quê mudou) em vez de apenas preencher `updated_by`/`updated_at` inline.
 
