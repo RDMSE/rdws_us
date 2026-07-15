@@ -35,3 +35,50 @@ jobs:
         if: always()
         run: |
           docker image rm rdws_us-builder:${{ github.sha }} rdws_us-gateway:${{ github.sha }} || true
+
+  push-ghcr:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, homelab, docker]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - service_gateway_http
+          - auth_service
+          - farm_service
+          - field_service
+          - device_service
+          - device_config_service
+          - sensor_service
+          - sensor_reading_service
+          - persistence_service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          docker build --build-arg SERVICE=${{ matrix.service }} \
+            -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:qa" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:qa"
+          docker push "$IMAGE:latest"
+
+      - name: Clean up local images
+        if: always()
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          docker image rm "$IMAGE:${{ github.sha }}" "$IMAGE:qa" "$IMAGE:latest" || true
