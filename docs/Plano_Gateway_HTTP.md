@@ -627,16 +627,40 @@ serviço deve instanciar repository de domínio alheio — e priorizar a impleme
 mecanismo quando aparecer a segunda ocorrência real do padrão, ou como parte de um esforço
 maior de desacoplamento.
 
-- ⬜ Adicionar um client de conveniência sobre `ServiceClient` para chamadas síncronas
-  entre serviços (ex. `invoke("field_service", "validateFieldExists", {field_id})`),
-  escondendo `requestId`/timeout/correlação do call site.
-- ⬜ Migrar `device_service` para usar esse client em vez de `FieldRepository` direto,
-  removendo a dependência cruzada em `DeviceService.h`.
-- ⬜ Documentar a convenção (ex. neste plano ou em `Plano_Arquitetura.md`, se existir):
-  nenhum serviço acessa repository de domínio que não é o seu — toda leitura/validação
-  cross-domínio passa pelo Gateway.
-- Critério de aceite: `device_service` não depende mais de `FieldRepository`/`IFieldRepository`;
-  validação de `field_id` passa pela chamada síncrona ao `field_service`.
+- ✅ Adicionar um client de conveniência sobre `ServiceClient` para chamadas síncronas
+  entre serviços (`ServiceClient::invoke(capability, data, timeout)`,
+  `src/service_broker/Services/ServiceClient.h/.cpp`), escondendo `requestId`/timeout/
+  correlação do call site. **Nota de implementação:** o mecanismo descrito acima
+  (`sendDirectRequest`/`waitForResponse`/`requestId`) só existia no `ServiceGateway`
+  (o broker), não no `ServiceClient` que cada serviço embute — não havia como um
+  serviço *originar* uma chamada. Foi necessário estender o protocolo de fio com dois
+  tipos de mensagem novos: `INVOKE` (cliente → gateway, mesmo shape de `sendRequest`
+  mas com `requestId` gerado pelo próprio cliente, ex. `device_001-invoke-3`) e
+  `INVOKE_RESPONSE` (gateway → cliente originador, encaminhado a partir da `RESPONSE`
+  recebida do serviço alvo). Ver `ServiceGateway::handleInvokeMessage` +
+  `PendingRequest::originatorFd` (encaminhamento em `handleResponseMessage`) e
+  `ServiceClient::invoke`/`handleInvokeResponse`. Roteamento de capability (catálogo +
+  load balancing) é reaproveitado de `sendRequest` — `invoke()` chama por *capability*
+  (ex. `"field.get"`), não por serviceId direto.
+- ✅ Migrar `device_service` para usar esse client em vez de `FieldRepository` direto,
+  removendo a dependência cruzada em `DeviceService.h`. `DeviceService` agora depende
+  de uma interface estreita `rdws::field::IFieldValidator` (só `exists(fieldId)`,
+  `src/shared/service/IFieldValidator.h`) em vez de `IFieldRepository` inteiro — evita
+  expor `findAll`/`create`/`update`/`remove` de field num validador que só precisa
+  checar existência. Implementação concreta:
+  `src/services/device_service/FieldServiceClient.{h,cpp}`, que chama
+  `client->invoke("field.get", {pathParameters: {id}})` e interpreta o envelope de
+  resposta (`success`/`statusCode`).
+- ✅ Documentar a convenção: nenhum serviço acessa repository de domínio que não é o
+  seu — toda leitura/validação cross-domínio passa pelo Gateway via
+  `ServiceClient::invoke`.
+- Critério de aceite: `device_service` não depende mais de `FieldRepository`/`IFieldRepository`
+  (confirmado — nem inclui mais o header); validação de `field_id` passa pela chamada
+  síncrona ao `field_service` via `ServiceClient::invoke("field.get", ...)`.
+- Cobertura de teste: `src/service_broker/tests/test_gateway_integration.cpp` —
+  `Invoke_CallerReachesResponder_Success` e `Invoke_NoServiceForCapability_ReturnsFailure`
+  exercitam o protocolo INVOKE/INVOKE_RESPONSE fim a fim (gateway real + dois
+  `ServiceClient`s reais, sem mocks).
 
 ---
 
