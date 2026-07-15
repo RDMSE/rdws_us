@@ -133,20 +133,27 @@ private:
     try {
       rdws::utils::Profiler profiler(identity.serviceId);
       auto t = profiler.scoped(cap);
-      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
+      const rdws::utils::CapabilityContext ctx{request, profiler};
+      return rdws::utils::dispatchCapability(cap, ctx, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 
-  static rapidjson::Document handleList(const rapidjson::Document& req,
+  static rapidjson::Document handleList(const rdws::utils::CapabilityContext& ctx,
                                         rdws::field::FieldService& svc) {
+    const auto& req = ctx.request;
     const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
     if (!farmId.empty() && !isNumericId(farmId)) {
       return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be numeric", 400);
     }
-    const auto fields = svc.findAll(farmId);
+    const auto fields = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findAll(farmId);
+    }();
+
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& f : fields) {
@@ -156,8 +163,9 @@ private:
     });
   }
 
-  static rapidjson::Document handleGet(const rapidjson::Document& req,
+  static rapidjson::Document handleGet(const rdws::utils::CapabilityContext& ctx,
                                        rdws::field::FieldService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -166,17 +174,22 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
-    const auto field = svc.findById(id);
+    const auto field = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findById(id);
+    }();
     if (!field) {
       return ResponseHelper::returnErrorDoc("Field not found", 404);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return fieldToJson(field.value(), alloc); });
   }
 
-  static rapidjson::Document handleCreate(const rapidjson::Document& req,
+  static rapidjson::Document handleCreate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::field::FieldService& svc) {
+    const auto& req = ctx.request;
     std::string farmId = json::getString(req, "farm_id").value_or(std::string{});
     std::string name = json::getString(req, "name").value_or(std::string{});
 
@@ -207,11 +220,15 @@ private:
       .updatedBy = json::getActorSubjectOrDefault(req)
     };
 
-    const std::string id = svc.create(data);
+    const std::string id = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.create(data);
+    }();
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Failed to create field", 500);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
           return JsonObj(alloc).set("id", id).take();
@@ -219,8 +236,9 @@ private:
         201);
   }
 
-  static rapidjson::Document handleUpdate(const rapidjson::Document& req,
+  static rapidjson::Document handleUpdate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::field::FieldService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -238,13 +256,15 @@ private:
         .name = name,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
+    auto t = ctx.profiler.scoped("db.query");
     const bool ok = svc.update(id, data);
     return ok ? ResponseHelper::returnSuccessDoc()
               : ResponseHelper::returnErrorDoc("Failed to update field", 500);
   }
 
-  static rapidjson::Document handleDelete(const rapidjson::Document& req,
+  static rapidjson::Document handleDelete(const rdws::utils::CapabilityContext& ctx,
                                           rdws::field::FieldService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -253,6 +273,7 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
+    auto t = ctx.profiler.scoped("db.query");
     const bool ok = svc.remove(id);
     return ok ? ResponseHelper::returnSuccessDoc(204)
               : ResponseHelper::returnErrorDoc("Failed to delete field", 500);
