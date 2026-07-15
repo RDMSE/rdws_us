@@ -541,7 +541,7 @@ ficaram de fora do escopo por decisão do usuário:
   chamador (claims do JWT) até a camada de repositório. Levantado como possível "sistema de
   auditoria" completo (quem criou/alterou cada registro), não apenas os campos soltos.
 
-- ⬜ Definir e implementar propagação de identidade do chamador (JWT `sub`/claims) desde o
+- ✅ Definir e implementar propagação de identidade do chamador (JWT `sub`/claims) desde o
   `HttpGateway`/middleware de auth até os handlers de cada serviço, para popular `updated_by`
   de forma consistente em todos os CRUDs.
 - ⬜ Desenhar fluxo de atualização de `devices.location` a partir de leituras de GPS recebidas
