@@ -203,7 +203,8 @@ private:
     const FieldCreate data {
       .farmId = farmId,
       .name = name,
-      .area = getArea()
+      .area = getArea(),
+      .updatedBy = json::getActorSubjectOrDefault(req)
     };
 
     const std::string id = svc.create(data);
@@ -233,7 +234,11 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: name", 400);
     }
 
-    const bool ok = svc.update(id, {name});
+    const FieldUpdate data{
+        .name = name,
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
+    const bool ok = svc.update(id, data);
     return ok ? ResponseHelper::returnSuccessDoc()
               : ResponseHelper::returnErrorDoc("Failed to update field", 500);
   }

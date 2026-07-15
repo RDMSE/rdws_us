@@ -17,6 +17,14 @@ namespace rdws::utils::json {
 
 [[nodiscard]] std::string docToString(const rapidjson::Value& doc);
 
+// Reads lambdaContext.identity.subject, the actor injected by AuthMiddleware.
+// Returns nullopt if any level is absent (e.g. AuthMode::NONE, no identity resolved).
+[[nodiscard]] std::optional<std::string> getActorSubject(const rapidjson::Value& req);
+
+// Same as getActorSubject, but falls back to "system" instead of nullopt, so
+// updated_by is never left empty on a create()/update() call.
+[[nodiscard]] std::string getActorSubjectOrDefault(const rapidjson::Value& req);
+
 template <typename T>
 concept JsonSettable =
     std::is_arithmetic_v<std::decay_t<T>> || std::convertible_to<T, std::string> ||

@@ -144,6 +144,9 @@ private:
       if (!cfg->updatedAt.empty()) {
         obj.set("updatedAt", cfg->updatedAt);
       }
+      if (!cfg->updatedBy.empty()) {
+        obj.set("updatedBy", cfg->updatedBy);
+      }
       return obj.take();
     });
   }
@@ -166,7 +169,11 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: config", 400);
     }
 
-    const auto result = svc.update(deviceId, {configJson});
+    const DeviceConfigUpdate data{
+        .configJson = configJson,
+        .updatedBy = json::getActorSubjectOrDefault(req)
+    };
+    const auto result = svc.update(deviceId, {data});
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());

@@ -25,11 +25,13 @@ struct DeviceCreate {
   std::string type;
   std::string status;           // defaults to "active" if empty
   std::string installationDate; // empty = NULL
+  std::string updatedBy;
 };
 
 struct DeviceUpdate {
   std::string type;
   std::string status;
+  std::string updatedBy;
 };
 
 class IDeviceRepository {

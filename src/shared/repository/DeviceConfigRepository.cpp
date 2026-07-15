@@ -9,6 +9,7 @@ DeviceConfig DeviceConfigRepository::configFromRow(rdws::database::IResultSet& r
   c.config = rs.getString("config");
   c.createdAt = rs.getString("created_at");
   c.updatedAt = rs.isNull("updated_at") ? "" : rs.getString("updated_at");
+  c.updatedBy = rs.isNull("updated_by") ? "" : rs.getString("updated_by");
   return c;
 }
 
@@ -25,9 +26,9 @@ std::optional<DeviceConfig> DeviceConfigRepository::findByDeviceId(const std::st
 }
 
 bool DeviceConfigRepository::update(const std::string& deviceId, const DeviceConfigUpdate& data) {
-  std::string query =
-      "UPDATE device_configurations SET config=$1::jsonb, updated_at=now() WHERE device_id=$2";
-  std::vector<std::string> params = {data.configJson, deviceId};
+  std::string query = "UPDATE device_configurations SET config=$1::jsonb, updated_at=now(), "
+                       "updated_by=$2 WHERE device_id=$3";
+  std::vector<std::string> params = {data.configJson, data.updatedBy, deviceId};
   return db_.execCommand(query, params);
 }
 
