@@ -168,8 +168,20 @@ InvokeResult ServiceClient::invoke(const std::string& capability, const rapidjso
   invokeMessage.SetObject();
   auto& allocator = invokeMessage.GetAllocator();
 
+  // The target's own dispatcher (CapabilityRouter) reads "capability" from inside
+  // the payload itself, not from the wire envelope — HttpGateway does the same
+  // manual injection for regular HTTP-triggered requests (see the comment in
+  // ServiceGateway::start() bridging request.completed → persistence.save.request).
+  // Without this, the callee sees an empty capability and replies 404 "Unknown
+  // capability: ".
   rapidjson::Value dataValue;
   dataValue.CopyFrom(data, allocator);
+  if (dataValue.IsObject()) {
+    if (dataValue.HasMember("capability")) {
+      dataValue.RemoveMember("capability");
+    }
+    dataValue.AddMember("capability", rapidjson::Value(capability.c_str(), allocator), allocator);
+  }
 
   rapidjson::Value invokeMessageValue = json::JsonObj(allocator)
       .set("type", "INVOKE")
@@ -223,6 +235,7 @@ void ServiceClient::run() {
 
 void ServiceClient::stop() {
   disconnect();
+  joinRequestThreads();
   // messageThread and pingThread are owned and joined by run().
   // Callers must join the thread that called run() to ensure full cleanup.
 }
@@ -305,6 +318,10 @@ bool ServiceClient::sendMessage(const rapidjson::Document& message) const {
 
   const std::string messageStr = json::docToString(message) + std::string("\n");
 
+  // Request handlers now run on their own thread (see handleRequest) and may call
+  // sendResponse()/invoke() concurrently with each other and with the message loop
+  // — serialize the actual socket write so two messages can't interleave.
+  std::scoped_lock lock(sendMutex_);
   const ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
   return std::cmp_equal(sent, messageStr.length());
 }
@@ -416,29 +433,57 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
 
   logger::info("Processing request", requestId.value());
 
-  try {
-    rapidjson::Document response = requestHandler(requestData);
+  // Run the handler on its own thread rather than inline on the message loop: if
+  // the handler itself calls invoke() to reach another service (see
+  // FieldServiceClient), it blocks waiting for an INVOKE_RESPONSE that arrives on
+  // this very socket — if messageLoop() were stuck inside requestHandler() it would
+  // never get back to recv() to read that response, deadlocking until invoke()'s
+  // own timeout gives up. Running the handler elsewhere keeps messageLoop() free to
+  // keep servicing the socket.
+  auto done = std::make_shared<std::atomic<bool>>(false);
+  auto worker = [this, requestId = requestId.value(), requestData = std::move(requestData), done]() {
+    try {
+      rapidjson::Document response = requestHandler(requestData);
+      (void)sendResponse(requestId, response);
 
-    // Send response back to broker
-    (void)sendResponse(requestId.value(), response);
+      identity.totalRequests++;
+      identity.currentLoad = std::max(0, static_cast<int>(identity.currentLoad) - 1);
 
-    // Update stats
-    identity.totalRequests++;
-    identity.currentLoad = std::max(0, static_cast<int>(identity.currentLoad) - 1);
+    } catch (const std::exception& e) {
+      logger::error("Error processing request", requestId + ": " + e.what());
 
-  } catch (const std::exception& e) {
-    logger::error("Error processing request", requestId.value() + ": " + e.what());
+      rapidjson::Document errorResponse;
+      errorResponse.SetObject();
+      errorResponse.AddMember("error", rapidjson::Value(e.what(), errorResponse.GetAllocator()),
+                              errorResponse.GetAllocator());
+      (void)sendResponse(requestId, errorResponse);
 
-    // Send error response
-    rapidjson::Document errorResponse;
-    errorResponse.SetObject();
-    errorResponse.AddMember("error", rapidjson::Value(e.what(), errorResponse.GetAllocator()),
-                            errorResponse.GetAllocator());
-    (void)sendResponse(requestId.value(), errorResponse);
+      identity.errorCount++;
+    }
+    done->store(true);
+  };
 
-    // Update error count
-    identity.errorCount++;
+  std::scoped_lock lock(requestThreadsMutex_);
+  // Reap finished workers so the vector doesn't grow unbounded across the client's
+  // lifetime.
+  for (auto& w : requestThreads_) {
+    if (w.done->load() && w.thread.joinable()) {
+      w.thread.join();
+    }
   }
+  std::erase_if(requestThreads_, [](const RequestWorker& w) { return w.done->load(); });
+
+  requestThreads_.push_back(RequestWorker{std::thread(std::move(worker)), done});
+}
+
+void ServiceClient::joinRequestThreads() {
+  std::scoped_lock lock(requestThreadsMutex_);
+  for (auto& w : requestThreads_) {
+    if (w.thread.joinable()) {
+      w.thread.join();
+    }
+  }
+  requestThreads_.clear();
 }
 
 void ServiceClient::handleInvokeResponse(const rapidjson::Document& message) {

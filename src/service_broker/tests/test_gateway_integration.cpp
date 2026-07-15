@@ -426,3 +426,138 @@ TEST_F(GatewayIntegrationTest, Invoke_NoServiceForCapability_ReturnsFailure) {
   EXPECT_FALSE(result.success);
   EXPECT_EQ(result.statusCode, 503);
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 7b — regression: invoke() must inject "capability" into the payload
+// itself, not just the wire envelope. CapabilityRouter::dispatchCapability (used by
+// every App*Service, e.g. field_service) reads "capability" from inside the request
+// document — the same reason HttpGateway injects it manually for HTTP-triggered
+// requests. Without this, the target responds 404 "Unknown capability: " (empty).
+// ---------------------------------------------------------------------------
+TEST_F(GatewayIntegrationTest, Invoke_InjectsCapabilityIntoPayload) {
+  const std::string sock = "/tmp/rdws_gw_integ_7b.sock";
+  ASSERT_TRUE(startGateway(19209, sock)) << "Gateway failed to start";
+
+  startClient(makeIdentity("integ_responder_002", {"field.get"}), "unix://" + sock);
+  client->setRequestHandler([](const rapidjson::Document& req) -> rapidjson::Document {
+    // Mirrors rdws::utils::dispatchCapability: reads "capability" from the payload,
+    // not the wire envelope.
+    const std::string cap = json::getString(req, "capability").value_or("");
+    rapidjson::Document resp;
+    resp.SetObject();
+    auto& alloc = resp.GetAllocator();
+    rapidjson::Value respValue = json::JsonObj(alloc)
+        .set("success", cap == "field.get")
+        .set("statusCode", cap == "field.get" ? 200 : 404)
+        .take();
+    respValue.Swap(resp);
+    return resp;
+  });
+  ASSERT_TRUE(waitForRegistration(*gw)) << "Responder did not register in time";
+
+  ServiceClient caller(makeIdentity("integ_caller_003", {}), "unix://" + sock);
+  std::thread callerThread([&caller]() { caller.run(); });
+  {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+    while (!caller.isRegistered() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_TRUE(caller.isRegistered()) << "Caller did not register in time";
+  }
+
+  rapidjson::Document data;
+  data.SetObject();
+  auto& alloc = data.GetAllocator();
+  rapidjson::Value pathParams = json::JsonObj(alloc).set("id", "42").take();
+  rapidjson::Value dataValue =
+      json::JsonObj(alloc).setValue("pathParameters", std::move(pathParams)).take();
+  data.Swap(dataValue);
+
+  const InvokeResult result = caller.invoke("field.get", data, std::chrono::milliseconds(2000));
+
+  caller.stop();
+  callerThread.join();
+
+  ASSERT_TRUE(result.success) << "error=" << result.errorMessage;
+  rapidjson::Document resp;
+  resp.Parse(result.responsePayload.c_str());
+  ASSERT_FALSE(resp.HasParseError());
+  EXPECT_TRUE(json::getBool(resp, "success").value_or(false));
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 8 — regression: a service's own request handler calling invoke() while
+// handling an inbound REQUEST must not deadlock. Before handleRequest() dispatched
+// the handler onto its own thread, this scenario hung until invoke()'s timeout: the
+// handler ran inline on the message loop thread, so that thread could never get
+// back to recv() to read the INVOKE_RESPONSE it was itself blocking on (this is
+// exactly the device_service -> field_service shape via FieldServiceClient).
+// ---------------------------------------------------------------------------
+TEST_F(GatewayIntegrationTest, HandlerCallingInvoke_DoesNotDeadlockOwnMessageLoop) {
+  const std::string sock = "/tmp/rdws_gw_integ_8.sock";
+  ASSERT_TRUE(startGateway(19208, sock)) << "Gateway failed to start";
+
+  // "downstream" service — analogous to field_service.
+  ServiceClient downstream(makeIdentity("integ_downstream_001", {"downstream.get"}),
+                           "unix://" + sock);
+  std::thread downstreamThread([&downstream]() { downstream.run(); });
+  downstream.setRequestHandler([](const rapidjson::Document&) -> rapidjson::Document {
+    rapidjson::Document resp;
+    resp.SetObject();
+    resp.AddMember("success", true, resp.GetAllocator());
+    return resp;
+  });
+
+  {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+    while (!downstream.isRegistered() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_TRUE(downstream.isRegistered()) << "Downstream service did not register in time";
+  }
+
+  // "upstream" service — analogous to device_service: its own request handler
+  // calls invoke() on the downstream capability before answering.
+  startClient(makeIdentity("integ_upstream_001", {"upstream.create"}), "unix://" + sock);
+  client->setRequestHandler([this](const rapidjson::Document&) -> rapidjson::Document {
+    rapidjson::Document data;
+    data.SetObject();
+    const InvokeResult inner = client->invoke("downstream.get", data, std::chrono::milliseconds(2000));
+
+    rapidjson::Document resp;
+    resp.SetObject();
+    resp.AddMember("innerSuccess", inner.success, resp.GetAllocator());
+    return resp;
+  });
+  {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+    while (!client->isRegistered() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_TRUE(client->isRegistered()) << "Upstream service did not register in time";
+  }
+
+  // Drive it the same way an HTTP caller would: gateway sendRequest + waitForResponse.
+  rapidjson::Document payload;
+  payload.SetObject();
+  auto& alloc = payload.GetAllocator();
+  rapidjson::Value payloadValue = json::JsonObj(alloc).set("capability", "upstream.create").take();
+  payloadValue.Swap(payload);
+
+  const std::string requestId = gw->sendRequest("upstream.create", payload);
+  ASSERT_FALSE(requestId.empty());
+
+  const PendingRequest result = gw->waitForResponse(requestId, std::chrono::milliseconds(4000));
+
+  downstream.stop();
+  downstreamThread.join();
+
+  ASSERT_EQ(result.state, RequestState::COMPLETED)
+      << "Outer request timed out — the inner invoke() likely deadlocked the "
+         "upstream service's own message loop";
+
+  rapidjson::Document resp;
+  resp.Parse(result.responsePayload.c_str());
+  ASSERT_FALSE(resp.HasParseError());
+  EXPECT_TRUE(json::getBool(resp, "innerSuccess").value_or(false));
+}
