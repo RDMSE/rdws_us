@@ -602,6 +602,44 @@ que fixam o status code pelo nome do método, ex.:
 
 ---
 
+### Backlog — chamada síncrona entre serviços via Gateway (evitar acoplamento cross-domínio)
+
+**Contexto (2026-07-15):** auditoria no código encontrou `device_service` instanciando
+`FieldRepository` diretamente (`src/services/device_service/AppDeviceService.cpp:126`,
+`src/shared/service/DeviceService.h`) só para validar `field_id` (FK) na criação/listagem
+de devices — ou seja, um serviço acessando o repository de domínio de outro serviço,
+direto no banco, dentro do próprio processo. Auditoria completa (2026-07-15) não achou
+outras ocorrências do padrão nem `JOIN`s cross-domínio em `src/shared/repository/*.cpp` —
+é um caso isolado hoje, mas é o tipo de acoplamento que tende a se repetir conforme
+surgirem mais FKs entre domínios (device→field, sensor→device, etc.), degradando aos
+poucos a separação entre "microserviços" até virarem, na prática, um monólito com processos
+separados.
+
+O transporte para isso já existe: `ServiceClient`/`ServiceGateway` (`sendDirectRequest`,
+`requestId` com correlação e timeout — ver `Services/ServiceGateway.h`) já implementam
+request/response síncrono serviço→gateway→serviço. Falta só o client de conveniência do
+lado de quem chama (ex. `device_service` chamando `field_service`), para não ter que cada
+serviço reimplementar essa mecânica na mão.
+
+**Decisão:** não é urgente com o volume atual de serviços/FKs (violação única, catálogo
+pequeno de domínios). Registrar aqui como convenção a seguir a partir de agora — nenhum
+serviço deve instanciar repository de domínio alheio — e priorizar a implementação do
+mecanismo quando aparecer a segunda ocorrência real do padrão, ou como parte de um esforço
+maior de desacoplamento.
+
+- ⬜ Adicionar um client de conveniência sobre `ServiceClient` para chamadas síncronas
+  entre serviços (ex. `invoke("field_service", "validateFieldExists", {field_id})`),
+  escondendo `requestId`/timeout/correlação do call site.
+- ⬜ Migrar `device_service` para usar esse client em vez de `FieldRepository` direto,
+  removendo a dependência cruzada em `DeviceService.h`.
+- ⬜ Documentar a convenção (ex. neste plano ou em `Plano_Arquitetura.md`, se existir):
+  nenhum serviço acessa repository de domínio que não é o seu — toda leitura/validação
+  cross-domínio passa pelo Gateway.
+- Critério de aceite: `device_service` não depende mais de `FieldRepository`/`IFieldRepository`;
+  validação de `field_id` passa pela chamada síncrona ao `field_service`.
+
+---
+
 ### Fase 14 - Escalabilidade horizontal do Gateway (baixa prioridade, backlog)
 
 **Contexto:** o `HttpGateway`/`ServiceGateway` hoje assume instância única. Levantamento feito em 2026-07-06 identificou os seguintes acoplamentos de estado local que impedem rodar múltiplas réplicas atrás de um load balancer:
