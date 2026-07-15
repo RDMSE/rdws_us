@@ -7,10 +7,12 @@
 #include <condition_variable>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <rapidjson/document.h>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace servicegateway {
 
@@ -36,6 +38,21 @@ private:
   std::thread pingThread;
 
   RequestHandler requestHandler;
+
+  // Serializes writes to socketFd — handleRequest() now dispatches the handler onto
+  // its own thread (see below), so responses/invokes can be sent concurrently with
+  // each other and with the message loop's own writes.
+  mutable std::mutex sendMutex_;
+
+  // Threads spawned by handleRequest() to run the request handler off the message
+  // loop (see handleRequest for why). `done` flips to true right before the worker
+  // returns, so finished entries can be reaped (joined + erased) without blocking.
+  struct RequestWorker {
+    std::thread thread;
+    std::shared_ptr<std::atomic<bool>> done;
+  };
+  std::vector<RequestWorker> requestThreads_;
+  std::mutex requestThreadsMutex_;
 
   // Pending outbound invoke() calls awaiting an INVOKE_RESPONSE, keyed by requestId.
   struct PendingInvoke {
@@ -97,6 +114,7 @@ private:
   void handleRequest(const rapidjson::Document& message);
   void handleInvokeResponse(const rapidjson::Document& message);
   static void handlePong(const rapidjson::Document& message);
+  void joinRequestThreads();
 };
 
 } // namespace servicegateway
