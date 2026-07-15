@@ -297,6 +297,98 @@ TEST_F(HttpE2ETest, Auth_ValidApiKey_RequestProceeds) {
   EXPECT_TRUE(okValue.value());
 }
 
+// ── Scenario 7: Schema validation rejects invalid payload before backend ──────
+// (Fase 13b) A write capability with a registered schema (farm.create) must be
+// rejected with 400 when a required field is missing — the request should
+// never even reach the backend service.
+
+TEST_F(HttpE2ETest, SchemaValidation_MissingRequiredField_Returns400) {
+  ASSERT_TRUE(startStack(19306, "/tmp/rdws_e2e_7.sock"));
+
+  bool backendCalled = false;
+  startMockService(makeIdentity("e2e_farm", {"farm.create"}), "unix:///tmp/rdws_e2e_7.sock",
+                   [&backendCalled](const rapidjson::Document&) -> rapidjson::Document {
+                     backendCalled = true;
+                     rapidjson::Document resp;
+                     resp.SetObject();
+                     return resp;
+                   });
+
+  ASSERT_TRUE(waitForRegistration(*gw));
+
+  // Missing required "name".
+  auto res = httpPost("/invoke/farm.create", R"({"location":{"lat":1.0,"lng":2.0}})");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+
+  rapidjson::Document doc = parseBody(res->body);
+  ASSERT_FALSE(doc.HasParseError());
+  const auto errorValue = json::getString(doc, "error");
+  ASSERT_TRUE(errorValue.has_value());
+  EXPECT_EQ(errorValue.value(), "Validation failed");
+
+  ASSERT_TRUE(doc.HasMember("details"));
+  ASSERT_TRUE(doc["details"].IsArray());
+  ASSERT_GT(doc["details"].Size(), 0u);
+  bool mentionsName = false;
+  for (const auto& detail : doc["details"].GetArray()) {
+    ASSERT_TRUE(detail.HasMember("field"));
+    ASSERT_TRUE(detail.HasMember("message"));
+    const std::string message = detail["message"].GetString();
+    if (message.find("name") != std::string::npos) {
+      mentionsName = true;
+    }
+  }
+  EXPECT_TRUE(mentionsName);
+
+  EXPECT_FALSE(backendCalled);
+}
+
+// ── Scenario 8: device_config.update requires `config` to be present ─────────
+
+TEST_F(HttpE2ETest, SchemaValidation_DeviceConfigMissingConfig_Returns400) {
+  ASSERT_TRUE(startStack(19307, "/tmp/rdws_e2e_8.sock"));
+
+  ASSERT_TRUE(waitForHttp(19307));
+
+  auto res = httpPost("/invoke/device_config.update", "{}");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+
+  rapidjson::Document doc = parseBody(res->body);
+  ASSERT_FALSE(doc.HasParseError());
+  const auto errorValue = json::getString(doc, "error");
+  ASSERT_TRUE(errorValue.has_value());
+  EXPECT_EQ(errorValue.value(), "Validation failed");
+}
+
+// ── Scenario 9: Valid payload for a schema-validated capability still reaches
+//    the backend service (regression — validation isn't over-strict) ──────────
+
+TEST_F(HttpE2ETest, SchemaValidation_ValidPayload_ReachesBackend) {
+  ASSERT_TRUE(startStack(19308, "/tmp/rdws_e2e_9.sock"));
+
+  startMockService(makeIdentity("e2e_farm_ok", {"farm.create"}), "unix:///tmp/rdws_e2e_9.sock",
+                   [](const rapidjson::Document&) -> rapidjson::Document {
+                     rapidjson::Document resp;
+                     resp.SetObject();
+                     resp.AddMember("ok", true, resp.GetAllocator());
+                     return resp;
+                   });
+
+  ASSERT_TRUE(waitForRegistration(*gw));
+
+  auto res = httpPost("/invoke/farm.create", R"({"name":"Fazenda X"})");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+
+  rapidjson::Document doc = parseBody(res->body);
+  ASSERT_FALSE(doc.HasParseError());
+  const auto okValue = json::getBool(doc, "ok");
+  ASSERT_TRUE(okValue.has_value());
+  EXPECT_TRUE(okValue.value());
+}
+
 // ── Scenario 7: GET /requests/{id} for unknown id → 404 ───────────────────────
 
 TEST_F(HttpE2ETest, RequestsEndpoint_UnknownId_Returns404) {

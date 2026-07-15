@@ -431,11 +431,43 @@ existe mas está vazio.
 - Reaproveita o `ServiceResult`/`OperationResult` (ver decisão da sessão de 2026-07-09)
   pro formato de erro devolvido.
 
-- ⬜ Definir schemas JSON pras capabilities de escrita de cada serviço.
-- ⬜ Conectar `SchemaValidator` no pipeline de request (gateway, antes do dispatch).
-- ⬜ Testes cobrindo payload inválido → 400 com mensagem de campo específico.
+- ✅ (2026-07-14) Definidos schemas JSON (draft-07) pras 9 capabilities de escrita
+  (`farm.create/update`, `field.create/update`, `device.create/update`,
+  `sensor.create/update`, `device_config.update`) — embutidos como `const std::string`
+  em headers por serviço (`src/service_broker/schemas/{farm,field,device,sensor,
+  device_config}_schemas.h`), seguindo o mesmo padrão já usado em `schemas/service.h`.
+  `device_config.update` só exige a presença de `config` (shape interna arbitrária,
+  serializada como está pelo `DeviceConfigService`).
+- ✅ (2026-07-14) `SchemaValidator` conectado no `HttpGateway`, não no
+  `dispatchCapability`: novo `CapabilitySchemaRegistry`
+  (`src/service_broker/schemas/capability_schema_registry.{h,cpp}`) monta um mapa
+  capability → `SchemaValidator` na inicialização; `HttpGateway::registerRoutes()`
+  valida o body contra esse registro logo após o check de JSON sintaticamente válido
+  já existente e antes de `gateway_.sendRequest(...)` — capability sem schema
+  registrado (reads, deletes) simplesmente não é validada.
+- ✅ (2026-07-14) Testes em `src/service_broker/tests/test_http_e2e.cpp`: payload sem
+  campo obrigatório (`farm.create` sem `name`) → 400 com `details` citando o campo, e
+  confirma que o backend mockado **não** é chamado; `device_config.update` sem
+  `config` → 400; payload válido de `farm.create` segue validação e chega no backend
+  normalmente (regressão). Suite completa (`service_gateway_http_e2e_test`, 11 casos)
+  e `shared_validation_tests`/`service_gateway_test` passando.
+- ✅ (2026-07-15) Achado durante debug manual: `HttpGateway` tem **duas** rotas de
+  entrada pras mesmas capabilities — o handler `POST /invoke/:capability` (onde a
+  validação acima foi plugada) e um `restHandler` catch-all separado (`server_.Put`/
+  `Patch`/`Delete`/`Get`/`Post` em rotas REST-style tipo `PUT /devices/:id`, que resolve
+  a capability via `EventRouter.resolveFromPath`). O `restHandler` despachava direto
+  pro bus sem passar pelo `CapabilitySchemaRegistry` — ex.: `PUT /devices/123` pra
+  `device.update` não era validado, só `POST /invoke/device.update` era. Corrigido
+  aplicando a mesma checagem (`schemaRegistry_.validate(capability, bodyCheck)`) dentro
+  do `restHandler`, antes do `gateway_.sendRequest(...)` — ambos os caminhos de entrada
+  agora validam contra o schema. Suite `service_gateway_http_e2e_test` (11 casos)
+  seguiu passando após a mudança.
 - Critério de aceite: POST/PUT com campo obrigatório faltando ou tipo errado nunca chega
-  no serviço de domínio — 400 direto do gateway.
+  no serviço de domínio — 400 direto do gateway. ✅ validado via teste e2e
+  (`SchemaValidation_MissingRequiredField_Returns400` confirma `backendCalled == false`),
+  cobrindo a rota `/invoke/:capability`; a rota REST-style (`PUT /devices/:id` etc.)
+  reaproveita o mesmo registro de validação (ver nota acima), sem teste e2e dedicado
+  ainda — considerar adicionar um caso via `restHandler` numa próxima passada.
 
 ---
 
@@ -509,7 +541,7 @@ ficaram de fora do escopo por decisão do usuário:
   chamador (claims do JWT) até a camada de repositório. Levantado como possível "sistema de
   auditoria" completo (quem criou/alterou cada registro), não apenas os campos soltos.
 
-- ⬜ Definir e implementar propagação de identidade do chamador (JWT `sub`/claims) desde o
+- ✅ Definir e implementar propagação de identidade do chamador (JWT `sub`/claims) desde o
   `HttpGateway`/middleware de auth até os handlers de cada serviço, para popular `updated_by`
   de forma consistente em todos os CRUDs.
 - ⬜ Desenhar fluxo de atualização de `devices.location` a partir de leituras de GPS recebidas

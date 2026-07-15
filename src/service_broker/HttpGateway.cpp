@@ -208,8 +208,8 @@ void HttpGateway::registerRoutes() {
     // documentFromRequest (campos do body simplesmente não eram mesclados no payload),
     // fazendo um JSON malformado parecer "campo obrigatório faltando" em vez de "JSON
     // inválido" — confuso pra quem está chamando a API.
+    rapidjson::Document bodyCheck;
     if (!request.body.empty()) {
-      rapidjson::Document bodyCheck;
       bodyCheck.Parse(request.body.c_str());
       if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
         response.status = 400;
@@ -219,6 +219,29 @@ void HttpGateway::registerRoutes() {
         );
         return;
       }
+    } else {
+      bodyCheck.SetObject();
+    }
+
+    // Schema validation (Fase 13b): capabilities with a registered schema (write
+    // capabilities) are rejected here, before ever reaching the backend service,
+    // if a required field is missing or has the wrong type.
+    const auto validationErrors = schemaRegistry_.validate(capability, bodyCheck);
+    if (!validationErrors.empty()) {
+      rapidjson::Document details;
+      details.SetArray();
+      auto& allocator = details.GetAllocator();
+      for (const auto& error : validationErrors) {
+        json::JsonObj entry(allocator);
+        entry.set("field", error.field).set("message", error.message);
+        details.PushBack(entry.take(), allocator);
+      }
+      response.status = 400;
+      response.set_content(
+          ResponseHelper::returnError("Validation failed", response.status, &details),
+          "application/json"
+      );
+      return;
     }
 
     rapidjson::Document eventDocument = documentFromRequest(request, capability);
@@ -611,8 +634,8 @@ void HttpGateway::registerRoutes() {
 
     // Body inválido ignorado silenciosamente sem isso — ver comentário no handler de
     // /invoke/:capability.
+    rapidjson::Document bodyCheck;
     if (!request.body.empty()) {
-      rapidjson::Document bodyCheck;
       bodyCheck.Parse(request.body.c_str());
       if (bodyCheck.HasParseError() || !bodyCheck.IsObject()) {
         response.status = 400;
@@ -620,6 +643,29 @@ void HttpGateway::registerRoutes() {
                              "application/json");
         return;
       }
+    } else {
+      bodyCheck.SetObject();
+    }
+
+    // Schema validation (Fase 13b): same registry used by /invoke/:capability —
+    // REST-style routes (PUT/PATCH/DELETE on resource paths) dispatch the same
+    // capabilities and must be rejected here too before reaching the backend.
+    const auto validationErrors = schemaRegistry_.validate(capability, bodyCheck);
+    if (!validationErrors.empty()) {
+      rapidjson::Document details;
+      details.SetArray();
+      auto& detailsAllocator = details.GetAllocator();
+      for (const auto& error : validationErrors) {
+        json::JsonObj entry(detailsAllocator);
+        entry.set("field", error.field).set("message", error.message);
+        details.PushBack(entry.take(), detailsAllocator);
+      }
+      response.status = 400;
+      response.set_content(
+          ResponseHelper::returnError("Validation failed", response.status, &details),
+          "application/json"
+      );
+      return;
     }
 
     // Build event document with path params injected
