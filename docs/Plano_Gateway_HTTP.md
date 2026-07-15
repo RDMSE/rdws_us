@@ -386,9 +386,18 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 **Quando faz sentido:** serviços com cálculos complexos, queries lentas para investigar, ou base de dados grande onde a origem do tempo importa.
 
-- ⬜ Definir `struct RequestContext` em `capability_router.h`.
-- ⬜ Atualizar `CapabilityHandler` e `dispatchCapability` para usar `RequestContext`.
-- ⬜ Migrar handlers de todos os serviços para a nova assinatura.
+- ✅ (2026-07-15) Definido `struct CapabilityContext { const rapidjson::Document& request; Profiler& profiler; }`
+  em `capability_router.h` (renomeado de `RequestContext` pra evitar colisão com o
+  `RequestContext` já existente em `shared/types/lambda_event.h`, que carrega metadados
+  HTTP/API Gateway).
+- ✅ (2026-07-15) `CapabilityHandler` e `dispatchCapability` atualizados para usar `CapabilityContext`.
+- ✅ (2026-07-15) Handlers de todos os 7 serviços (device, field, device_config, sensor,
+  sensor_reading, farm, persistence) migrados para a nova assinatura, com `ctx.profiler.scoped("db.query")`
+  e `ctx.profiler.scoped("json.serialize")` nos pontos relevantes. Aproveitado o refactor pra
+  corrigir 3 inconsistências: `AppFarmService::handleList` ganhou o parâmetro `ctx` (assinatura
+  padronizada), `AppSensorService::processRequest` ganhou o `Profiler` que faltava, e
+  `AppPersistenceService` passou a usar mapa `static` com métodos `static` (antes reconstruía
+  lambdas capturando `this` a cada request).
 - Critério de aceite: dump do profiler mostra breakdown por etapa (db, serialize, etc.) em vez de só o tempo total.
 
 ---

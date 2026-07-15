@@ -112,16 +112,17 @@ private:
     try {
       rdws::utils::Profiler profiler(identity.serviceId);
       auto t = profiler.scoped(cap);
-
-      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
+      const rdws::utils::CapabilityContext ctx{request, profiler};
+      return rdws::utils::dispatchCapability(cap, ctx, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 
-  static rapidjson::Document handleGet(const rapidjson::Document& req,
+  static rapidjson::Document handleGet(const rdws::utils::CapabilityContext& ctx,
                                        rdws::device_config::DeviceConfigService& svc) {
+    const auto& req = ctx.request;
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -130,11 +131,15 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
-    const auto cfg = svc.findByDeviceId(deviceId);
+    const auto cfg = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findByDeviceId(deviceId);
+    }();
     if (!cfg) {
       return ResponseHelper::returnErrorDoc("Configuration not found", 404);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       JsonObj obj(alloc);
       obj.set("id", cfg->id)
@@ -151,8 +156,9 @@ private:
     });
   }
 
-  static rapidjson::Document handleUpdate(const rapidjson::Document& req,
+  static rapidjson::Document handleUpdate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::device_config::DeviceConfigService& svc) {
+    const auto& req = ctx.request;
     const std::string deviceId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -173,6 +179,7 @@ private:
         .configJson = configJson,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
+    auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.update(deviceId, {data});
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()

@@ -3,6 +3,8 @@
 #include "../../shared/utils/json_helper.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <iomanip>
 #include <map>
 #include <mutex>
@@ -10,6 +12,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <sstream>
+#include <thread>
 
 namespace json = rdws::utils::json;
 
@@ -155,7 +158,18 @@ void EventBus::dispatch(const std::string& topic, const rapidjson::Document& pay
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 std::string EventBus::generateId() {
-  static thread_local std::mt19937_64 rng{std::random_device{}()};
+  // IDs de subscription são identificadores internos e efêmeros — não precisam de
+  // aleatoriedade criptográfica. std::random_device usa getrandom() no Linux, que pode
+  // bloquear indefinidamente em containers com pool de entropia do kernel não inicializado
+  // (observado travando ctest em CI). Seed a partir de clock + thread id + contador atômico
+  // evita essa dependência de entropia do SO sem perder unicidade prática.
+  static thread_local std::mt19937_64 rng{[] {
+    static std::atomic<uint64_t> counter{0};
+    const auto now = static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const auto tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    return now ^ tid ^ (counter.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B97F4A7C15ULL);
+  }()};
   static std::uniform_int_distribution<uint64_t> dist;
 
   const uint64_t a = dist(rng);
