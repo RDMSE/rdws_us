@@ -7,7 +7,7 @@ using rdws::types::OperationStatus;
 using rdws::types::ServiceResult;
 
 ServiceResult<std::vector<Device>> DeviceService::findAll(const std::string& fieldId) {
-  if (!fieldId.empty() && !fieldRepo_.findById(fieldId)) {
+  if (!fieldId.empty() && !fieldValidator_.exists(fieldId)) {
     return ServiceResult<std::vector<Device>>::error("Field not found for id " + fieldId, 404);
   }
   return ServiceResult<std::vector<Device>>::success(repo_.findAll(fieldId));
@@ -21,7 +21,7 @@ ServiceResult<std::string> DeviceService::create(const DeviceCreate& data) {
   if (data.fieldId.empty()) {
     return ServiceResult<std::string>::error("Missing field: field_id", 400);
   }
-  if (!fieldRepo_.findById(data.fieldId)) {
+  if (!fieldValidator_.exists(data.fieldId)) {
     return ServiceResult<std::string>::error("Field not found for id " + data.fieldId, 404);
   }
   const std::string id = repo_.create(data);

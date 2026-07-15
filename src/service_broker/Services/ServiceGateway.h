@@ -41,6 +41,12 @@ struct PendingRequest {
   std::chrono::milliseconds timeout = std::chrono::milliseconds(30000);
   std::chrono::time_point<std::chrono::steady_clock> createdAt = std::chrono::steady_clock::now();
   std::chrono::time_point<std::chrono::steady_clock> updatedAt = createdAt;
+
+  // fd of the service that originated this request via the client-side INVOKE
+  // protocol (ServiceClient::invoke), so the response can be routed back to it
+  // instead of (or in addition to) an HTTP-side waitForResponse() caller. -1 when
+  // the request was originated by the gateway itself (e.g. sendRequest() for HTTP).
+  int originatorFd = -1;
 };
 
 using MessageHandler =
@@ -120,6 +126,7 @@ public:
   bool handleIdentifyMessage(int clientFd, const rapidjson::Document& message);
   bool handlePingMessage(int clientFd, const rapidjson::Document& message);
   bool handleResponseMessage(int clientFd, const rapidjson::Document& message);
+  bool handleInvokeMessage(int clientFd, const rapidjson::Document& message);
 
   // Request routing
   std::string sendRequest(const std::string& capability, const rapidjson::Document& requestData,

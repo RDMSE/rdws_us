@@ -7,8 +7,8 @@
 #include "../../shared/config/config.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceRepository.h"
-#include "../../shared/repository/FieldRepository.h"
 #include "../../shared/service/DeviceService.h"
+#include "FieldServiceClient.h"
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
@@ -120,15 +120,17 @@ private:
   std::string gatewayAddress;
   std::atomic<bool> running{false};
 
-  // DB/repo/svc — declared in dependency order
+  // DB/repo/svc — declared in dependency order. fieldValidator_ binds to `client`
+  // (still unset at this point) and validates field_id FKs via a sync call to
+  // field_service through the gateway instead of hitting field_service's own DB.
   PostgreSQLDatabase db_;
   DeviceRepository repo_;
-  rdws::field::FieldRepository fieldRepo_; // valida field_id (FK) em list/create
+  rdws::field::FieldServiceClient fieldValidator_;
   rdws::device::DeviceService svc_;
 
 public:
   AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), fieldRepo_(db_), svc_(repo_, fieldRepo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), svc_(repo_, fieldValidator_) {
     identity.machineName = machineName;
     identity.serviceName = "device_service";
     identity.serviceId = serviceId;

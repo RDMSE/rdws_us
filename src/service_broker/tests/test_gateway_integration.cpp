@@ -340,3 +340,89 @@ TEST_F(GatewayIntegrationTest, ServiceReconnects_SameId_NewRequestReachesNewConn
   EXPECT_EQ(result.state, RequestState::COMPLETED);
   EXPECT_EQ(result.statusCode, 200);
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 6 — ServiceClient::invoke(): one service synchronously calling another
+// service's capability through the gateway (the client-originated INVOKE/
+// INVOKE_RESPONSE protocol backing the device_service -> field_service
+// convenience client described in docs/Plano_Gateway_HTTP.md).
+// ---------------------------------------------------------------------------
+TEST_F(GatewayIntegrationTest, Invoke_CallerReachesResponder_Success) {
+  const std::string sock = "/tmp/rdws_gw_integ_6.sock";
+  ASSERT_TRUE(startGateway(19206, sock)) << "Gateway failed to start";
+
+  // "responder" service, plays the role of field_service.
+  startClient(makeIdentity("integ_responder_001", {"invoke.target"}), "unix://" + sock);
+  client->setRequestHandler([](const rapidjson::Document& req) -> rapidjson::Document {
+    const std::string id = json::getString(req, "id").value_or("");
+    rapidjson::Document resp;
+    resp.SetObject();
+    auto& alloc = resp.GetAllocator();
+    rapidjson::Value respValue = json::JsonObj(alloc)
+        .set("success", id == "42")
+        .set("statusCode", id == "42" ? 200 : 404)
+        .take();
+    respValue.Swap(resp);
+    return resp;
+  });
+  ASSERT_TRUE(waitForRegistration(*gw)) << "Responder did not register in time";
+
+  // "caller" service, plays the role of device_service.
+  ServiceClient caller(makeIdentity("integ_caller_001", {}), "unix://" + sock);
+  std::thread callerThread([&caller]() { caller.run(); });
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+  while (!caller.isRegistered() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  ASSERT_TRUE(caller.isRegistered()) << "Caller did not register in time";
+
+  rapidjson::Document data;
+  data.SetObject();
+  auto& alloc = data.GetAllocator();
+  rapidjson::Value dataValue = json::JsonObj(alloc).set("id", "42").take();
+  dataValue.Swap(data);
+
+  const InvokeResult result = caller.invoke("invoke.target", data, std::chrono::milliseconds(2000));
+
+  caller.stop();
+  callerThread.join();
+
+  EXPECT_TRUE(result.success);
+  EXPECT_EQ(result.statusCode, 200);
+  ASSERT_FALSE(result.responsePayload.empty());
+
+  rapidjson::Document resp;
+  resp.Parse(result.responsePayload.c_str());
+  ASSERT_FALSE(resp.HasParseError());
+  EXPECT_TRUE(json::getBool(resp, "success").value_or(false));
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 7 — ServiceClient::invoke(): no service registered for the capability
+// ---------------------------------------------------------------------------
+TEST_F(GatewayIntegrationTest, Invoke_NoServiceForCapability_ReturnsFailure) {
+  const std::string sock = "/tmp/rdws_gw_integ_7.sock";
+  ASSERT_TRUE(startGateway(19207, sock)) << "Gateway failed to start";
+
+  ServiceClient caller(makeIdentity("integ_caller_002", {}), "unix://" + sock);
+  std::thread callerThread([&caller]() { caller.run(); });
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+  while (!caller.isRegistered() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  ASSERT_TRUE(caller.isRegistered()) << "Caller did not register in time";
+
+  rapidjson::Document data;
+  data.SetObject();
+
+  const InvokeResult result =
+      caller.invoke("no.such.capability", data, std::chrono::milliseconds(1000));
+
+  caller.stop();
+  callerThread.join();
+
+  EXPECT_FALSE(result.success);
+  EXPECT_EQ(result.statusCode, 503);
+}

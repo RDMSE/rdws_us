@@ -149,6 +149,53 @@ bool ServiceClient::sendResponse(const std::string& requestId,
   return sendMessage(responseMessage);
 }
 
+InvokeResult ServiceClient::invoke(const std::string& capability, const rapidjson::Document& data,
+                                   const std::chrono::milliseconds timeout) {
+  if (!connected.load()) {
+    return InvokeResult{.success = false, .statusCode = 0, .errorMessage = "Not connected to broker"};
+  }
+
+  const std::string requestId =
+      identity.serviceId + "-invoke-" + std::to_string(invokeCounter.fetch_add(1));
+
+  auto pending = std::make_shared<PendingInvoke>();
+  {
+    std::scoped_lock lock(invokeMutex);
+    pendingInvokes[requestId] = pending;
+  }
+
+  rapidjson::Document invokeMessage;
+  invokeMessage.SetObject();
+  auto& allocator = invokeMessage.GetAllocator();
+
+  rapidjson::Value dataValue;
+  dataValue.CopyFrom(data, allocator);
+
+  rapidjson::Value invokeMessageValue = json::JsonObj(allocator)
+      .set("type", "INVOKE")
+      .set("requestId", requestId)
+      .set("capability", capability)
+      .setValue("data", std::move(dataValue))
+      .take();
+  invokeMessage.Swap(invokeMessageValue);
+
+  if (!sendMessage(invokeMessage)) {
+    std::scoped_lock lock(invokeMutex);
+    pendingInvokes.erase(requestId);
+    return InvokeResult{.success = false, .statusCode = 0, .errorMessage = "Failed to send invoke request"};
+  }
+
+  std::unique_lock lock(invokeMutex);
+  const bool arrived = invokeCv.wait_for(lock, timeout, [&]() { return pending->done; });
+  pendingInvokes.erase(requestId);
+
+  if (!arrived) {
+    return InvokeResult{.success = false, .statusCode = 504, .errorMessage = "Timed out waiting for response"};
+  }
+
+  return pending->result;
+}
+
 void ServiceClient::run() {
   if (!connect()) {
     return;
@@ -338,6 +385,8 @@ void ServiceClient::handleMessage(const std::string& message) {
       logger::info("Service registered successfully", serviceId.value_or(""));
     } else if (messageType.value() == "REQUEST") {
       handleRequest(jsonMessage);
+    } else if (messageType.value() == "INVOKE_RESPONSE") {
+      handleInvokeResponse(jsonMessage);
     } else if (messageType.value() == "PONG") {
       handlePong(jsonMessage);
     } else {
@@ -390,6 +439,41 @@ void ServiceClient::handleRequest(const rapidjson::Document& message) {
     // Update error count
     identity.errorCount++;
   }
+}
+
+void ServiceClient::handleInvokeResponse(const rapidjson::Document& message) {
+  const auto requestId = json::getString(message, "requestId");
+  if (!requestId.has_value()) {
+    logger::error("Received INVOKE_RESPONSE without requestId");
+    return;
+  }
+
+  std::shared_ptr<PendingInvoke> pending;
+  {
+    std::scoped_lock lock(invokeMutex);
+    const auto it = pendingInvokes.find(requestId.value());
+    if (it == pendingInvokes.end()) {
+      // Already timed out locally and stopped waiting — nothing to deliver to.
+      return;
+    }
+    pending = it->second;
+  }
+
+  pending->result.success = json::getBool(message, "success").value_or(false);
+  pending->result.statusCode = json::getInt(message, "statusCode").value_or(0);
+  if (pending->result.success) {
+    if (const auto* dataObj = json::getObject(message, "data")) {
+      pending->result.responsePayload = json::docToString(*dataObj);
+    }
+  } else {
+    pending->result.errorMessage = json::getString(message, "error").value_or("Invoke failed");
+  }
+
+  {
+    std::scoped_lock lock(invokeMutex);
+    pending->done = true;
+  }
+  invokeCv.notify_all();
 }
 
 void ServiceClient::handlePong(const rapidjson::Document& message) {

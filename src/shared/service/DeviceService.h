@@ -1,14 +1,14 @@
 #pragma once
 #include "../repository/DeviceRepository.h"
-#include "../repository/FieldRepository.h"
+#include "../service/IFieldValidator.h"
 #include "../types/service_result.h"
 
 namespace rdws::device {
 
 class DeviceService {
 public:
-  DeviceService(IDeviceRepository& repo, rdws::field::IFieldRepository& fieldRepo)
-      : repo_(repo), fieldRepo_(fieldRepo) {}
+  DeviceService(IDeviceRepository& repo, rdws::field::IFieldValidator& fieldValidator)
+      : repo_(repo), fieldValidator_(fieldValidator) {}
 
   // fieldId vazio = lista todos os devices; fieldId preenchido mas inexistente = erro
   // (404), não lista vazia — sem isso, um field_id digitado errado silenciosamente
@@ -23,7 +23,7 @@ public:
 
 private:
   IDeviceRepository& repo_;
-  rdws::field::IFieldRepository& fieldRepo_;
+  rdws::field::IFieldValidator& fieldValidator_;
 };
 
 } // namespace rdws::device
