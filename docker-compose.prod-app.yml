@@ -28,7 +28,7 @@ x-service-limits: &service-limits
 
 services:
   gateway:
-    image: ghcr.io/rdmeneze/rdws_us/service_gateway_http:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/service_gateway_http:${IMAGE_TAG:-latest}
     container_name: rdws_gateway_prod
     restart: unless-stopped
     deploy:
@@ -49,7 +49,7 @@ services:
 
   auth_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/auth_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/auth_service:${IMAGE_TAG:-latest}
     container_name: rdws_auth_prod
     restart: unless-stopped
     depends_on:
@@ -63,7 +63,7 @@ services:
 
   farm_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/farm_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/farm_service:${IMAGE_TAG:-latest}
     container_name: rdws_farm_prod
     restart: unless-stopped
     depends_on:
@@ -73,7 +73,7 @@ services:
 
   field_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/field_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/field_service:${IMAGE_TAG:-latest}
     container_name: rdws_field_prod
     restart: unless-stopped
     depends_on:
@@ -83,7 +83,7 @@ services:
 
   device_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/device_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/device_service:${IMAGE_TAG:-latest}
     container_name: rdws_device_prod
     restart: unless-stopped
     depends_on:
@@ -93,7 +93,7 @@ services:
 
   device_config_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/device_config_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/device_config_service:${IMAGE_TAG:-latest}
     container_name: rdws_device_config_prod
     restart: unless-stopped
     depends_on:
@@ -103,7 +103,7 @@ services:
 
   sensor_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/sensor_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/sensor_service:${IMAGE_TAG:-latest}
     container_name: rdws_sensor_prod
     restart: unless-stopped
     depends_on:
@@ -113,7 +113,7 @@ services:
 
   sensor_reading_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/sensor_reading_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/sensor_reading_service:${IMAGE_TAG:-latest}
     container_name: rdws_sensor_reading_prod
     restart: unless-stopped
     depends_on:
@@ -123,7 +123,7 @@ services:
 
   persistence_service:
     <<: *service-limits
-    image: ghcr.io/rdmeneze/rdws_us/persistence_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/persistence_service:${IMAGE_TAG:-latest}
     container_name: rdws_persistence_prod
     restart: unless-stopped
     depends_on:
