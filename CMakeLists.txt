@@ -54,6 +54,12 @@ else()
     add_library(PQXX_DEP ALIAS PkgConfig::PQXX)
 endif()
 
+# OpenSSL — used by service_broker (JWT HMAC) and src/shared/crypto (AES-256-GCM for
+# device credentials). find_package here (root) instead of only in service_broker's
+# CMakeLists.txt so src/shared and src/third_party (libcoap's DTLS backend) can also
+# link OpenSSL::Crypto/OpenSSL::SSL regardless of add_subdirectory order.
+find_package(OpenSSL REQUIRED)
+
 # Linux Mint
 # find_package(libpqxx REQUIRED)
 
