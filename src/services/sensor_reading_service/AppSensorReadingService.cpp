@@ -118,7 +118,8 @@ private:
     try {
       rdws::utils::Profiler profiler(identity.serviceId);
       auto t = profiler.scoped(cap);
-      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
+      const rdws::utils::CapabilityContext ctx{request, profiler};
+      return rdws::utils::dispatchCapability(cap, ctx, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
@@ -126,8 +127,9 @@ private:
   }
 
   // GET /sensors/{id}/readings?from=...&to=...
-  static rapidjson::Document handleList(const rapidjson::Document& req,
+  static rapidjson::Document handleList(const rdws::utils::CapabilityContext& ctx,
                                         rdws::sensor_reading::SensorReadingService& svc) {
+    const auto& req = ctx.request;
     const std::string sensorId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (sensorId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -138,8 +140,12 @@ private:
 
     const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
     const std::string to = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "to");
-    const auto readings = svc.findBySensorId(sensorId, from, to);
+    const auto readings = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findBySensorId(sensorId, from, to);
+    }();
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& r : readings) {
@@ -150,8 +156,9 @@ private:
   }
 
   // GET /sensors/{id}/readings/{rid}
-  static rapidjson::Document handleGet(const rapidjson::Document& req,
+  static rapidjson::Document handleGet(const rdws::utils::CapabilityContext& ctx,
                                        rdws::sensor_reading::SensorReadingService& svc) {
+    const auto& req = ctx.request;
     std::string rid = rdws::utils::LambdaParamsHelper::getPathParam(req, "rid");
     if (rid.empty()) {
       rid = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "rid");
@@ -163,11 +170,15 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid reading id (rid): must be numeric", 400);
     }
 
-    const auto reading = svc.findById(rid);
+    const auto reading = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findById(rid);
+    }();
     if (!reading) {
       return ResponseHelper::returnErrorDoc("Reading not found", 404);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return readingToJson(reading.value(), alloc); });
   }

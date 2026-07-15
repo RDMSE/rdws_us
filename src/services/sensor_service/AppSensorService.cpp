@@ -10,6 +10,7 @@
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/capability_router.h"
+#include "../../shared/utils/profiler.h"
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/validation.h"
 
@@ -127,21 +128,30 @@ private:
         };
 
     try {
-      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
+      rdws::utils::Profiler profiler(identity.serviceId);
+      auto t = profiler.scoped(cap);
+      const rdws::utils::CapabilityContext ctx{request, profiler};
+      return rdws::utils::dispatchCapability(cap, ctx, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 
-  static rapidjson::Document handleList(const rapidjson::Document& req,
+  static rapidjson::Document handleList(const rdws::utils::CapabilityContext& ctx,
                                         rdws::sensor::SensorService& svc) {
+    const auto& req = ctx.request;
     const std::string deviceId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
     if (!deviceId.empty() && !isNumericId(deviceId)) {
       return ResponseHelper::returnErrorDoc("Invalid field: device_id must be numeric", 400);
     }
-    const auto sensors = svc.findAll(deviceId);
+    const auto sensors = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findAll(deviceId);
+    }();
+
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& s : sensors) {
@@ -151,8 +161,9 @@ private:
     });
   }
 
-  static rapidjson::Document handleGet(const rapidjson::Document& req,
+  static rapidjson::Document handleGet(const rdws::utils::CapabilityContext& ctx,
                                        rdws::sensor::SensorService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -161,17 +172,22 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
-    const auto sensor = svc.findById(id);
+    const auto sensor = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findById(id);
+    }();
     if (!sensor) {
       return ResponseHelper::returnErrorDoc("Sensor not found", 404);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return sensorToJson(*sensor, alloc); });
   }
 
-  static rapidjson::Document handleCreate(const rapidjson::Document& req,
+  static rapidjson::Document handleCreate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::sensor::SensorService& svc) {
+    const auto& req = ctx.request;
     const auto deviceId = json::getString(req, "device_id").value_or(std::string{});
     const auto type = json::getString(req, "type").value_or(std::string{});
     const auto unit = json::getString(req, "unit").value_or(std::string{});
@@ -195,11 +211,15 @@ private:
         .unit = unit,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
-    const std::string id = svc.create(data);
+    const std::string id = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.create(data);
+    }();
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
           rapidjson::Value obj(rapidjson::kObjectType);
@@ -209,8 +229,9 @@ private:
         201);
   }
 
-  static rapidjson::Document handleUpdate(const rapidjson::Document& req,
+  static rapidjson::Document handleUpdate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::sensor::SensorService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     const std::string type = json::getString(req, "type").value_or(std::string{});
     const std::string unit = json::getString(req, "unit").value_or(std::string{});
@@ -233,13 +254,15 @@ private:
         .unit = unit,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
+    auto t = ctx.profiler.scoped("db.query");
     const bool ok = svc.update(id, data);
     return ok ? ResponseHelper::returnSuccessDoc()
               : ResponseHelper::returnErrorDoc("Failed to update sensor", 500);
   }
 
-  static rapidjson::Document handleDelete(const rapidjson::Document& req,
+  static rapidjson::Document handleDelete(const rdws::utils::CapabilityContext& ctx,
                                           rdws::sensor::SensorService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -248,6 +271,7 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
+    auto t = ctx.profiler.scoped("db.query");
     const bool ok = svc.remove(id);
     return ok ? ResponseHelper::returnSuccessDoc(204)
               : ResponseHelper::returnErrorDoc("Failed to delete sensor", 500);

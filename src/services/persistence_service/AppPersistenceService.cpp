@@ -132,23 +132,18 @@ private:
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
     const auto cap = json::getString(request, "capability").value_or("");
 
-    const std::unordered_map<std::string,
+    static const std::unordered_map<std::string,
                               rdws::utils::CapabilityHandler<AppPersistenceService>>
         handlers = {
-            {"persistence.save.request",
-             [this](const rapidjson::Document& req, AppPersistenceService&) {
-               return handleSaveRequest(req);
-             }},
-            {"persistence.save.metrics",
-             [this](const rapidjson::Document& req, AppPersistenceService&) {
-               return handleSaveMetrics(req);
-             }},
+            {"persistence.save.request", handleSaveRequest},
+            {"persistence.save.metrics", handleSaveMetrics},
         };
 
     try {
       rdws::utils::Profiler profiler(identity.serviceId);
       auto t = profiler.scoped(cap);
-      return rdws::utils::dispatchCapability(cap, request, *this, handlers);
+      const rdws::utils::CapabilityContext ctx{request, profiler};
+      return rdws::utils::dispatchCapability(cap, ctx, *this, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
@@ -160,7 +155,9 @@ private:
   // "capability" no payload é a capability do PersistenceService (persistence.save.request
   // — usada só pra dispatch, ver ServiceGateway::start()); a capability da requisição
   // original registrada no histórico vem em "originalCapability".
-  rapidjson::Document handleSaveRequest(const rapidjson::Document& req) {
+  static rapidjson::Document handleSaveRequest(const rdws::utils::CapabilityContext& ctx,
+                                                AppPersistenceService& self) {
+    const auto& req = ctx.request;
     RequestRecord r{
         .requestId = json::getString(req, "requestId").value_or(std::string{}),
         .capability = json::getString(req, "originalCapability").value_or(std::string{}),
@@ -174,26 +171,30 @@ private:
     }
 
     {
-      std::scoped_lock lock(bufferMutex_);
-      requestBuffer_.push_back(std::move(r));
-      if (requestBuffer_.size() >= kFlushBatchSize) {
-        flushRequestBuffer();
+      auto t = ctx.profiler.scoped("buffer.append");
+      std::scoped_lock lock(self.bufferMutex_);
+      self.requestBuffer_.push_back(std::move(r));
+      if (self.requestBuffer_.size() >= kFlushBatchSize) {
+        self.flushRequestBuffer();
       }
     }
     return ResponseHelper::returnSuccessDoc();
   }
 
   // Enqueue a metrics.snapshot event
-  rapidjson::Document handleSaveMetrics(const rapidjson::Document& req) {
+  static rapidjson::Document handleSaveMetrics(const rdws::utils::CapabilityContext& ctx,
+                                                AppPersistenceService& self) {
+    const auto& req = ctx.request;
     MetricsRecord m;
     m.snapshotAt = json::getString(req, "snapshotAt").value_or("");
     m.metricsJson = json::docToString(req);
 
     {
-      std::scoped_lock lock(bufferMutex_);
-      metricsBuffer_.push_back(std::move(m));
-      if (metricsBuffer_.size() >= kFlushBatchSize) {
-        flushMetricsBuffer();
+      auto t = ctx.profiler.scoped("buffer.append");
+      std::scoped_lock lock(self.bufferMutex_);
+      self.metricsBuffer_.push_back(std::move(m));
+      if (self.metricsBuffer_.size() >= kFlushBatchSize) {
+        self.flushMetricsBuffer();
       }
     }
     return ResponseHelper::returnSuccessDoc();

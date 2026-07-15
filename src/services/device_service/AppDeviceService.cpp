@@ -197,25 +197,32 @@ private:
     try {
       rdws::utils::Profiler profiler(identity.serviceId);
       auto t = profiler.scoped(cap);
-      return rdws::utils::dispatchCapability(cap, request, svc_, handlers);
+      const rdws::utils::CapabilityContext ctx{request, profiler};
+      return rdws::utils::dispatchCapability(cap, ctx, svc_, handlers);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
   }
 
-  static rapidjson::Document handleList(const rapidjson::Document& req,
+  static rapidjson::Document handleList(const rdws::utils::CapabilityContext& ctx,
                                         rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
     if (!fieldId.empty() && !isNumericId(fieldId)) {
       return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric", 400);
     }
-    const auto result = svc.findAll(fieldId);
+
+    const auto result = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findAll(fieldId);
+    }();
     if (result.isError()) {
       return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& d : result.getData()) {
@@ -225,8 +232,9 @@ private:
     });
   }
 
-  static rapidjson::Document handleGet(const rapidjson::Document& req,
+  static rapidjson::Document handleGet(const rdws::utils::CapabilityContext& ctx,
                                        rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -236,17 +244,22 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
-    const auto device = svc.findById(id);
+    const auto device = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findById(id);
+    }();
     if (!device) {
       return ResponseHelper::returnErrorDoc("Device not found", 404);
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) { return deviceToJson(device.value(), alloc); });
   }
 
-  static rapidjson::Document handleCreate(const rapidjson::Document& req,
+  static rapidjson::Document handleCreate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
     const auto fieldId = json::getString(req, "field_id").value_or(std::string{});
     const auto type = json::getString(req, "type").value_or(std::string{});
     const auto status = json::getString(req, "status").value_or(std::string{});
@@ -275,11 +288,15 @@ private:
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
 
-    const auto result = svc.create(data);
+    const auto result = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.create(data);
+    }();
     if (result.isError()) {
       return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
+    auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
           return JsonObj(alloc).set("id", result.getData()).take();
@@ -287,8 +304,9 @@ private:
         201);
   }
 
-  static rapidjson::Document handleUpdate(const rapidjson::Document& req,
+  static rapidjson::Document handleUpdate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     const std::string type = json::getString(req, "type").value_or(std::string{});
     const std::string status = json::getString(req, "status").value_or(std::string{});
@@ -311,14 +329,16 @@ private:
         .status = status,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
+    auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.update(id, data);
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
-  static rapidjson::Document handleDelete(const rapidjson::Document& req,
+  static rapidjson::Document handleDelete(const rdws::utils::CapabilityContext& ctx,
                                           rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
     const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
@@ -327,6 +347,7 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
     }
 
+    auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.remove(id);
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc(204)
