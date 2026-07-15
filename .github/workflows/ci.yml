@@ -70,7 +70,7 @@ jobs:
 
       - name: Build and push
         run: |
-          IMAGE=ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          IMAGE=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')/${{ matrix.service }}
           docker build --build-arg SERVICE=${{ matrix.service }} \
             -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:qa" -t "$IMAGE:latest" .
           docker push "$IMAGE:${{ github.sha }}"
@@ -80,5 +80,5 @@ jobs:
       - name: Clean up local images
         if: always()
         run: |
-          IMAGE=ghcr.io/${{ github.repository }}/${{ matrix.service }}
+          IMAGE=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')/${{ matrix.service }}
           docker image rm "$IMAGE:${{ github.sha }}" "$IMAGE:qa" "$IMAGE:latest" || true

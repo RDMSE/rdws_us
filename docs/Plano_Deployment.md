@@ -212,7 +212,7 @@ documento para detalhes.
 - **Runner self-hosted** registrado no homelab (setup manual, fora do escopo do CI em si).
 - **`.github/workflows/build.yml`**: em push/PR — build de cada imagem (matrix por
   serviço), roda `ctest`, e em push na branch principal faz `docker push` pro
-  `ghcr.io/rdmeneze/rdws_us/<service>:<sha>` (+ tag `latest` ou `qa`).
+  `ghcr.io/rdmse/rdws_us/<service>:<sha>` (+ tag `latest` ou `qa`).
 - **`.github/workflows/deploy-qa.yml`**: gatilho após build bem-sucedido na branch
   principal — roda no runner self-hosted, faz `docker compose -f docker-compose.qa-app.yml
   pull && up -d` direto no homelab (mesma máquina do runner ou via SSH local). Só o app
@@ -343,7 +343,7 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    - ✅ `deploy-qa.yml` já existia e funciona (build local no runner self-hosted, sem
      depender do GHCR — homelab builda e sobe direto).
    - ✅ Job `push-ghcr` adicionado ao `ci.yml` (matrix por serviço, publica
-     `ghcr.io/rdmeneze/rdws_us/<service>:<sha|qa|latest>` só em push na `main`, usando
+     `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>` só em push na `main`, usando
      `GITHUB_TOKEN`, sem secret novo).
    - ✅ `docker-compose.prod-db.yml`/`docker-compose.prod-app.yml` criados (mesmo padrão
      de QA, mas puxando imagem do GHCR via `IMAGE_TAG` em vez de buildar; limites de
