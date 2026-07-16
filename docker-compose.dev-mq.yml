@@ -1,0 +1,24 @@
+# RabbitMQ for local dev — same spirit as docker-compose.dev-observability.yml: runs on
+# your own machine (not the homelab), on demand, no `restart:` (won't come back on its
+# own). Unlike Postgres (fedora-server via Tailscale, shared), there's no shared dev
+# RabbitMQ — each dev runs their own disposable instance.
+#   docker compose -f docker-compose.dev-mq.yml up -d
+#   docker compose -f docker-compose.dev-mq.yml down
+name: rdws_dev_mq
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rdws_rabbitmq_dev
+    environment:
+      RABBITMQ_NODENAME: rabbit@localhost
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-rdws_dev}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rdws_dev}
+    ports:
+      - "5672:5672"   # AMQP — ingestion_service/reading_writer_service
+      - "15672:15672" # Management UI (http://localhost:15672)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
