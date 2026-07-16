@@ -31,6 +31,7 @@ jobs:
           RDWS_JWT_SECRET=${{ secrets.RDWS_JWT_SECRET }}
           RDWS_JWT_ISSUER=${{ vars.RDWS_JWT_ISSUER }}
           RDWS_JWT_AUDIENCE=
+          CREDENTIAL_ENCRYPTION_KEY=${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           EOF
 
       - name: Ensure QA Postgres is up

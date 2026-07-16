@@ -1,0 +1,15 @@
+meta {
+  name: Trigger Manual Send
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{simulatorBaseUrl}}/simulate/:devId/trigger
+  body: none
+  auth: none
+}
+
+params:path {
+  devId: 1
+}

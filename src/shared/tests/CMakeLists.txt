@@ -45,6 +45,29 @@ target_link_libraries(shared_logger_tests PRIVATE
 )
 gtest_discover_tests(shared_logger_tests)
 
+# --- CredentialCipher (AES-256-GCM) unit tests ---
+add_executable(shared_credential_cipher_tests
+    test_credential_cipher.cpp
+)
+target_link_libraries(shared_credential_cipher_tests PRIVATE
+    rdws_shared_crypto
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_credential_cipher_tests)
+
+# --- CoapDtlsClient (libcoap PSK/DTLS) integration test — real handshake against a
+# local in-process libcoap PSK server, see test file header comment. ---
+add_executable(shared_coap_dtls_client_tests
+    test_coap_dtls_client.cpp
+)
+target_link_libraries(shared_coap_dtls_client_tests PRIVATE
+    rdws_shared_coap
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_coap_dtls_client_tests)
+
 # --- Shared ID validation tests ---
 add_executable(shared_id_validation_tests
     test_validation.cpp

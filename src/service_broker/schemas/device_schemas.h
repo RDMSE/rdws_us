@@ -26,6 +26,9 @@ const std::string DEVICE_CREATE_SCHEMA = R"({
             },
             "installation_date": {
                 "type": "string"
+            },
+            "is_simulated": {
+                "type": "boolean"
             }
         },
         "required": ["field_id", "type"]
