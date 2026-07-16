@@ -25,7 +25,7 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 
 - Protocolo: **CoAP**, escolhido por causa do hardware low-power. CoAP roda sobre UDP, sem conexão persistente — o device acorda, envia o datagrama e volta a dormir, economizando rádio/bateria. MQTT (ex. Mosquitto) foi considerado e descartado para a entrada dos dados: exige manter uma conexão TCP com keep-alive aberta, custando mais energia do que o cenário permite.
 - Com **DTLS** obrigatório — sem isso qualquer dispositivo na rede pode injetar leituras falsas.
-- Autenticação por device: PSK ou certificado por device (chave associada ao registro em `DeviceService`).
+- Autenticação por device: **PSK** (resolvido — `Plano_DeviceCredentials.md`), via `libcoap` com backend OpenSSL. Já implementado do lado cliente (`SensorSimulatorService`, ver abaixo); o lado servidor (`coap_context_set_psk2`/`coap_dtls_spsk_info_t`, carregando credenciais ativas do `device_credential.get_active`) ainda não existe.
 - Responsabilidades:
   - Receber o payload CoAP do device.
   - Parsear para o formato interno de leitura.
@@ -54,10 +54,33 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 
 ---
 
+## Progresso de implementação (2026-07-16)
+
+`SensorSimulatorService` implementado e validado ponta a ponta (exceto o
+`IngestionService`, que ainda não existe do lado servidor) — detalhamento completo em
+`Plano_SensorSimulatorService_Implementacao.md`. Resumo do que já está no código:
+
+- **`device_credentials`**: tabela + criptografia AES-256-GCM (`src/shared/crypto`) +
+  capabilities internas `device_credential.get_active/rotate/revoke` no `device_service`
+  + provisionamento atômico dentro de `device.create` (`device_credential.provision`,
+  não é uma capability standalone). Testado com roundtrip de criptografia real via
+  Postgres.
+- **`devices.is_simulated`**: migration + trigger de imutabilidade (`V7`), aceito só em
+  `device.create`.
+- **Cliente CoAP/DTLS**: `libcoap` (backend OpenSSL) integrado via FetchContent,
+  `CoapDtlsClient` (`src/shared/coap`) — handshake DTLS-PSK real validado por teste
+  automatizado e por verificação manual contra um servidor CoAP de teste.
+- **`SensorSimulatorService`**: gera leituras periódicas em arquivo, transmite por CoAP/DTLS
+  no intervalo configurado em `device_configurations` (ou via
+  `POST /simulate/{device_id}/trigger`), buscando a credencial ativa a cada ciclo. Validado
+  de ponta a ponta localmente (device.create → geração → trigger manual → handshake DTLS-PSK
+  → payload recebido).
+
 ## Pontos em aberto
 
 - Definir qual broker de fila será adotado (RabbitMQ é o candidato natural dado o resto da stack).
-- Definir o mecanismo de provisionamento de credenciais DTLS por device (na criação via `device.create`?). — **Resolvido em `Plano_DeviceCredentials.md`.**
+- **`IngestionService`** (servidor CoAP/DTLS) — ainda não implementado; é o que falta para
+  o simulador ter um destino real em vez de um servidor de teste ad-hoc.
 - Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
 - Atualizar o `ENUM` de `sensors.type` em `Plano_DB_IOT_Sensors.md` com os novos tipos (bateria, solar, agregados de vento) — ver seção "Amostragem interna vs. taxa de transmissão".
 - Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
@@ -75,6 +98,9 @@ ponta a ponta. RabbitMQ só deve ser containerizado junto com a implementação 
 dois serviços (ver passo 1 abaixo), não isoladamente antes deles.
 
 1. **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta. Observabilidade é aditiva e não deve bloquear a funcionalidade.
+   - ✅ **Simulador** (`SensorSimulatorService`) implementado e validado — ver "Progresso
+     de implementação" acima. Falta o restante da cadeia (`IngestionService`, RabbitMQ,
+     `ReadingWriterService`) para a validação ponta a ponta real.
 2. **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
 3. **Plugar o ingestion na mesma instância**: adicionar Prometheus + RabbitMQ exporter como datasource no Grafana já existente.
 
