@@ -59,6 +59,17 @@ DeviceCredentialRepository::findActiveByDeviceId(const std::string& deviceId) {
   return credentialFromRow(*rs);
 }
 
+std::vector<DeviceCredential> DeviceCredentialRepository::findAllActive() {
+  const std::string query = std::string(kSelectCols) + " WHERE status = 'active'";
+
+  auto rs = db_.execQuery(query, {});
+  std::vector<DeviceCredential> credentials;
+  while (rs->next()) {
+    credentials.push_back(credentialFromRow(*rs));
+  }
+  return credentials;
+}
+
 bool DeviceCredentialRepository::rotate(const std::string& deviceId,
                                         const std::vector<uint8_t>& newPskKeyEnc) {
   const std::string query =

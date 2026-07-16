@@ -28,14 +28,20 @@ Microserviços (registram capabilities, processam requests, respondem)
 | `auth_service` | `auth.login` | Autenticação; emite JWT Bearer (HS256). Endpoint público, sem auth prévia. |
 | `farm_service` | `farm.list/get/create/update/delete` | CRUD de fazendas. |
 | `field_service` | `field.list/get/create/update/delete` | CRUD de campos (associados a uma fazenda). |
-| `device_service` | `device.list/get/create/update/delete` | CRUD de devices (associados a um campo). |
-| `device_config_service` | `device_config.get/create/update/delete` | Configuração (JSONB) de cada device. |
+| `device_service` | `device.list/get/create/update/delete` + `device_credential.get_active/rotate/revoke/list_active` (internas) | CRUD de devices (associados a um campo) + credenciais PSK por device (`device_credentials`, AES-256-GCM em repouso). As `device_credential.*` são internas — ausentes de `routes.json`, só chamáveis via `ServiceClient::invoke` por outro serviço. |
 | `sensor_service` | `sensor.list/get/create/update/delete` | CRUD de sensores (associados a um device). |
 | `sensor_reading_service` | `sensor_reading.list/get` | Somente leitura (append-only) — consulta de leituras por sensor/janela de tempo. |
 | `persistence_service` | — | Persistência assíncrona (bridge para eventos `request.completed`/`metrics.snapshot` publicados pelo gateway). |
+| `ingestion_service` | — (cliente puro) | Servidor CoAP/DTLS (libcoap, PSK) que recebe leituras de devices/`SensorSimulatorService`, valida formato mínimo e publica no RabbitMQ (`sensor_readings`, uma mensagem por leitura). Stateless quanto à persistência — sem conexão direta ao Postgres. |
+| `reading_writer_service` | — (worker puro) | Consome a fila `sensor_readings` e grava em `sensor_readings` (Postgres), idempotente via `UNIQUE(sensor_id, timestamp)`. Sem `ServiceClient`/capability no gateway — não expõe nada, só processa a fila. |
 | `example_service` | — | Serviço de exemplo/echo para desenvolvimento e testes manuais do broker. |
 
-Todos seguem o mesmo padrão: `App<Nome>Service.cpp` implementa a lógica, registra as capabilities no `ServiceGateway` via `ServiceClient`, e delega persistência para `src/shared/repository/` + `src/shared/database/` (PostgreSQL via libpqxx).
+Todos seguem o mesmo padrão: `App<Nome>Service.cpp` implementa a lógica, registra as capabilities no `ServiceGateway` via `ServiceClient`, e delega persistência para `src/shared/repository/` + `src/shared/database/` (PostgreSQL via libpqxx). Exceções: `ingestion_service` (`ServiceClient` só como cliente, sem capabilities próprias) e `reading_writer_service` (nem se conecta ao gateway).
+
+Fora dessa tabela, `SensorSimulatorService` (`src/services/sensor_simulator_service/`) é uma
+ferramenta **standalone**, deliberadamente fora do compose principal (ver
+`docs/Plano_SensorSimulatorService.md`) — gera leituras simuladas e as envia por
+CoAP/DTLS pro `ingestion_service`, útil pra testar o pipeline sem hardware real.
 
 ## Service broker (`src/service_broker/`)
 
@@ -63,9 +69,20 @@ Ver `src/service_broker/README.md`, `SERVICE_BROKER_README.md` e `SERVICES_USAGE
 
 PostgreSQL com PostGIS (geolocalização) e TimescaleDB (time-series para `sensor_readings`, particionado por mês). Hierarquia: `farms → fields → devices → device_configurations` / `sensors → sensor_readings`. Ver `docs/Plano_DB_IOT_Sensors.md`.
 
-## Ingestão de dados de sensores (planejado)
+## Ingestão de dados de sensores
 
-Pipeline de escrita desacoplado do CRUD via HTTP: `Device --CoAP/DTLS--> IngestionService --> RabbitMQ --> ReadingWriterService --> banco`. Inclui um `SensorSimulatorService` para desenvolvimento enquanto o hardware físico não está pronto. Ver `docs/Plano_Ingestion.md` e `docs/Plano_SensorSimulatorService.md`.
+Pipeline de escrita desacoplado do CRUD via HTTP, implementado e validado ponta a ponta:
+`Device/SensorSimulatorService --CoAP/DTLS--> IngestionService --> RabbitMQ -->
+ReadingWriterService --> banco`. Autenticação por device via PSK
+(`device_credentials`, AES-256-GCM em repouso). Inclui um `SensorSimulatorService`
+standalone para desenvolvimento enquanto o hardware físico não está pronto (gera
+leituras simuladas, dispara via `POST /simulate/{device_id}/trigger` — ver coleção
+Bruno). Ver `docs/Plano_Ingestion.md`, `docs/Plano_Ingestion_Implementacao.md` (detalhamento
++ runbook de como subir tudo localmente) e `docs/Plano_SensorSimulatorService.md`.
+
+**Pendente**: validação completa de payload contra `device_config` no `IngestionService`
+(hoje só formato mínimo) e invalidação de credencial em tempo real (hoje poll de 60s em
+vez de invalidação via evento).
 
 ## Coleção de requisições (Bruno)
 
@@ -110,9 +127,32 @@ Grafana.
    docker compose -f docker-compose.dev-observability.yml down
    ```
 
-Em QA, a pilha já sobe junto com o resto do ambiente na homelab — ver
-`docs/Plano_Deployment.md` §3 para os detalhes de infraestrutura e a decisão de design
-por trás da separação dev/QA.
+### Usando em QA
+
+**Não sobe sozinha** — nem no primeiro deploy nem nos seguintes: o workflow
+`deploy-qa.yml` só sobe `docker-compose.qa-db.yml` (Postgres) e `docker-compose.qa-app.yml`
+(gateway + serviços), nunca o de observabilidade. É um passo manual, uma vez só
+(depois fica no ar com `restart: unless-stopped`):
+
+```bash
+docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
+```
+
+- Precisa do `docker-compose.qa-app.yml` já rodando antes (Prometheus escrapa o gateway
+  pela rede do Compose).
+- Mesmo `.env.qa` que os outros compose de QA já usam — nenhuma variável nova.
+- Acesse via Tailscale: Grafana em `http://fedora-server:3300`, Prometheus em
+  `http://fedora-server:9091`.
+- Só precisa repetir o `up -d` se derrubou manualmente ou mudou algo no compose — não a
+  cada deploy do app.
+
+**Dica pra quem está começando com Docker**: `up -d` sobe em background; `docker compose
+-f <arquivo> ps` mostra se os containers subiram e o status; `docker compose -f
+<arquivo> logs -f <serviço>` (ex. `grafana`) mostra o log ao vivo de um container
+específico se algo não aparecer no navegador.
+
+Ver `docs/Plano_Deployment.md` §3 para os detalhes de infraestrutura e a decisão de
+design por trás da separação dev/QA.
 
 ## Documentação de planejamento (`docs/`)
 
@@ -120,9 +160,12 @@ por trás da separação dev/QA.
 - `Plano_DB_IOT_Sensors.md` — modelo de dados, índices, particionamento e retenção.
 - `Plano_Gateway_HTTP.md` — histórico de evolução do gateway HTTP (fases concluídas e roadmap).
 - `Plano_Ingestion.md` — pipeline de ingestão de leituras (CoAP/DTLS → fila → escrita).
+- `Plano_Ingestion_Implementacao.md` — detalhamento de implementação (IngestionService, RabbitMQ, ReadingWriterService) + runbook de como subir tudo localmente e disparar via Bruno.
+- `Plano_DeviceCredentials.md` — provisionamento/rotação de credenciais PSK por device.
 - `Plano_Alerting.md` — detecção de condições anormais (limites, dewpoint) e geração de alarmes por fazenda.
 - `Plano_Deployment.md` — dockerização e CI/CD para os ambientes dev local, QA homelab e prod VPS.
 - `Plano_SensorSimulatorService.md` — plano da ferramenta `Sensor Simulator Service`, usada para simular dados de sensores enquanto o hardware físico não está disponível.
+- `Plano_SensorSimulatorService_Implementacao.md` — detalhamento de implementação (device_credentials, is_simulated, cliente CoAP/DTLS).
 
 ## Current structure
 
@@ -139,10 +182,12 @@ por trás da separação dev/QA.
 |---|---|---|
 | `cmake` ≥ 3.20 | Build system | `sudo apt install cmake` |
 | `gdb` | Debug (VS Code) | `sudo apt install gdb` |
-| `libssl-dev` | Auth middleware — HMAC-SHA256 para JWT (HS256) | `sudo apt install libssl-dev` |
+| `libssl-dev` | HMAC-SHA256 (JWT), AES-256-GCM (`device_credentials` em repouso) e backend DTLS/TLS do `libcoap`/`rabbitmq-c` | `sudo apt install libssl-dev` |
 | `libpqxx` | Acesso PostgreSQL | via CMake config ou `pkg-config` (ver `CMakeLists.txt`) |
 
-As restantes dependências (GoogleTest, cpp-httplib, spdlog, RapidJSON, tl::expected, valijson) são descarregadas automaticamente via CMake FetchContent na primeira build.
+As restantes dependências (GoogleTest, cpp-httplib, spdlog, RapidJSON, tl::expected, valijson, `libcoap`, `rabbitmq-c`) são descarregadas e compiladas automaticamente via CMake FetchContent na primeira build — estático, sem pacote `apt` adicional além do `libssl-dev` acima.
+
+**Dependência de runtime (não de build)**: `ingestion_service`/`reading_writer_service` precisam de um broker RabbitMQ acessível (`RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`) para funcionar — não é baixado pelo CMake, é um serviço externo (ver `docker-compose.qa-mq.yml` ou suba um container avulso pra testar localmente, `docs/Plano_Ingestion_Implementacao.md` tem o comando exato).
 
 ## Build and tests
 

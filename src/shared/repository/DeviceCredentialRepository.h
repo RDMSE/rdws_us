@@ -29,6 +29,9 @@ public:
                                             const std::vector<uint8_t>& pskKeyEnc) = 0;
   [[nodiscard]] virtual std::optional<DeviceCredential>
   findActiveByDeviceId(const std::string& deviceId) = 0;
+  // Bulk fetch for IngestionService's startup/periodic in-memory PSK cache
+  // (Plano_DeviceCredentials.md §5) — keyed by psk_identity at the DTLS handshake.
+  [[nodiscard]] virtual std::vector<DeviceCredential> findAllActive() = 0;
   [[nodiscard]] virtual bool rotate(const std::string& deviceId,
                                     const std::vector<uint8_t>& newPskKeyEnc) = 0;
   [[nodiscard]] virtual bool revoke(const std::string& deviceId) = 0;
@@ -43,6 +46,7 @@ public:
                                     const std::vector<uint8_t>& pskKeyEnc) override;
   [[nodiscard]] std::optional<DeviceCredential>
   findActiveByDeviceId(const std::string& deviceId) override;
+  [[nodiscard]] std::vector<DeviceCredential> findAllActive() override;
   [[nodiscard]] bool rotate(const std::string& deviceId,
                             const std::vector<uint8_t>& newPskKeyEnc) override;
   [[nodiscard]] bool revoke(const std::string& deviceId) override;

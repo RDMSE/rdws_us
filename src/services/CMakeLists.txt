@@ -14,6 +14,8 @@ add_subdirectory(persistence_service)
 # out of the copy_services_binaries loop below — it's a standalone tool, not part of
 # the main compose (Plano_Deployment.md §1, Plano_SensorSimulatorService.md).
 add_subdirectory(sensor_simulator_service)
+add_subdirectory(ingestion_service)
+add_subdirectory(reading_writer_service)
 
 # Create services output directory
 set(SERVICES_OUTPUT_DIR ${CMAKE_BINARY_DIR}/services)
@@ -34,6 +36,8 @@ foreach(SVC
     sensor_service
     sensor_reading_service
     persistence_service
+    ingestion_service
+    reading_writer_service
 )
     add_custom_command(TARGET copy_services_binaries POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

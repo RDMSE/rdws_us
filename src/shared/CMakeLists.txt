@@ -127,6 +127,20 @@ target_link_libraries(rdws_shared_coap PUBLIC
     coap-3
 )
 
+add_library(rdws_shared_amqp
+    amqp/amqp_client.cpp
+    amqp/amqp_client.h
+)
+
+target_include_directories(rdws_shared_amqp PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/amqp
+)
+
+target_link_libraries(rdws_shared_amqp PUBLIC
+    rabbitmq::rabbitmq-static
+)
+
 add_library(rdws_shared_database
     database/postgresql_database.cpp
     database/postgresql_database.h

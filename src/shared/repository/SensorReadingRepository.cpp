@@ -56,4 +56,13 @@ std::optional<SensorReading> SensorReadingRepository::findById(const std::string
   return readingFromRow(*rs);
 }
 
+bool SensorReadingRepository::insert(const std::string& sensorId, const std::string& timestamp,
+                                     const std::string& value) {
+  const std::string query =
+      "INSERT INTO sensor_readings (sensor_id, timestamp, value) VALUES ($1, $2, $3) "
+      "ON CONFLICT (sensor_id, timestamp) DO NOTHING";
+  const std::vector<std::string> params = {sensorId, timestamp, value};
+  return db_.execCommand(query, params);
+}
+
 } // namespace rdws::sensor_reading

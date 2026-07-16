@@ -183,6 +183,7 @@ public:
         "device_credential.get_active",
         "device_credential.rotate",
         "device_credential.revoke",
+        "device_credential.list_active",
     };
 
     deviceHandlers_ = {
@@ -199,6 +200,7 @@ public:
         {"device_credential.get_active", handleCredentialGetActive},
         {"device_credential.rotate", handleCredentialRotate},
         {"device_credential.revoke", handleCredentialRevoke},
+        {"device_credential.list_active", handleCredentialListActive},
     };
   }
 
@@ -447,6 +449,29 @@ private:
           .set("psk_identity", result.getData().pskIdentity)
           .set("psk_key", rdws::crypto::toHex(result.getData().pskKeyPlaintext))
           .take();
+    });
+  }
+
+  // Bulk fetch — no device_id filter, returns every active credential. Used by
+  // IngestionService to build/refresh its in-memory psk_identity -> key cache.
+  static rapidjson::Document
+  handleCredentialListActive(const rdws::utils::CapabilityContext& ctx,
+                             rdws::device::DeviceCredentialService& svc) {
+    auto t = ctx.profiler.scoped("db.query");
+    const auto result = svc.listActive();
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& credential : result.getData()) {
+        arr.PushBack(JsonObj(alloc)
+                        .set("psk_identity", credential.pskIdentity)
+                        .set("psk_key", rdws::crypto::toHex(credential.pskKeyPlaintext))
+                        .take(),
+                    alloc);
+      }
+      return arr;
     });
   }
 
