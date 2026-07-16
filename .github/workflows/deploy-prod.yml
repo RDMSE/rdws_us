@@ -1,0 +1,84 @@
+name: Deploy Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag da imagem já publicada/validada em QA (sha do commit ou 'qa')"
+        required: true
+        default: qa
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, homelab, docker]
+    environment: production
+    steps:
+      - name: Require a release/NN.MM.XX branch
+        run: |
+          ref="${{ github.ref_name }}"
+          if [[ ! "$ref" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Deploy de produção só pode ser disparado a partir de uma branch release/NN.MM.XX (ref atual: $ref)." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up SSH access to the VPS
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.PROD_SSH_KEY }}
+
+      - name: Trust VPS host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ vars.PROD_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Generate .env.prod from environment secrets
+        run: |
+          cat > .env.prod <<EOF
+          DB_USER=${{ vars.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_NAME=${{ vars.DB_NAME }}
+          RDWS_JWT_SECRET=${{ secrets.RDWS_JWT_SECRET }}
+          RDWS_JWT_ISSUER=${{ vars.RDWS_JWT_ISSUER }}
+          RDWS_JWT_AUDIENCE=
+          CREDENTIAL_ENCRYPTION_KEY=${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+          IMAGE_TAG=${{ inputs.image_tag }}
+          EOF
+
+      # Compose commands target the remote Docker daemon over SSH (DOCKER_HOST), using
+      # the compose files checked out locally on the runner — prod pulls the image
+      # already built/tested in QA, it does not rebuild.
+      - name: Ensure prod Postgres is up
+        env:
+          DOCKER_HOST: ssh://${{ vars.PROD_SSH_USER }}@${{ vars.PROD_HOST }}
+        run: docker compose -f docker-compose.prod-db.yml --env-file .env.prod up -d postgres
+
+      - name: Run Flyway migrations
+        env:
+          DOCKER_HOST: ssh://${{ vars.PROD_SSH_USER }}@${{ vars.PROD_HOST }}
+        run: docker compose -f docker-compose.prod-db.yml --env-file .env.prod --profile migrate run --rm migrate
+
+      - name: Pull and deploy gateway + services
+        env:
+          DOCKER_HOST: ssh://${{ vars.PROD_SSH_USER }}@${{ vars.PROD_HOST }}
+        run: docker compose -f docker-compose.prod-app.yml --env-file .env.prod up -d --pull always
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://${{ vars.PROD_HOST }}:3001/health > /dev/null; then
+              echo "Gateway saudável."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Gateway não respondeu saudável a tempo." >&2
+          exit 1
+
+      - name: Clean up .env.prod
+        if: always()
+        run: rm -f .env.prod

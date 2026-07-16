@@ -1,13 +1,16 @@
 add_executable(device_service AppDeviceService.cpp
     FieldServiceClient.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceCredentialRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceService.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceCredentialService.cpp
 )
 
 target_link_libraries(device_service PRIVATE
     service_gateway_core
     rdws_shared_database
     rdws_shared_config
+    rdws_shared_crypto
 )
 
 target_include_directories(device_service PRIVATE

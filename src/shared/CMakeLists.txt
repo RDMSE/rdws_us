@@ -99,6 +99,34 @@ target_link_libraries(rdws_shared_logger PUBLIC
     spdlog_wrapper
 )
 
+add_library(rdws_shared_crypto
+    crypto/credential_cipher.cpp
+    crypto/credential_cipher.h
+)
+
+target_include_directories(rdws_shared_crypto PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/crypto
+)
+
+target_link_libraries(rdws_shared_crypto PUBLIC
+    OpenSSL::Crypto
+)
+
+add_library(rdws_shared_coap
+    coap/coap_dtls_client.cpp
+    coap/coap_dtls_client.h
+)
+
+target_include_directories(rdws_shared_coap PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/coap
+)
+
+target_link_libraries(rdws_shared_coap PUBLIC
+    coap-3
+)
+
 add_library(rdws_shared_database
     database/postgresql_database.cpp
     database/postgresql_database.h

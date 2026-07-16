@@ -38,6 +38,8 @@ if(BUILD_TESTING)
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
   )
   FetchContent_MakeAvailable(googletest)
 endif()
@@ -51,6 +53,12 @@ else()
     pkg_check_modules(PQXX REQUIRED IMPORTED_TARGET libpqxx)
     add_library(PQXX_DEP ALIAS PkgConfig::PQXX)
 endif()
+
+# OpenSSL — used by service_broker (JWT HMAC) and src/shared/crypto (AES-256-GCM for
+# device credentials). find_package here (root) instead of only in service_broker's
+# CMakeLists.txt so src/shared and src/third_party (libcoap's DTLS backend) can also
+# link OpenSSL::Crypto/OpenSSL::SSL regardless of add_subdirectory order.
+find_package(OpenSSL REQUIRED)
 
 # Linux Mint
 # find_package(libpqxx REQUIRED)
