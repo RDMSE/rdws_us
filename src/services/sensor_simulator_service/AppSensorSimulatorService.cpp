@@ -22,6 +22,7 @@
 
 #include <httplib.h>
 #include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
@@ -35,6 +36,7 @@
 #include <fstream>
 #include <mutex>
 #include <optional>
+#include <algorithm>
 #include <random>
 #include <sstream>
 #include <string>
@@ -82,15 +84,18 @@ std::string dataFilePath(const std::string& dataDir, const std::string& deviceId
   return dataDir + "/" + deviceId + "_" + sensorId + ".data";
 }
 
-int readTransmissionsPerDay(const std::string& configJson) {
+// device_configurations.config fields (Plano_Ingestion.md "amostragem interna vs. taxa
+// de transmissão"): sampling_interval_s controls how often a reading is generated,
+// report_interval_s how often accumulated readings are sent via CoAP/DTLS.
+int readIntConfig(const std::string& configJson, const char* field, int defaultValue) {
   if (configJson.empty()) {
-    return 4;
+    return defaultValue;
   }
   rapidjson::Document doc;
   if (doc.Parse(configJson.c_str()).HasParseError() || !doc.IsObject()) {
-    return 4;
+    return defaultValue;
   }
-  return json::getInt(doc, "transmissions_per_day").value_or(4);
+  return json::getInt(doc, field).value_or(defaultValue);
 }
 
 std::string getenvOrDefault(const char* name, const std::string& def) {
@@ -185,35 +190,72 @@ private:
 
   std::atomic<bool> running_{false};
   std::mutex deviceFileMutex_; // guards all <device_id>_<sensor_id>.data files for this device
+  // libpqxx connections aren't safe for concurrent use from multiple threads —
+  // generationLoop() and transmissionLoop() both query deviceConfigRepo_ (same db_
+  // connection) on their own threads, so every access needs this held.
+  std::mutex dbMutex_;
 
-  static constexpr int kGenerationIntervalSec = 30;
+  static constexpr int kDefaultSamplingIntervalSec = 30;
 
   // ─── Generation ──────────────────────────────────────────────────────────
 
   void generationLoop() {
     std::mt19937 rng(std::random_device{}());
     while (running_.load()) {
-      {
-        std::scoped_lock lock(deviceFileMutex_);
-        for (const auto& sensor : sensors_) {
-          appendReading(sensor, rng);
+      int intervalSec = kDefaultSamplingIntervalSec;
+      try {
+        {
+          std::scoped_lock lock(deviceFileMutex_);
+          for (const auto& sensor : sensors_) {
+            appendReading(sensor, rng);
+          }
         }
+        std::scoped_lock dbLock(dbMutex_);
+        const auto config = deviceConfigRepo_.findByDeviceId(deviceId_);
+        intervalSec = std::max(1, readIntConfig(config ? config->config : std::string{},
+                                                "sampling_interval_s", kDefaultSamplingIntervalSec));
+      } catch (const std::exception& e) {
+        // A transient DB/network hiccup shouldn't take down the whole process — log
+        // and retry next tick instead of letting the exception escape the thread
+        // (uncaught here would call std::terminate).
+        logger::error("SensorSimulatorService: generation cycle failed, will retry",
+                      "device_id=" + deviceId_ + " error=" + e.what());
       }
-      for (int i = 0; i < kGenerationIntervalSec && running_.load(); ++i) {
+      for (int i = 0; i < intervalSec && running_.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
     }
   }
 
+  // Bounded random walk instead of an independent uniform draw per tick — a real
+  // sensor's successive readings are correlated (temperature doesn't jump 30 degrees
+  // in 30s); each step nudges the previous value by a small fraction of the sensor's
+  // range and clamps back into [min, max].
+  std::unordered_map<std::string, double> lastValueBySensor_;
+
   void appendReading(const rdws::device::SimulatedSensor& sensor, std::mt19937& rng) {
     const auto it = kRangesByType.find(sensor.sensorType);
     const Range range = it != kRangesByType.end() ? it->second : Range{0.0, 100.0};
-    std::uniform_real_distribution<double> dist(range.min, range.max);
-    const double value = dist(rng);
+
+    auto [entry, isNew] = lastValueBySensor_.try_emplace(sensor.sensorId);
+    if (isNew) {
+      std::uniform_real_distribution<double> initial(range.min, range.max);
+      entry->second = initial(rng);
+    } else {
+      const double maxStep = (range.max - range.min) * 0.05; // ~5% of range per tick
+      std::uniform_real_distribution<double> step(-maxStep, maxStep);
+      entry->second = std::clamp(entry->second + step(rng), range.min, range.max);
+    }
+    const double value = entry->second;
 
     const std::string path = dataFilePath(dataDir_, deviceId_, sensor.sensorId);
     rapidjson::Document doc(rapidjson::kArrayType);
     loadJsonArray(path, doc);
+    if (!doc.IsArray()) {
+      // Same defensive reasoning as in transmitNow() — never trust file content
+      // blindly (e.g. cross-process corruption).
+      doc.SetArray();
+    }
 
     rapidjson::Value reading(rapidjson::kObjectType);
     auto& alloc = doc.GetAllocator();
@@ -239,8 +281,11 @@ private:
   }
 
   static void writeJsonArray(const std::string& path, const rapidjson::Document& doc) {
+    // Pretty-printed (one field/entry per line) purely for human readability when
+    // inspecting the file manually (e.g. `tail -f`/`cat`) — parsing (loadJsonArray)
+    // doesn't care either way. The wire payload in transmitNow() stays compact.
     rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     doc.Accept(writer);
     std::ofstream out(path, std::ios::trunc);
     out << buffer.GetString();
@@ -248,13 +293,20 @@ private:
 
   // ─── Transmission ────────────────────────────────────────────────────────
 
+  static constexpr int kDefaultReportIntervalSec = 21600; // 4x/day, matches old default
+
   void transmissionLoop() {
     while (running_.load()) {
-      const int transmissionsPerDay = [this] {
+      int intervalSec = kDefaultReportIntervalSec;
+      try {
+        std::scoped_lock dbLock(dbMutex_);
         const auto config = deviceConfigRepo_.findByDeviceId(deviceId_);
-        return readTransmissionsPerDay(config ? config->config : std::string{});
-      }();
-      const int intervalSec = std::max(60, 86400 / std::max(1, transmissionsPerDay));
+        intervalSec = std::max(60, readIntConfig(config ? config->config : std::string{},
+                                                 "report_interval_s", kDefaultReportIntervalSec));
+      } catch (const std::exception& e) {
+        logger::error("SensorSimulatorService: reading transmission interval failed, using default",
+                      "device_id=" + deviceId_ + " error=" + e.what());
+      }
 
       for (int i = 0; i < intervalSec && running_.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -262,7 +314,12 @@ private:
       if (!running_.load()) {
         break;
       }
-      transmitNow();
+      try {
+        transmitNow();
+      } catch (const std::exception& e) {
+        logger::error("SensorSimulatorService: transmission cycle failed, will retry",
+                      "device_id=" + deviceId_ + " error=" + e.what());
+      }
     }
   }
 
@@ -282,11 +339,22 @@ private:
       const std::string path = dataFilePath(dataDir_, deviceId_, sensor.sensorId);
       rapidjson::Document sensorReadings(rapidjson::kArrayType);
       loadJsonArray(path, sensorReadings);
-      if (sensorReadings.Empty()) {
+      // Defensive: loadJsonArray should always leave an array (falls back to
+      // SetArray() on any parse issue), but never trust file content blindly —
+      // e.g. two simulator instances pointed at the same data dir/device would
+      // corrupt each other's writes (the mutex only serializes within this
+      // process). Treat anything unexpected as "no data" instead of asserting.
+      if (!sensorReadings.IsArray() || sensorReadings.Empty()) {
         continue;
       }
       filesToClear.push_back(path);
       for (auto& reading : sensorReadings.GetArray()) {
+        if (!reading.IsObject() || !reading.HasMember("timestamp") ||
+            !reading.HasMember("value")) {
+          logger::warn("SensorSimulatorService: skipping malformed reading entry",
+                      "device_id=" + deviceId_ + " sensor_id=" + sensor.sensorId);
+          continue;
+        }
         rapidjson::Value entry(rapidjson::kObjectType);
         entry.AddMember("sensor_id", rapidjson::Value(sensor.sensorId.c_str(), alloc), alloc);
         entry.AddMember("unit", rapidjson::Value(sensor.unit.c_str(), alloc), alloc);
@@ -299,9 +367,12 @@ private:
         readingsArr.PushBack(entry, alloc);
       }
     }
+    // AddMember moves readingsArr into payload (leaves it null) — capture what we
+    // need before the move, not after.
+    const auto readingsCount = readingsArr.Size();
     payload.AddMember("readings", readingsArr, alloc);
 
-    if (readingsArr.Empty()) {
+    if (readingsCount == 0) {
       logger::info("Nothing to transmit", "device_id=" + deviceId_);
       return;
     }
@@ -333,7 +404,7 @@ private:
       std::ofstream(path, std::ios::trunc);
     }
     logger::info("Transmission successful", "device_id=" + deviceId_ +
-                                               " readings=" + std::to_string(readingsArr.Size()));
+                                               " readings=" + std::to_string(readingsCount));
   }
 
   struct FetchedCredential {
@@ -385,7 +456,14 @@ private:
                                         "application/json");
                          return;
                        }
-                       std::thread([this] { transmitNow(); }).detach();
+                       std::thread([this] {
+                         try {
+                           transmitNow();
+                         } catch (const std::exception& e) {
+                           logger::error("SensorSimulatorService: manual trigger transmission failed",
+                                        "device_id=" + deviceId_ + " error=" + e.what());
+                         }
+                       }).detach();
                        res.status = 202;
                        res.set_content("{\"status\":\"triggered\"}", "application/json");
                      });

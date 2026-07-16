@@ -204,6 +204,10 @@ private:
       return;
     }
     coap_context_set_app_data(ctx, this);
+    // Mirror the client's block-mode (coap_dtls_client.cpp) — SINGLE_BODY makes
+    // libcoap reassemble a fragmented (Block1) request before calling our resource
+    // handler, so onRequest() always sees the complete payload in one shot.
+    coap_context_set_block_mode(ctx, COAP_BLOCK_USE_LIBCOAP | COAP_BLOCK_SINGLE_BODY);
 
     coap_dtls_spsk_t setupData{};
     setupData.version = COAP_DTLS_SPSK_SETUP_VERSION;
