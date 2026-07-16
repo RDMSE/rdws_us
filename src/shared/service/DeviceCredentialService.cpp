@@ -28,6 +28,16 @@ ServiceResult<ActiveCredential> DeviceCredentialService::getActive(const std::st
   return ServiceResult<ActiveCredential>::success({credential->pskIdentity, plaintext});
 }
 
+ServiceResult<std::vector<ActiveCredential>> DeviceCredentialService::listActive() {
+  const auto credentials = repo_.findAllActive();
+  std::vector<ActiveCredential> result;
+  result.reserve(credentials.size());
+  for (const auto& credential : credentials) {
+    result.push_back({credential.pskIdentity, cipher_.decrypt(credential.pskKeyEnc)});
+  }
+  return ServiceResult<std::vector<ActiveCredential>>::success(std::move(result));
+}
+
 ServiceResult<ProvisionedCredential> DeviceCredentialService::rotate(const std::string& deviceId) {
   if (!repo_.findActiveByDeviceId(deviceId)) {
     return ServiceResult<ProvisionedCredential>::error(

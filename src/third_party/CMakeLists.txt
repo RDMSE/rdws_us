@@ -121,3 +121,20 @@ FetchContent_Declare(
     INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(libcoap)
+
+# rabbitmq-c (AMQP 0-9-1 client, used by the amqp_client wrapper in src/shared/amqp for
+# IngestionService/ReadingWriterService) — static build, no new apt package needed
+# (OpenSSL already required by the root CMakeLists.txt).
+set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BUILD_API_DOCS OFF CACHE BOOL "" FORCE)
+set(ENABLE_SSL_SUPPORT ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    rabbitmq_c
+    URL https://github.com/alanxz/rabbitmq-c/archive/refs/tags/v0.14.0.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
+)
+FetchContent_MakeAvailable(rabbitmq_c)

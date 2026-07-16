@@ -28,6 +28,8 @@ public:
   [[nodiscard]] rdws::types::ServiceResult<ProvisionedCredential>
   provision(const std::string& deviceId);
   [[nodiscard]] rdws::types::ServiceResult<ActiveCredential> getActive(const std::string& deviceId);
+  // Bulk fetch for IngestionService's in-memory PSK cache (startup + periodic refresh).
+  [[nodiscard]] rdws::types::ServiceResult<std::vector<ActiveCredential>> listActive();
   [[nodiscard]] rdws::types::ServiceResult<ProvisionedCredential> rotate(const std::string& deviceId);
   [[nodiscard]] rdws::types::OperationResult revoke(const std::string& deviceId);
 

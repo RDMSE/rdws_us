@@ -56,31 +56,51 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 
 ## Progresso de implementação (2026-07-16)
 
-`SensorSimulatorService` implementado e validado ponta a ponta (exceto o
-`IngestionService`, que ainda não existe do lado servidor) — detalhamento completo em
-`Plano_SensorSimulatorService_Implementacao.md`. Resumo do que já está no código:
+Pipeline completo implementado e validado ponta a ponta: `SensorSimulatorService` →
+`IngestionService` → RabbitMQ → `ReadingWriterService` → Postgres. Detalhamento completo
+em `Plano_SensorSimulatorService_Implementacao.md` e `Plano_Ingestion_Implementacao.md`.
+Resumo do que já está no código:
 
 - **`device_credentials`**: tabela + criptografia AES-256-GCM (`src/shared/crypto`) +
-  capabilities internas `device_credential.get_active/rotate/revoke` no `device_service`
-  + provisionamento atômico dentro de `device.create` (`device_credential.provision`,
-  não é uma capability standalone). Testado com roundtrip de criptografia real via
-  Postgres.
+  capabilities internas `device_credential.get_active/rotate/revoke/list_active` no
+  `device_service` + provisionamento atômico dentro de `device.create`
+  (`device_credential.provision`, não é uma capability standalone). Testado com
+  roundtrip de criptografia real via Postgres.
 - **`devices.is_simulated`**: migration + trigger de imutabilidade (`V7`), aceito só em
   `device.create`.
-- **Cliente CoAP/DTLS**: `libcoap` (backend OpenSSL) integrado via FetchContent,
-  `CoapDtlsClient` (`src/shared/coap`) — handshake DTLS-PSK real validado por teste
-  automatizado e por verificação manual contra um servidor CoAP de teste.
+- **`sensor_readings` idempotente**: `UNIQUE(sensor_id, timestamp)` (`V8`) +
+  `SensorReadingRepository::insert()` via `ON CONFLICT DO NOTHING`.
+- **Cliente/servidor CoAP/DTLS**: `libcoap` (backend OpenSSL) integrado via FetchContent
+  — `CoapDtlsClient` (`src/shared/coap`, lado `SensorSimulatorService`) e o servidor PSK
+  embutido no `IngestionService`. Handshake DTLS-PSK real validado por teste automatizado
+  e ponta a ponta.
+- **RabbitMQ**: `rabbitmq-c` vendorizado via FetchContent, wrapper
+  `AmqpProducer`/`AmqpConsumer` (`src/shared/amqp`) — fila durável `sensor_readings`,
+  uma mensagem por leitura.
 - **`SensorSimulatorService`**: gera leituras periódicas em arquivo, transmite por CoAP/DTLS
   no intervalo configurado em `device_configurations` (ou via
-  `POST /simulate/{device_id}/trigger`), buscando a credencial ativa a cada ciclo. Validado
-  de ponta a ponta localmente (device.create → geração → trigger manual → handshake DTLS-PSK
-  → payload recebido).
+  `POST /simulate/{device_id}/trigger`), buscando a credencial ativa a cada ciclo.
+- **`IngestionService`**: servidor CoAP/DTLS stateless (sem Postgres), cache de PSKs em
+  memória com refresh periódico (poll 60s via `device_credential.list_active`),
+  validação mínima de formato, publica uma mensagem por leitura no RabbitMQ.
+- **`ReadingWriterService`**: worker puro (sem gateway/capability), consome a fila e
+  grava em `sensor_readings` com ack só após o insert confirmado.
+- Validado de ponta a ponta com serviços reais rodando localmente (Postgres, gateway,
+  device/field/farm_service, RabbitMQ, `IngestionService`, `ReadingWriterService`,
+  `SensorSimulatorService`): `device.create` → geração → trigger manual → handshake
+  DTLS-PSK → publish na fila → consumo → linha em `sensor_readings`, sem duplicação em
+  disparos repetidos.
 
 ## Pontos em aberto
 
-- Definir qual broker de fila será adotado (RabbitMQ é o candidato natural dado o resto da stack).
-- **`IngestionService`** (servidor CoAP/DTLS) — ainda não implementado; é o que falta para
-  o simulador ter um destino real em vez de um servidor de teste ad-hoc.
+- **Validação completa contra `device_config`** (schema/faixas plausíveis) no
+  `IngestionService` — adiada nesta entrega, só validação mínima de formato
+  (`Plano_Ingestion_Implementacao.md`). `IngestionService` continua stateless quanto à
+  persistência; falta definir como um serviço stateless acessaria `device_config`
+  (provavelmente uma nova capability).
+- **Invalidação de credencial em tempo real** — `IngestionService` usa poll periódico
+  (60s) em vez do bridge de `device_credential.changed` via EventBus (que exigiria
+  mudança no lado do gateway, fora de escopo por ora).
 - Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
 - Atualizar o `ENUM` de `sensors.type` em `Plano_DB_IOT_Sensors.md` com os novos tipos (bateria, solar, agregados de vento) — ver seção "Amostragem interna vs. taxa de transmissão".
 - Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
@@ -94,13 +114,11 @@ O `PLANO_GATEWAY_HTTP.md` (Fase 11) já define Grafana como ferramenta de observ
 **Nota (2026-07-08, `Plano_Deployment.md` §6 passo 5):** RabbitMQ containerizado foi
 adiado nesse plano de deployment — sem `IngestionService`/`ReadingWriterService`
 implementados, não há nada publicando/consumindo a fila pra validar o container de
-ponta a ponta. RabbitMQ só deve ser containerizado junto com a implementação destes
-dois serviços (ver passo 1 abaixo), não isoladamente antes deles.
+ponta a ponta. **Resolvido (2026-07-16)**: `docker-compose.qa-mq.yml` criado junto da
+implementação dos dois serviços (`ingestion_service`/`reading_writer_service` em
+`docker-compose.qa-app.yml`).
 
-1. **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta. Observabilidade é aditiva e não deve bloquear a funcionalidade.
-   - ✅ **Simulador** (`SensorSimulatorService`) implementado e validado — ver "Progresso
-     de implementação" acima. Falta o restante da cadeia (`IngestionService`, RabbitMQ,
-     `ReadingWriterService`) para a validação ponta a ponta real.
+1. ✅ **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta — ver "Progresso de implementação" acima. Observabilidade (passos 2-3 abaixo) ainda pendente.
 2. **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
 3. **Plugar o ingestion na mesma instância**: adicionar Prometheus + RabbitMQ exporter como datasource no Grafana já existente.
 
