@@ -150,6 +150,36 @@
           "rawQuery": true
         }
       ]
+    },
+    {
+      "id": 10,
+      "title": "Sensor Readings (value over time)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 50 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT sr.timestamp AS time, 'sensor ' || sr.sensor_id || ' (' || s.type || ')' AS metric, sr.value::double precision AS value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) ORDER BY sr.timestamp",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Recent Sensor Readings",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 58 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT sr.timestamp, sr.sensor_id, s.device_id, s.type AS sensor_type, s.unit, sr.value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) ORDER BY sr.timestamp DESC LIMIT 200",
+          "rawQuery": true
+        }
+      ]
     }
   ]
 }

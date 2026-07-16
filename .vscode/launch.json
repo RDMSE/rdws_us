@@ -156,6 +156,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -204,6 +208,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -246,6 +254,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -290,6 +302,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -332,6 +348,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -376,6 +396,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -418,6 +442,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -462,6 +490,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -504,6 +536,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -548,6 +584,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -590,6 +630,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -634,6 +678,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -676,6 +724,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -720,6 +772,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -762,6 +818,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
@@ -806,6 +866,10 @@
                 {
                     "name": "DB_PASSWORD",
                     "value": "password"
+                },
+                {
+                    "name": "CREDENTIAL_ENCRYPTION_KEY",
+                    "value": "dev-encryption-key-32-bytes-long"
                 }
             ],
             "externalConsole": false,
