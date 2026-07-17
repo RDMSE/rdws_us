@@ -19,7 +19,7 @@ services:
       - "15672:15672" # Management UI (http://localhost:15672)
       - "15692:15692" # Prometheus exporter (rabbitmq_prometheus, habilitado abaixo)
     command: >
-      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
+      sh -c "mkdir -p /etc/rabbitmq/conf.d && echo 'prometheus.return_per_object_metrics = true' > /etc/rabbitmq/conf.d/90-prometheus.conf && rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
