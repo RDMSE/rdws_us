@@ -161,13 +161,28 @@ dashboard. Opcionalmente, dá pra enriquecer isso expondo no `/metrics` alguns d
 que o `MetricsTracker`/`ServiceMonitor` já calculam (serviços conectados, capabilities
 registradas, taxa de erro) como gauges, indo além do simples "up/down".
 
-**Backlog: RabbitMQ observável no Grafana** — hoje o RabbitMQ não aparece no dashboard.
-Faltam: (1) habilitar o plugin `rabbitmq_prometheus` (ou trocar a imagem) nos
-`docker-compose.*-mq.yml`, que hoje rodam `rabbitmq:3-management` puro; (2) adicionar job
-de scrape no `prometheus-dev.yml`/`prometheus-qa.yml` para a porta de métricas do RabbitMQ
-(~15692); (3) painéis no `gateway-overview.json` (ou dashboard novo) com profundidade de
-fila, consumidores e mensagens pendentes. Net-new work, não é bug — entra junto com o
-próximo ciclo de observabilidade.
+**RabbitMQ observável no Grafana** — feito (2026-07-17): plugin `rabbitmq_prometheus`
+habilitado nos `docker-compose.*-mq.yml` (com `prometheus.return_per_object_metrics =
+true` em `rabbitmq.conf`, necessário pro label `queue=` aparecer nas métricas por fila),
+job de scrape em `prometheus-dev.yml`/`prometheus-qa.yml` (dev via
+`host.docker.internal:15692`, já que o RabbitMQ dev roda num projeto/rede Compose
+separado do stack de observabilidade; qa via DNS interno `rabbitmq:15692`, mesmo
+projeto), e painéis em `gateway-overview.json` (profundidade de fila, consumidores,
+mensagens pendentes, filtrados por `queue="sensor_readings"`). Ponto de atenção validado
+na `precision-m4400`: o UFW ali bloqueia por padrão o tráfego de contêiner-Docker para
+portas do host (mesmo padrão já visto com a porta 3001) — qualquer porta nova publicada
+que o Prometheus (também em container) precise alcançar via `host.docker.internal`
+exige uma regra `ufw allow from 172.16.0.0/12 to any port <porta> proto tcp`.
+
+**Backlog: alertas quando um serviço reinicia/cai** — hoje a única forma de saber que um
+serviço caiu é olhando o dashboard manualmente (`up{job="..."}` no Prometheus, ou os
+painéis de fila do RabbitMQ). Não existe Alertmanager no stack (nenhum
+`docker-compose.*-observability.yml` sobe um, e o `ruler.alertmanager_url` do
+`loki-config.yml` aponta pra uma porta que não existe — resquício de template, nunca
+usado). Faltam: (1) subir um `alertmanager` no compose de observabilidade; (2) regras
+básicas no Prometheus (`up == 0` por N minutos por serviço, `rabbitmq_queue_consumers ==
+0` com fila crescendo, etc.); (3) decidir canal de notificação (Slack/e-mail/webhook).
+Net-new work, não é bug — entra junto com o próximo ciclo de observabilidade.
 
 **Nota**: com esse indicador via Prometheus + o Bruno cobrindo `/health` e `/status`
 (coleção `bruno/IoT Sensor API/Gateway/Health.bru` e `Status.bru`), o
