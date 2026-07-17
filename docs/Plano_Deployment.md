@@ -161,6 +161,14 @@ dashboard. Opcionalmente, dá pra enriquecer isso expondo no `/metrics` alguns d
 que o `MetricsTracker`/`ServiceMonitor` já calculam (serviços conectados, capabilities
 registradas, taxa de erro) como gauges, indo além do simples "up/down".
 
+**Backlog: RabbitMQ observável no Grafana** — hoje o RabbitMQ não aparece no dashboard.
+Faltam: (1) habilitar o plugin `rabbitmq_prometheus` (ou trocar a imagem) nos
+`docker-compose.*-mq.yml`, que hoje rodam `rabbitmq:3-management` puro; (2) adicionar job
+de scrape no `prometheus-dev.yml`/`prometheus-qa.yml` para a porta de métricas do RabbitMQ
+(~15692); (3) painéis no `gateway-overview.json` (ou dashboard novo) com profundidade de
+fila, consumidores e mensagens pendentes. Net-new work, não é bug — entra junto com o
+próximo ciclo de observabilidade.
+
 **Nota**: com esse indicador via Prometheus + o Bruno cobrindo `/health` e `/status`
 (coleção `bruno/IoT Sensor API/Gateway/Health.bru` e `Status.bru`), o
 `service_gateway_monitor` (CLI interativo de debug) fica dispensável nos ambientes

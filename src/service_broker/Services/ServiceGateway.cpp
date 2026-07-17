@@ -548,11 +548,18 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
   // Notify any HTTP thread waiting on this requestId
   auto waiterIt = responseWaiters_.find(requestId.value());
-  if (waiterIt != responseWaiters_.end()) {
+  const bool hasHttpWaiter = waiterIt != responseWaiters_.end();
+  if (hasHttpWaiter) {
     waiterIt->second->notify_one();
   }
 
   logger::info("response_correlated", requestId.value() + " service=" + pending.targetServiceId + " state=" + requestStateToString(pending.state));
+
+  // Capture what the lifecycle event needs before any possible erase below —
+  // `pending` is a reference into the map and becomes dangling the moment `it` is
+  // erased (both branches below can erase it).
+  const std::string eventCapability = pending.capability;
+  const std::string eventServiceId = pending.targetServiceId;
 
   // Requests originated by another service via ServiceClient::invoke() (the INVOKE
   // protocol) have no HTTP thread blocked in waitForResponse() to consume them —
@@ -585,6 +592,15 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
     sendMessage(originatorFd, json::docToString(invokeResponse));
     pendingRequests.erase(it);
+  } else if (!hasHttpWaiter) {
+    // Fire-and-forget internal requests (e.g. the request.completed →
+    // persistence.save.request/persistence.save.metrics bridges in start()) have
+    // no HTTP thread and no originator service waiting to consume them either —
+    // nothing will ever call waitForResponse() for this requestId. Reclaim the
+    // slot now instead of leaving it for cleanupExpiredRequests()'s 5-minute
+    // retention window, which made every completed request look "stuck" for
+    // minutes in /health's pendingRequests count.
+    pendingRequests.erase(it);
   }
 
   // Publish request lifecycle event (bus_.publish is non-blocking)
@@ -595,8 +611,8 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
     rapidjson::Value evValue = json::JsonObj(a)
         .set("requestId", requestId.value())
-        .set("capability", pending.capability)
-        .set("serviceId", pending.targetServiceId)
+        .set("capability", eventCapability)
+        .set("serviceId", eventServiceId)
         .set("success", !isError)
         .set("latencyMs", static_cast<int>(latencyMs.count()))
         .take();

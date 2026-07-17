@@ -40,6 +40,10 @@ bool CoapDtlsClient::sendConfirmable(const std::string& pskIdentity, const std::
   if (!ctx) {
     return false;
   }
+  // Let libcoap fragment payloads that don't fit in a single PDU (Block1, RFC 7959)
+  // instead of coap_add_data() silently dropping whatever doesn't fit — readings
+  // accumulate between transmissions, so the payload size isn't bounded.
+  coap_context_set_block_mode(ctx, COAP_BLOCK_USE_LIBCOAP);
 
   ResponseState state;
   coap_context_set_app_data(ctx, &state);
@@ -80,7 +84,7 @@ bool CoapDtlsClient::sendConfirmable(const std::string& pskIdentity, const std::
   }
 
   if (!payload.empty()) {
-    coap_add_data(pdu, payload.size(), payload.data());
+    coap_add_data_large_request(session, pdu, payload.size(), payload.data(), nullptr, nullptr);
   }
 
   if (coap_send(session, pdu) == COAP_INVALID_MID) {
