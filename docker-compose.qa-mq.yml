@@ -24,7 +24,7 @@ services:
     volumes:
       - rabbitmq_qa_data:/var/lib/rabbitmq
     command: >
-      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
+      sh -c "echo 'prometheus.return_per_object_metrics = true' >> /etc/rabbitmq/rabbitmq.conf && rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s

@@ -8,3 +8,10 @@ scrape_configs:
       - targets: ["gateway:3001"]
         labels:
           env: qa
+
+  # RabbitMQ qa está no mesmo projeto/rede Compose (rdws_qa) — DNS interno funciona.
+  - job_name: rdws_rabbitmq_qa
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+        labels:
+          env: qa
