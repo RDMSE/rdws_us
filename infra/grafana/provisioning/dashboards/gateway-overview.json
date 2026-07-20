@@ -6,6 +6,20 @@
   "version": 1,
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "device_id",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+        "query": "SELECT DISTINCT device_id::text FROM sensors ORDER BY device_id",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": ["$__all"] }
+      }
+    ]
+  },
   "panels": [
     {
       "id": 10,
@@ -17,7 +31,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT sr.timestamp AS time, 'sensor ' || sr.sensor_id || ' (' || s.type || ')' AS metric, sr.value::double precision AS value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) ORDER BY sr.timestamp",
+          "rawSql": "SELECT sr.timestamp AS time, 'sensor ' || sr.sensor_id || ' (' || s.type || ')' AS metric, sr.value::double precision AS value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) AND s.device_id::text IN ($device_id) ORDER BY sr.timestamp",
           "rawQuery": true
         }
       ]
@@ -32,7 +46,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT sr.timestamp, sr.sensor_id, s.device_id, s.type AS sensor_type, s.unit, sr.value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) ORDER BY sr.timestamp DESC LIMIT 200",
+          "rawSql": "SELECT sr.timestamp, sr.sensor_id, s.device_id, s.type AS sensor_type, s.unit, sr.value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) AND s.device_id::text IN ($device_id) ORDER BY sr.timestamp DESC LIMIT 200",
           "rawQuery": true
         }
       ]
