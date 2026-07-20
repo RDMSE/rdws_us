@@ -413,12 +413,10 @@
         {
             "label": "run-sensor-simulator-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build-debug/bin/sensor_simulator_service",
+            "command": "bash",
             "args": [
-                "--device-id",
-                "${input:simulatorDeviceId}",
-                "--gateway",
-                "unix:///tmp/rdws_gateway.sock"
+                "-c",
+                "PORT=$((9100 + ${input:simulatorDeviceId})); flock -n /tmp/rdws_simulator_${input:simulatorDeviceId}.lock env SIMULATOR_CONTROL_PORT=$PORT \"${workspaceFolder}/build-debug/bin/sensor_simulator_service\" --device-id ${input:simulatorDeviceId} --gateway unix:///tmp/rdws_gateway.sock || { echo \"Já existe uma instância rodando para device-id ${input:simulatorDeviceId}\"; exit 1; }"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
@@ -429,7 +427,6 @@
                     "DB_PASSWORD": "password",
                     "DB_NAME": "rdws_us_dev",
                     "SIMULATOR_DATA_DIR": "${workspaceFolder}/sim_data",
-                    "SIMULATOR_CONTROL_PORT": "9100",
                     "INGESTION_HOST": "127.0.0.1",
                     "INGESTION_PORT": "5684"
                 }
@@ -437,9 +434,12 @@
             "dependsOn": "cmake-build",
             "presentation": {
                 "reveal": "always",
-                "panel": "dedicated"
+                "panel": "new"
             },
             "isBackground": true,
+            "runOptions": {
+                "instanceLimit": 10
+            },
             "problemMatcher": []
         },
         {
