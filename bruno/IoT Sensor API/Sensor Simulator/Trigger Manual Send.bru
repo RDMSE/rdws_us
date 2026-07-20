@@ -5,11 +5,16 @@ meta {
 }
 
 post {
-  url: {{simulatorBaseUrl}}/simulate/:devId/trigger
+  url: {{simulatorBaseUrl}}:{{devicePort}}/simulate/:devId/trigger
   body: none
   auth: none
 }
 
 params:path {
-  devId: 1
+  devId: {{ID}}
+}
+
+vars:pre-request {
+  devicePort: 91{{ID}}
+  ID: 14
 }
