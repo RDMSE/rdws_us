@@ -27,6 +27,14 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
