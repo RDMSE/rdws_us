@@ -25,6 +25,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -33,6 +34,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -157,11 +159,19 @@ public:
 
   void shutdown() {
     running_.store(false);
-    httpServer_.stop();
+    httpServer_.stop(); // no new /trigger requests can arrive after this returns
     if (generationThread_.joinable()) generationThread_.join();
     if (transmissionThread_.joinable()) transmissionThread_.join();
     if (credentialClient_) credentialClient_->stop();
     if (clientThread_.joinable()) clientThread_.join();
+
+    // Join any manual-trigger threads still in flight so transmitNow() can't
+    // outlive this object (it touches db_/deviceConfigRepo_ via member state).
+    std::scoped_lock lock(triggerThreadsMutex_);
+    for (auto& [thread, done] : triggerThreads_) {
+      if (thread.joinable()) thread.join();
+    }
+    triggerThreads_.clear();
   }
 
 private:
@@ -184,6 +194,12 @@ private:
   httplib::Server httpServer_;
 
   std::atomic<bool> running_{false};
+
+  // Manual /trigger threads (setupHttpControl below) — tracked so shutdown() can join
+  // them instead of detaching, which would let transmitNow() outlive this object.
+  std::vector<std::pair<std::thread, std::shared_ptr<std::atomic<bool>>>> triggerThreads_;
+  std::mutex triggerThreadsMutex_;
+
   std::mutex deviceFileMutex_; // guards all <device_id>_<sensor_id>.data files for this device
 
   static constexpr int kGenerationIntervalSec = 30;
@@ -385,7 +401,30 @@ private:
                                         "application/json");
                          return;
                        }
-                       std::thread([this] { transmitNow(); }).detach();
+                       auto done = std::make_shared<std::atomic<bool>>(false);
+                       std::thread triggerThread([this, done] {
+                         try {
+                           transmitNow();
+                         } catch (const std::exception& e) {
+                           logger::error("SensorSimulatorService: manual trigger transmission failed",
+                                        "device_id=" + deviceId_ + " error=" + e.what());
+                         }
+                         done->store(true);
+                       });
+                       {
+                         std::scoped_lock lock(triggerThreadsMutex_);
+                         // Reap threads that finished since the last trigger, so this
+                         // vector doesn't grow unbounded across many manual triggers.
+                         triggerThreads_.erase(
+                             std::remove_if(triggerThreads_.begin(), triggerThreads_.end(),
+                                            [](auto& entry) {
+                                              if (!entry.second->load()) return false;
+                                              if (entry.first.joinable()) entry.first.join();
+                                              return true;
+                                            }),
+                             triggerThreads_.end());
+                         triggerThreads_.emplace_back(std::move(triggerThread), done);
+                       }
                        res.status = 202;
                        res.set_content("{\"status\":\"triggered\"}", "application/json");
                      });
