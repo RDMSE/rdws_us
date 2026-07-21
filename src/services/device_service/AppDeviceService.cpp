@@ -1,12 +1,18 @@
 //
 // DeviceService — capabilities: device.list, device.get, device.create, device.update,
-// device.delete
+// device.delete, plus internal-only device_credential.get_active/rotate/revoke (not
+// present in routes.json — only reachable via ServiceClient::invoke, never HTTP; see
+// Plano_DeviceCredentials.md). device_credential.provision is not a standalone
+// capability — it only runs atomically inside handleCreate (device.create).
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/config/config.h"
+#include "../../shared/crypto/credential_cipher.h"
 #include "../../shared/database/postgresql_database.h"
+#include "../../shared/repository/DeviceCredentialRepository.h"
 #include "../../shared/repository/DeviceRepository.h"
+#include "../../shared/service/DeviceCredentialService.h"
 #include "../../shared/service/DeviceService.h"
 #include "FieldServiceClient.h"
 #include "../../shared/utils/capability_router.h"
@@ -19,6 +25,7 @@
 #include "../../shared/utils/logger.h"
 
 #include <atomic>
+#include <cstdlib>
 #include <csignal>
 #include <memory>
 #include <algorithm>
@@ -94,7 +101,8 @@ rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorTyp
   obj.set("id", d.id)
       .set("field_id", d.fieldId)
       .set("type", d.type)
-      .set("status", d.status);
+      .set("status", d.status)
+      .set("is_simulated", d.isSimulated);
   if (!d.installationDate.empty()) {
     obj.set("installation_date", d.installationDate);
   }
@@ -109,6 +117,14 @@ rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorTyp
     obj.set("updated_by", d.updatedBy);
   }
   return obj.take();
+}
+
+std::string getenvOrThrow(const char* name) {
+  const char* value = std::getenv(name);
+  if (value == nullptr || std::string(value).empty()) {
+    throw std::runtime_error(std::string("Missing required environment variable: ") + name);
+  }
+  return value;
 }
 
 } // namespace
@@ -128,9 +144,27 @@ private:
   rdws::field::FieldServiceClient fieldValidator_;
   rdws::device::DeviceService svc_;
 
+  // device_credentials (Plano_DeviceCredentials.md) — same db_ connection as repo_, so
+  // device.create + device_credential.provision (handleCreate below) can be wrapped in
+  // one transaction.
+  rdws::crypto::CredentialCipher credentialCipher_;
+  DeviceCredentialRepository credentialRepo_;
+  rdws::device::DeviceCredentialService credentialSvc_;
+
+  // Per-instance handler maps (not function-local statics) so handleCreate can be a
+  // member lambda capturing `this` (needed for the device+credential transaction).
+  std::unordered_map<std::string, rdws::utils::CapabilityHandler<rdws::device::DeviceService>>
+      deviceHandlers_;
+  std::unordered_map<std::string,
+                     rdws::utils::CapabilityHandler<rdws::device::DeviceCredentialService>>
+      credentialHandlers_;
+
 public:
-  AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), svc_(repo_, fieldValidator_) {
+  AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker,
+                   const std::string& credentialEncryptionKey)
+      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), svc_(repo_, fieldValidator_),
+        credentialCipher_(credentialEncryptionKey), credentialRepo_(db_),
+        credentialSvc_(credentialRepo_, credentialCipher_) {
     identity.machineName = machineName;
     identity.serviceName = "device_service";
     identity.serviceId = serviceId;
@@ -142,7 +176,31 @@ public:
         "device.get",
         "device.create",
         "device.update",
-        "device.delete"
+        "device.delete",
+        // Internal-only — deliberately absent from routes.json. Note:
+        // device_credential.provision is NOT listed here — it's never invoked as a
+        // standalone capability, only atomically from within handleCreate (device.create).
+        "device_credential.get_active",
+        "device_credential.rotate",
+        "device_credential.revoke",
+        "device_credential.list_active",
+    };
+
+    deviceHandlers_ = {
+        {"device.list", handleList},
+        {"device.get", handleGet},
+        {"device.create", [this](const rdws::utils::CapabilityContext& ctx,
+                                 rdws::device::DeviceService& svc) {
+           return handleCreate(ctx, svc);
+         }},
+        {"device.update", handleUpdate},
+        {"device.delete", handleDelete},
+    };
+    credentialHandlers_ = {
+        {"device_credential.get_active", handleCredentialGetActive},
+        {"device_credential.rotate", handleCredentialRotate},
+        {"device_credential.revoke", handleCredentialRevoke},
+        {"device_credential.list_active", handleCredentialListActive},
     };
   }
 
@@ -184,21 +242,14 @@ private:
     const auto& cap = json::getString(request, "capability").value_or("");
     logger::info("Dispatching capability", cap);
 
-    static const std::unordered_map<std::string,
-                                    rdws::utils::CapabilityHandler<rdws::device::DeviceService>>
-        handlers = {
-            {"device.list", handleList},
-            {"device.get", handleGet},
-            {"device.create", handleCreate},
-            {"device.update", handleUpdate},
-            {"device.delete", handleDelete},
-        };
-
     try {
       rdws::utils::Profiler profiler(identity.serviceId);
       auto t = profiler.scoped(cap);
       const rdws::utils::CapabilityContext ctx{request, profiler};
-      return rdws::utils::dispatchCapability(cap, ctx, svc_, handlers);
+      if (cap.rfind("device_credential.", 0) == 0) {
+        return rdws::utils::dispatchCapability(cap, ctx, credentialSvc_, credentialHandlers_);
+      }
+      return rdws::utils::dispatchCapability(cap, ctx, svc_, deviceHandlers_);
     } catch (const std::exception& e) {
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
@@ -257,12 +308,15 @@ private:
         [&](auto& alloc) { return deviceToJson(device.value(), alloc); });
   }
 
-  static rapidjson::Document handleCreate(const rdws::utils::CapabilityContext& ctx,
-                                          rdws::device::DeviceService& svc) {
+  // Member (not static): provisions a device_credential atomically with device
+  // creation, both through db_ (repo_ and credentialRepo_ share the same connection).
+  [[nodiscard]] rapidjson::Document handleCreate(const rdws::utils::CapabilityContext& ctx,
+                                                 rdws::device::DeviceService& svc) {
     const auto& req = ctx.request;
     const auto fieldId = json::getString(req, "field_id").value_or(std::string{});
     const auto type = json::getString(req, "type").value_or(std::string{});
     const auto status = json::getString(req, "status").value_or(std::string{});
+    const bool isSimulated = json::getBool(req, "is_simulated").value_or(false);
 
     if (fieldId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: field_id", 400);
@@ -274,32 +328,63 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
 
-    const auto installationDate =
-        json::getString(req, "installation_date").value_or(std::string{});
+    const auto installationDate = json::getString(req, "installation_date").value_or(std::string{});
     if (!installationDate.empty() && !isValidInstallationDate(installationDate)) {
       return ResponseHelper::returnErrorDoc(
           "Invalid field: installation_date must be an ISO 8601 date or timestamp", 400);
     }
-    const DeviceCreate data{
-        .fieldId = fieldId,
-        .type = type,
-        .status = status,
-        .installationDate = installationDate,
-        .updatedBy = json::getActorSubjectOrDefault(req)
-    };
+    const DeviceCreate data{.fieldId = fieldId,
+                            .type = type,
+                            .status = status,
+                            .installationDate = installationDate,
+                            .isSimulated = isSimulated,
+                            .updatedBy = json::getActorSubjectOrDefault(req)};
 
-    const auto result = [&] {
-      auto t = ctx.profiler.scoped("db.query");
-      return svc.create(data);
-    }();
-    if (result.isError()) {
-      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    db_.beginTransaction();
+
+    auto result = rdws::types::ServiceResult<std::string>::error("uninitialized", 500);
+    auto provisioned = rdws::types::ServiceResult<rdws::device::ProvisionedCredential>::error(
+        "uninitialized", 500);
+
+    try {
+      result = [&] {
+        auto t = ctx.profiler.scoped("db.query");
+        return svc.create(data);
+      }();
+      if (result.isError()) {
+        db_.rollbackTransaction();
+        return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+      }
+      provisioned = [&] {
+        auto t = ctx.profiler.scoped("db.query");
+        return credentialSvc_.provision(result.getData());
+      }();
+      if (provisioned.isError()) {
+        db_.rollbackTransaction();
+        return ResponseHelper::returnErrorDoc(
+            "Device created but credential provisioning failed: " + provisioned.getErrorMessage(),
+            500);
+      }
+      db_.commitTransaction();
+    } catch (const std::exception& e) {
+      try {
+        db_.rollbackTransaction();
+      } catch (const std::exception& rollbackEx) {
+        logger::error("DeviceService: rollback after failed device.create also failed",
+                      rollbackEx.what());
+      }
+      logger::error("DeviceService: transactional device.create failed", e.what());
+      return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          return JsonObj(alloc).set("id", result.getData()).take();
+          return JsonObj(alloc)
+              .set("id", result.getData())
+              .set("psk_identity", provisioned.getData().pskIdentity)
+              .set("psk_key", rdws::crypto::toHex(provisioned.getData().pskKeyPlaintext))
+              .take();
         },
         201);
   }
@@ -353,6 +438,91 @@ private:
                ? ResponseHelper::returnSuccessDoc(204)
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
+
+  // ─── device_credential.* — internal only, never routed via HTTP ──────────────
+
+  static rapidjson::Document
+  handleCredentialGetActive(const rdws::utils::CapabilityContext& ctx,
+                            rdws::device::DeviceCredentialService& svc) {
+    const auto& req = ctx.request;
+    const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
+    if (deviceId.empty() || !isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
+    }
+
+    auto t = ctx.profiler.scoped("db.query");
+    const auto result = svc.getActive(deviceId);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      return JsonObj(alloc)
+          .set("psk_identity", result.getData().pskIdentity)
+          .set("psk_key", rdws::crypto::toHex(result.getData().pskKeyPlaintext))
+          .take();
+    });
+  }
+
+  // Bulk fetch — no device_id filter, returns every active credential. Used by
+  // IngestionService to build/refresh its in-memory psk_identity -> key cache.
+  static rapidjson::Document
+  handleCredentialListActive(const rdws::utils::CapabilityContext& ctx,
+                             rdws::device::DeviceCredentialService& svc) {
+    auto t = ctx.profiler.scoped("db.query");
+    const auto result = svc.listActive();
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& credential : result.getData()) {
+        arr.PushBack(JsonObj(alloc)
+                        .set("psk_identity", credential.pskIdentity)
+                        .set("psk_key", rdws::crypto::toHex(credential.pskKeyPlaintext))
+                        .take(),
+                    alloc);
+      }
+      return arr;
+    });
+  }
+
+  static rapidjson::Document
+  handleCredentialRotate(const rdws::utils::CapabilityContext& ctx,
+                         rdws::device::DeviceCredentialService& svc) {
+    const auto& req = ctx.request;
+    const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
+    if (deviceId.empty() || !isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
+    }
+
+    auto t = ctx.profiler.scoped("db.query");
+    const auto result = svc.rotate(deviceId);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      return JsonObj(alloc)
+          .set("psk_identity", result.getData().pskIdentity)
+          .set("psk_key", rdws::crypto::toHex(result.getData().pskKeyPlaintext))
+          .take();
+    });
+  }
+
+  static rapidjson::Document
+  handleCredentialRevoke(const rdws::utils::CapabilityContext& ctx,
+                         rdws::device::DeviceCredentialService& svc) {
+    const auto& req = ctx.request;
+    const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
+    if (deviceId.empty() || !isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
+    }
+
+    auto t = ctx.profiler.scoped("db.query");
+    const auto result = svc.revoke(deviceId);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+  }
 };
 
 static AppDeviceService* gService = nullptr;
@@ -379,15 +549,29 @@ int main(int argc, char* argv[]) {
 
   logger::init("device_service", "info", serviceId);
 
-  AppDeviceService service(serviceId, machineName, gatewayAddress);
-  gService = &service;
+  // Constructing Config() loads .env (dev/native runs) into the process environment
+  // before we read CREDENTIAL_ENCRYPTION_KEY via plain getenv — in containers this is
+  // a no-op since docker-compose already injects env vars directly.
+  rdws::Config();
+
+  std::unique_ptr<AppDeviceService> service;
+  try {
+    const std::string credentialEncryptionKey = getenvOrThrow("CREDENTIAL_ENCRYPTION_KEY");
+    service = std::make_unique<AppDeviceService>(serviceId, machineName, gatewayAddress,
+                                                 credentialEncryptionKey);
+  } catch (const std::exception& e) {
+    logger::error("Failed to start DeviceService", e.what());
+    return 1;
+  }
+
+  gService = service.get();
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);
 
-  if (!service.initialize()) {
+  if (!service->initialize()) {
     logger::error("Failed to initialize DeviceService");
     return 1;
   }
-  service.run();
+  service->run();
   return 0;
 }

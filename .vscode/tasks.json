@@ -26,7 +26,7 @@
         {
             "label": "run-gateway",
             "type": "shell",
-            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "command": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8080",
                 "3001",
@@ -47,7 +47,7 @@
         {
             "label": "run-gateway (with persistence)",
             "type": "shell",
-            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "command": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8080",
                 "3001",
@@ -70,7 +70,7 @@
         {
             "label": "run-gateway (full config)",
             "type": "shell",
-            "command": "${workspaceFolder}/build/src/service_broker/service_gateway_http",
+            "command": "${workspaceFolder}/build-debug/src/service_broker/service_gateway_http",
             "args": [
                 "8080",
                 "3001",
@@ -94,7 +94,7 @@
         {
             "label": "run-auth-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/auth_service",
+            "command": "${workspaceFolder}/build-debug/bin/auth_service",
             "args": [
                 "auth_001",
                 "localhost",
@@ -117,7 +117,7 @@
         {
             "label": "run-farm-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/farm_service",
+            "command": "${workspaceFolder}/build-debug/bin/farm_service",
             "args": [
                 "farm_001",
                 "localhost",
@@ -137,7 +137,7 @@
         {
             "label": "run-field-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/field_service",
+            "command": "${workspaceFolder}/build-debug/bin/field_service",
             "args": [
                 "field_001",
                 "localhost",
@@ -157,14 +157,17 @@
         {
             "label": "run-device-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/device_service",
+            "command": "${workspaceFolder}/build-debug/bin/device_service",
             "args": [
                 "device_001",
                 "localhost",
                 "unix:///tmp/rdws_gateway.sock"
             ],
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "CREDENTIAL_ENCRYPTION_KEY": "dev-encryption-key-32-bytes-long"
+                }
             },
             "dependsOn": "cmake-build",
             "presentation": {
@@ -177,7 +180,7 @@
         {
             "label": "run-device-config-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/device_config_service",
+            "command": "${workspaceFolder}/build-debug/bin/device_config_service",
             "args": [
                 "device_config_001",
                 "localhost",
@@ -197,7 +200,7 @@
         {
             "label": "run-sensor-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/sensor_service",
+            "command": "${workspaceFolder}/build-debug/bin/sensor_service",
             "args": [
                 "sensor_001",
                 "localhost",
@@ -217,7 +220,7 @@
         {
             "label": "run-sensor-reading-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/sensor_reading_service",
+            "command": "${workspaceFolder}/build-debug/bin/sensor_reading_service",
             "args": [
                 "sensor_reading_001",
                 "localhost",
@@ -237,7 +240,7 @@
         {
             "label": "run-persistence-service",
             "type": "shell",
-            "command": "${workspaceFolder}/build/bin/persistence_service",
+            "command": "${workspaceFolder}/build-debug/bin/persistence_service",
             "args": [
                 "persistence_001",
                 "localhost",
@@ -274,6 +277,172 @@
             "problemMatcher": []
         },
         {
+            "label": "docker-up-dev-observability",
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "docker-compose.dev-observability.yml",
+                "--env-file",
+                ".env.dev-db",
+                "up",
+                "-d"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "docker-down-dev-observability",
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "docker-compose.dev-observability.yml",
+                "down"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "docker-up-dev-mq",
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "docker-compose.dev-mq.yml",
+                "up",
+                "-d"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "docker-down-dev-mq",
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "docker-compose.dev-mq.yml",
+                "down"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run-ingestion-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build-debug/bin/ingestion_service",
+            "args": [
+                "ingestion_001",
+                "localhost",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "RABBITMQ_HOST": "localhost",
+                    "RABBITMQ_PORT": "5672",
+                    "RABBITMQ_USER": "rdws_dev",
+                    "RABBITMQ_PASSWORD": "rdws_dev",
+                    "INGESTION_COAP_PORT": "5684"
+                }
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-reading-writer-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build-debug/bin/reading_writer_service",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "DB_HOST": "fedora-server",
+                    "DB_PORT": "5432",
+                    "DB_USER": "rdws_user",
+                    "DB_PASSWORD": "password",
+                    "DB_NAME": "rdws_us_dev",
+                    "RABBITMQ_HOST": "localhost",
+                    "RABBITMQ_PORT": "5672",
+                    "RABBITMQ_USER": "rdws_dev",
+                    "RABBITMQ_PASSWORD": "rdws_dev"
+                }
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "run-sensor-simulator-service",
+            "type": "shell",
+            "command": "${workspaceFolder}/build-debug/bin/sensor_simulator_service",
+            "args": [
+                "--device-id",
+                "${input:simulatorDeviceId}",
+                "--gateway",
+                "unix:///tmp/rdws_gateway.sock"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "DB_HOST": "fedora-server",
+                    "DB_PORT": "5432",
+                    "DB_USER": "rdws_user",
+                    "DB_PASSWORD": "password",
+                    "DB_NAME": "rdws_us_dev",
+                    "SIMULATOR_DATA_DIR": "${workspaceFolder}/sim_data",
+                    "SIMULATOR_CONTROL_PORT": "9100",
+                    "INGESTION_HOST": "127.0.0.1",
+                    "INGESTION_PORT": "5684"
+                }
+            },
+            "dependsOn": "cmake-build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
             "label": "run-tests",
             "type": "shell",
             "command": "ctest",
@@ -282,7 +451,7 @@
                 "--parallel"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/build"
+                "cwd": "${workspaceFolder}/build-debug"
             },
             "dependsOn": "cmake-build",
             "group": {
@@ -294,6 +463,13 @@
                 "panel": "shared"
             },
             "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "simulatorDeviceId",
+            "type": "promptString",
+            "description": "ID do device simulado (is_simulated=true) que o SensorSimulatorService vai carregar"
         }
     ]
 }

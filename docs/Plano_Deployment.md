@@ -161,6 +161,14 @@ dashboard. Opcionalmente, dá pra enriquecer isso expondo no `/metrics` alguns d
 que o `MetricsTracker`/`ServiceMonitor` já calculam (serviços conectados, capabilities
 registradas, taxa de erro) como gauges, indo além do simples "up/down".
 
+**Backlog: RabbitMQ observável no Grafana** — hoje o RabbitMQ não aparece no dashboard.
+Faltam: (1) habilitar o plugin `rabbitmq_prometheus` (ou trocar a imagem) nos
+`docker-compose.*-mq.yml`, que hoje rodam `rabbitmq:3-management` puro; (2) adicionar job
+de scrape no `prometheus-dev.yml`/`prometheus-qa.yml` para a porta de métricas do RabbitMQ
+(~15692); (3) painéis no `gateway-overview.json` (ou dashboard novo) com profundidade de
+fila, consumidores e mensagens pendentes. Net-new work, não é bug — entra junto com o
+próximo ciclo de observabilidade.
+
 **Nota**: com esse indicador via Prometheus + o Bruno cobrindo `/health` e `/status`
 (coleção `bruno/IoT Sensor API/Gateway/Health.bru` e `Status.bru`), o
 `service_gateway_monitor` (CLI interativo de debug) fica dispensável nos ambientes
@@ -178,6 +186,48 @@ mudança na aplicação.
 
 Stack de observabilidade completo: **Prometheus** (métricas) + **Loki** (logs) +
 **Promtail** (coletor) + **Grafana** (visualização unificada).
+
+### Como subir o stack de observabilidade (passo a passo)
+
+Nenhum dos dois stacks sobe sozinho — é sempre uma ação manual (`docker compose ... up
+-d`), separada do deploy do app. Comandos exatos, copiáveis:
+
+**Dev** (na sua máquina, sob demanda — suba só quando for investigar algo, derrube
+depois):
+```bash
+docker compose -f docker-compose.dev-observability.yml --env-file .env.dev-db up -d
+```
+- Precisa do `.env.dev-db` (mesmas credenciais do `docker-compose.dev-db.yml`, usadas
+  pelo datasource Postgres do Grafana) — se não existir, copie de
+  `.env.dev-db.example` e preencha.
+- Não precisa do gateway/serviços rodando antes — o Prometheus só começa a mostrar dados
+  quando o gateway nativo (`./build/.../service_gateway_http`) estiver de pé, mas o
+  `up -d` em si funciona independente disso.
+- **Acessar**: Grafana em `http://localhost:3301` (login padrão `admin`/`admin`,
+  troca no primeiro acesso), Prometheus em `http://localhost:9091`, Loki em
+  `http://localhost:3101` (raramente acessado direto — consulta-se via Grafana).
+- **Derrubar quando terminar**: `docker compose -f docker-compose.dev-observability.yml down`
+  (usa `down`, não só parar — sem `restart:` configurado, não volta sozinho mesmo
+  parado; `down` também limpa a rede/containers do projeto `rdws_dev_obs`).
+
+**QA** (no homelab, fica no ar — precisa do `docker-compose.qa-app.yml` já rodando
+antes, pois o Prometheus escrapa o gateway pela rede do Compose):
+```bash
+docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
+```
+- Mesmo `.env.qa` já usado pelos outros compose de QA (`docker-compose.qa-app.yml`/
+  `qa-db.yml`) — nenhuma variável nova além das que já existem.
+- **Acessar** (via Tailscale, mesma máquina do homelab): Grafana em
+  `http://fedora-server:3300`, Prometheus em `http://fedora-server:9091`.
+- Como tem `restart: unless-stopped`, uma vez no ar fica — não precisa repetir o `up -d`
+  a cada deploy do app; só rode de novo se derrubou manualmente ou trocou algo no
+  compose (nesse caso `up -d` de novo recria só o que mudou).
+
+**Dica pra quem está começando com Docker**: `docker compose ... up -d` sobe em
+background (o `-d`); pra ver se subiu certo, `docker compose -f <arquivo> ps` lista os
+containers e o status (`healthy`/`starting`/etc). `docker compose -f <arquivo> logs -f
+<serviço>` mostra o log ao vivo de um container específico (ex. `grafana`) se algo não
+aparecer no navegador.
 
 **Portainer** (`docker-compose.infra.yml`, container `rdws_portainer`, porta 9000):
 ✅ dashboard web pra ver containers/volumes/redes/logs do Docker rodando no homelab —

@@ -90,7 +90,9 @@ services:
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY não definido (32 bytes, ver .env.qa.example)}
     command: ["device_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   device_config_service:
@@ -148,6 +150,44 @@ services:
       - gateway
     environment: *db-env
     command: ["persistence_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  ingestion_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: ingestion_service
+    image: rdws_us-ingestion:qa
+    container_name: rdws_ingestion_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    ports:
+      - "5684:5684/udp" # CoAP/DTLS — devices/SensorSimulatorService connect here
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER:-rdws_user}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD não definido (ver .env.qa.example)}
+      INGESTION_COAP_PORT: "5684"
+    command: ["ingestion_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  reading_writer_service:
+    build:
+      context: .
+      target: runtime
+      args:
+        SERVICE: reading_writer_service
+    image: rdws_us-reading-writer:qa
+    container_name: rdws_reading_writer_qa
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER:-rdws_user}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD não definido (ver .env.qa.example)}
+    # Worker puro — sem gateway, sem argv (Plano_Ingestion.md).
 
 volumes:
   gateway_data:

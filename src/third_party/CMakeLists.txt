@@ -32,7 +32,7 @@ add_subdirectory(dotenv-cpp EXCLUDE_FROM_ALL)
 # Create wrapper library for dotenv-cpp with proper configuration
 add_library(dotenv_wrapper INTERFACE)
 target_link_libraries(dotenv_wrapper INTERFACE dotenv)
-target_include_directories(dotenv_wrapper INTERFACE 
+target_include_directories(dotenv_wrapper INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/dotenv-cpp/include
 )
 
@@ -103,3 +103,41 @@ target_link_libraries(spdlog_wrapper INTERFACE fmt::fmt)
 target_include_directories(spdlog_wrapper INTERFACE
     ${spdlog_SOURCE_DIR}/include
 )
+
+# libcoap (CoAP protocol, CoapDtlsClient in src/shared/coap) — built with the OpenSSL
+# DTLS backend, reusing the OpenSSL::* targets already required by the root
+# CMakeLists.txt instead of pulling in GnuTLS/TinyDTLS/MbedTLS as a second crypto stack.
+set(ENABLE_DTLS ON CACHE BOOL "" FORCE)
+set(DTLS_BACKEND "openssl" CACHE STRING "" FORCE)
+set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(_RDWS_PREV_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    libcoap
+    URL https://github.com/obgm/libcoap/archive/refs/tags/v4.3.5.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
+)
+FetchContent_MakeAvailable(libcoap)
+
+set(BUILD_SHARED_LIBS ${_RDWS_PREV_BUILD_SHARED_LIBS} CACHE BOOL "" FORCE)
+unset(_RDWS_PREV_BUILD_SHARED_LIBS)
+# rabbitmq-c (AMQP 0-9-1 client, used by the amqp_client wrapper in src/shared/amqp for
+# IngestionService/ReadingWriterService) — static build, no new apt package needed
+# (OpenSSL already required by the root CMakeLists.txt).
+set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(BUILD_API_DOCS OFF CACHE BOOL "" FORCE)
+set(ENABLE_SSL_SUPPORT ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    rabbitmq_c
+    URL https://github.com/alanxz/rabbitmq-c/archive/refs/tags/v0.14.0.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    TIMEOUT 60
+    INACTIVITY_TIMEOUT 30
+)
+FetchContent_MakeAvailable(rabbitmq_c)

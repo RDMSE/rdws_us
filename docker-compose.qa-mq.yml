@@ -1,0 +1,35 @@
+# RabbitMQ for the QA environment (Plano_Ingestion.md). Same split rationale as
+# docker-compose.qa-db.yml — lifecycle separate from docker-compose.qa-app.yml, so an
+# app redeploy never restarts the broker. Same `name: rdws_qa` project/network as the
+# other qa-*.yml files, so IngestionService/ReadingWriterService resolve "rabbitmq" via
+# Compose DNS.
+name: rdws_qa
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rdws_rabbitmq_qa
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-rdws_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD não definido (ver .env.qa.example)}
+    ports:
+      # 5673 (não 5672, evita colisão se algo mais rodar RabbitMQ no mesmo host) — AMQP,
+      # exposto só pra inspeção via Tailscale. IngestionService/ReadingWriterService usam
+      # DNS interno ("rabbitmq:5672").
+      - "5673:5672"
+      # Management UI + Prometheus exporter (rabbitmq_prometheus, habilitado abaixo).
+      - "15673:15672"
+      - "15693:15692"
+    volumes:
+      - rabbitmq_qa_data:/var/lib/rabbitmq
+    command: >
+      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  rabbitmq_qa_data:

@@ -103,8 +103,10 @@ reaproveitando a ferramenta que já é usada pro resto da API.
 
 ## Pontos em aberto
 
-- **Provisionamento de credenciais DTLS** (PSK/certificado) por device simulado — ainda
-  não avaliado; mesmo ponto em aberto já registrado no `Plano_Ingestion.md` para devices
-  reais, provavelmente a mesma solução serve para os dois casos.
+- **Provisionamento de credenciais DTLS** (PSK/certificado) por device simulado —
+  resolvido em `Plano_DeviceCredentials.md`. O detalhamento de implementação (migrations,
+  capabilities `device_credential.*`, `is_simulated` em `devices`, escolha do libcoap e
+  desenho do `SensorSimulatorService`) está em
+  `Plano_SensorSimulatorService_Implementacao.md`.
 - Cenários de falha propositais (payload fora da faixa, perda de pacote, device offline)
   para testar a robustez do `IngestionService` — também já listado no `Plano_Ingestion.md`.
