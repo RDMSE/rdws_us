@@ -11,7 +11,7 @@ patch {
 }
 
 params:path {
-  devId: 3
+  devId: 14
 }
 
 auth:bearer {
@@ -21,8 +21,8 @@ auth:bearer {
 body:json {
   {
     "config": {
-        "report_interval_s": 120,
-        "sampling_interval_s": 66
+        "report_interval_s": 600,
+        "sampling_interval_s": 10
       }
   }
 }
