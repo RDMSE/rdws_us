@@ -141,12 +141,25 @@ std::string toHex(const std::string& bytes) {
 }
 
 std::vector<uint8_t> fromHex(const std::string& hex) {
+  if (hex.size() % 2 != 0) {
+    throw CredentialCipherError("Invalid hex string: odd length");
+  }
+
+  auto nibble = [](char c) -> uint8_t {
+    if (c >= '0' && c <= '9') {
+      return static_cast<uint8_t>(c - '0');
+    }
+
+    const unsigned char lower =
+        static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower >= 'a' && lower <= 'f') {
+      return static_cast<uint8_t>(lower - 'a' + 10);
+    }
+    throw CredentialCipherError("Invalid hex string: non-hex character");
+  };
+
   std::vector<uint8_t> bytes;
   bytes.reserve(hex.size() / 2);
-  auto nibble = [](char c) -> uint8_t {
-    if (c >= '0' && c <= '9') return static_cast<uint8_t>(c - '0');
-    return static_cast<uint8_t>(std::tolower(static_cast<unsigned char>(c)) - 'a' + 10);
-  };
   for (size_t i = 0; i + 1 < hex.size(); i += 2) {
     bytes.push_back(static_cast<uint8_t>((nibble(hex[i]) << 4) | nibble(hex[i + 1])));
   }

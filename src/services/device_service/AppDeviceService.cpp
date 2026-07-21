@@ -328,29 +328,44 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
 
-    const auto installationDate =
-        json::getString(req, "installation_date").value_or(std::string{});
+    const auto installationDate = json::getString(req, "installation_date").value_or(std::string{});
     if (!installationDate.empty() && !isValidInstallationDate(installationDate)) {
       return ResponseHelper::returnErrorDoc(
           "Invalid field: installation_date must be an ISO 8601 date or timestamp", 400);
     }
-    const DeviceCreate data{
-        .fieldId = fieldId,
-        .type = type,
-        .status = status,
-        .installationDate = installationDate,
-        .isSimulated = isSimulated,
-        .updatedBy = json::getActorSubjectOrDefault(req)
+    const DeviceCreate data{.fieldId = fieldId,
+                            .type = type,
+                            .status = status,
+                            .installationDate = installationDate,
+                            .isSimulated = isSimulated,
+                            .updatedBy = json::getActorSubjectOrDefault(req)};
+
+    struct TxGuard {
+      PostgreSQLDatabase& db;
+      bool active = true;
+      ~TxGuard() {
+        if (active) {
+          try {
+            db.rollbackTransaction();
+          } catch (const std::exception& e) {
+            logger::error("DeviceService: rollback in TxGuard destructor failed", e.what());
+          }
+        }
+      }
+      void commit() {
+        db.commitTransaction();
+        active = false;
+      }
     };
 
     db_.beginTransaction();
+    TxGuard txGuard{db_};
 
     const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
       return svc.create(data);
     }();
     if (result.isError()) {
-      db_.rollbackTransaction();
       return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
@@ -359,13 +374,13 @@ private:
       return credentialSvc_.provision(result.getData());
     }();
     if (provisioned.isError()) {
-      db_.rollbackTransaction();
       return ResponseHelper::returnErrorDoc(
-          "Device created but credential provisioning failed: " + provisioned.getErrorMessage(),
+          "Credential provisioning failed; device creation rolled back: " +
+              provisioned.getErrorMessage(),
           500);
     }
-    db_.commitTransaction();
 
+    txGuard.commit();
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
