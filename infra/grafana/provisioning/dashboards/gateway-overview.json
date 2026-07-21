@@ -6,12 +6,64 @@
   "version": 1,
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "device_id",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+        "query": "SELECT DISTINCT device_id::text FROM sensors ORDER BY device_id",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": ["$__all"] }
+      }
+    ]
+  },
   "panels": [
+    {
+      "id": 10,
+      "title": "Sensor Readings (value over time)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT sr.timestamp AS time, 'sensor ' || sr.sensor_id || ' (' || s.type || ')' AS metric, sr.value::double precision AS value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) AND s.device_id::text IN ($device_id) ORDER BY sr.timestamp",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Recent Sensor Readings",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT sr.timestamp, sr.sensor_id, s.device_id, s.type AS sensor_type, s.unit, sr.value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) AND s.device_id::text IN ($device_id) ORDER BY sr.timestamp DESC LIMIT 200",
+          "rawQuery": true
+        }
+      ]
+    },
     {
       "id": 1,
       "title": "Healthy Services / total",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 18 },
       "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
@@ -30,7 +82,7 @@
       "id": 2,
       "title": "Active Connections / Pending Requests",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 18 },
       "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
@@ -49,7 +101,7 @@
       "id": 3,
       "title": "Requests per Capability (rate/5m)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
@@ -63,7 +115,7 @@
       "id": 4,
       "title": "Errors per Capability (rate/5m)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
@@ -77,7 +129,7 @@
       "id": 5,
       "title": "Average Latency per Capability (ms)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
       "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
@@ -91,7 +143,7 @@
       "id": 6,
       "title": "Logs",
       "type": "logs",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 40 },
       "datasource": { "type": "loki", "uid": "rdws-loki" },
       "targets": [
         {
@@ -104,7 +156,7 @@
       "id": 7,
       "title": "Requests per Capability (history, PersistenceService)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 50 },
       "datasource": { "type": "postgres", "uid": "rdws-persistence" },
       "targets": [
         {
@@ -119,7 +171,7 @@
       "id": 8,
       "title": "Avg / p99 Latency per Capability (ms, history)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 50 },
       "datasource": { "type": "postgres", "uid": "rdws-persistence" },
       "targets": [
         {
@@ -140,7 +192,7 @@
       "id": 9,
       "title": "Recent Request History",
       "type": "table",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 40 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 58 },
       "datasource": { "type": "postgres", "uid": "rdws-persistence" },
       "targets": [
         {
@@ -152,32 +204,49 @@
       ]
     },
     {
-      "id": 10,
-      "title": "Sensor Readings (value over time)",
+      "id": 12,
+      "title": "RabbitMQ — sensor_readings queue depth",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 50 },
-      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
           "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT sr.timestamp AS time, 'sensor ' || sr.sensor_id || ' (' || s.type || ')' AS metric, sr.value::double precision AS value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) ORDER BY sr.timestamp",
-          "rawQuery": true
+          "expr": "rabbitmq_queue_messages_ready{queue=\"sensor_readings\"}",
+          "legendFormat": "ready ({{env}})"
+        },
+        {
+          "refId": "B",
+          "expr": "rabbitmq_queue_messages_unacked{queue=\"sensor_readings\"}",
+          "legendFormat": "unacked ({{env}})"
         }
       ]
     },
     {
-      "id": 11,
-      "title": "Recent Sensor Readings",
-      "type": "table",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 58 },
-      "datasource": { "type": "postgres", "uid": "rdws-persistence" },
+      "id": 13,
+      "title": "RabbitMQ — consumers (sensor_readings)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 68 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
       "targets": [
         {
           "refId": "A",
-          "format": "table",
-          "rawSql": "SELECT sr.timestamp, sr.sensor_id, s.device_id, s.type AS sensor_type, s.unit, sr.value FROM sensor_readings sr JOIN sensors s ON s.id = sr.sensor_id WHERE $__timeFilter(sr.timestamp) ORDER BY sr.timestamp DESC LIMIT 200",
-          "rawQuery": true
+          "expr": "rabbitmq_queue_consumers{queue=\"sensor_readings\"}",
+          "legendFormat": "consumers ({{env}})"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "RabbitMQ — total pending messages (sensor_readings)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 68 },
+      "datasource": { "type": "prometheus", "uid": "rdws-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rabbitmq_queue_messages{queue=\"sensor_readings\"}",
+          "legendFormat": "pending ({{env}})"
         }
       ]
     }

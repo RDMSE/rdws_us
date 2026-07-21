@@ -11,3 +11,12 @@ scrape_configs:
       - targets: ["host.docker.internal:3001"]
         labels:
           env: dev
+
+  # RabbitMQ dev roda em docker-compose.dev-mq.yml, projeto/rede separados
+  # (rdws_dev_mq) deste (rdws_dev_obs) — sem DNS Compose entre eles. Porta do exporter
+  # publicada no host (15692), mesmo padrão do gateway acima.
+  - job_name: rdws_rabbitmq_dev
+    static_configs:
+      - targets: ["host.docker.internal:15692"]
+        labels:
+          env: dev
