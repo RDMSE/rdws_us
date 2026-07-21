@@ -32,7 +32,7 @@ add_subdirectory(dotenv-cpp EXCLUDE_FROM_ALL)
 # Create wrapper library for dotenv-cpp with proper configuration
 add_library(dotenv_wrapper INTERFACE)
 target_link_libraries(dotenv_wrapper INTERFACE dotenv)
-target_include_directories(dotenv_wrapper INTERFACE 
+target_include_directories(dotenv_wrapper INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/dotenv-cpp/include
 )
 
@@ -112,6 +112,7 @@ set(DTLS_BACKEND "openssl" CACHE STRING "" FORCE)
 set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 set(ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(_RDWS_PREV_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     libcoap
@@ -122,6 +123,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(libcoap)
 
+set(BUILD_SHARED_LIBS ${_RDWS_PREV_BUILD_SHARED_LIBS} CACHE BOOL "" FORCE)
+unset(_RDWS_PREV_BUILD_SHARED_LIBS)
 # rabbitmq-c (AMQP 0-9-1 client, used by the amqp_client wrapper in src/shared/amqp for
 # IngestionService/ReadingWriterService) — static build, no new apt package needed
 # (OpenSSL already required by the root CMakeLists.txt).
