@@ -328,43 +328,54 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
     }
 
-    const auto installationDate =
-        json::getString(req, "installation_date").value_or(std::string{});
+    const auto installationDate = json::getString(req, "installation_date").value_or(std::string{});
     if (!installationDate.empty() && !isValidInstallationDate(installationDate)) {
       return ResponseHelper::returnErrorDoc(
           "Invalid field: installation_date must be an ISO 8601 date or timestamp", 400);
     }
-    const DeviceCreate data{
-        .fieldId = fieldId,
-        .type = type,
-        .status = status,
-        .installationDate = installationDate,
-        .isSimulated = isSimulated,
-        .updatedBy = json::getActorSubjectOrDefault(req)
-    };
+    const DeviceCreate data{.fieldId = fieldId,
+                            .type = type,
+                            .status = status,
+                            .installationDate = installationDate,
+                            .isSimulated = isSimulated,
+                            .updatedBy = json::getActorSubjectOrDefault(req)};
 
     db_.beginTransaction();
 
-    const auto result = [&] {
-      auto t = ctx.profiler.scoped("db.query");
-      return svc.create(data);
-    }();
-    if (result.isError()) {
-      db_.rollbackTransaction();
-      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
-    }
+    auto result = rdws::types::ServiceResult<std::string>::error("uninitialized", 500);
+    auto provisioned = rdws::types::ServiceResult<rdws::device::ProvisionedCredential>::error(
+        "uninitialized", 500);
 
-    const auto provisioned = [&] {
-      auto t = ctx.profiler.scoped("db.query");
-      return credentialSvc_.provision(result.getData());
-    }();
-    if (provisioned.isError()) {
-      db_.rollbackTransaction();
-      return ResponseHelper::returnErrorDoc(
-          "Device created but credential provisioning failed: " + provisioned.getErrorMessage(),
-          500);
+    try {
+      result = [&] {
+        auto t = ctx.profiler.scoped("db.query");
+        return svc.create(data);
+      }();
+      if (result.isError()) {
+        db_.rollbackTransaction();
+        return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+      }
+      provisioned = [&] {
+        auto t = ctx.profiler.scoped("db.query");
+        return credentialSvc_.provision(result.getData());
+      }();
+      if (provisioned.isError()) {
+        db_.rollbackTransaction();
+        return ResponseHelper::returnErrorDoc(
+            "Device created but credential provisioning failed: " + provisioned.getErrorMessage(),
+            500);
+      }
+      db_.commitTransaction();
+    } catch (const std::exception& e) {
+      try {
+        db_.rollbackTransaction();
+      } catch (const std::exception& rollbackEx) {
+        logger::error("DeviceService: rollback after failed device.create also failed",
+                      rollbackEx.what());
+      }
+      logger::error("DeviceService: transactional device.create failed", e.what());
+      return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
-    db_.commitTransaction();
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
