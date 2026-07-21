@@ -26,6 +26,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -37,7 +38,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <algorithm>
 #include <random>
 #include <sstream>
 #include <string>

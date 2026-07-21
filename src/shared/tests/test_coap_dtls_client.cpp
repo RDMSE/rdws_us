@@ -92,6 +92,7 @@ private:
 } // namespace
 
 TEST(CoapDtlsClientTest, SendConfirmable_CompletesDtlsHandshakeAndDeliversPayload) {
+  gReceivedExpectedPayload = false;
   TestCoapServer server;
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 

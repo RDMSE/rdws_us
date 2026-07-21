@@ -340,43 +340,47 @@ private:
                             .isSimulated = isSimulated,
                             .updatedBy = json::getActorSubjectOrDefault(req)};
 
+    struct TxGuard {
+      PostgreSQLDatabase& db;
+      bool active = true;
+      ~TxGuard() {
+        if (active) {
+          try {
+            db.rollbackTransaction();
+          } catch (const std::exception& e) {
+            logger::error("DeviceService: rollback in TxGuard destructor failed", e.what());
+          }
+        }
+      }
+      void commit() {
+        db.commitTransaction();
+        active = false;
+      }
+    };
+
     db_.beginTransaction();
+    TxGuard txGuard{db_};
 
-    auto result = rdws::types::ServiceResult<std::string>::error("uninitialized", 500);
-    auto provisioned = rdws::types::ServiceResult<rdws::device::ProvisionedCredential>::error(
-        "uninitialized", 500);
-
-    try {
-      result = [&] {
-        auto t = ctx.profiler.scoped("db.query");
-        return svc.create(data);
-      }();
-      if (result.isError()) {
-        db_.rollbackTransaction();
-        return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
-      }
-      provisioned = [&] {
-        auto t = ctx.profiler.scoped("db.query");
-        return credentialSvc_.provision(result.getData());
-      }();
-      if (provisioned.isError()) {
-        db_.rollbackTransaction();
-        return ResponseHelper::returnErrorDoc(
-            "Device created but credential provisioning failed: " + provisioned.getErrorMessage(),
-            500);
-      }
-      db_.commitTransaction();
-    } catch (const std::exception& e) {
-      try {
-        db_.rollbackTransaction();
-      } catch (const std::exception& rollbackEx) {
-        logger::error("DeviceService: rollback after failed device.create also failed",
-                      rollbackEx.what());
-      }
-      logger::error("DeviceService: transactional device.create failed", e.what());
-      return ResponseHelper::returnErrorDoc("Internal server error", 500);
+    const auto result = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.create(data);
+    }();
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
+    const auto provisioned = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return credentialSvc_.provision(result.getData());
+    }();
+    if (provisioned.isError()) {
+      return ResponseHelper::returnErrorDoc(
+          "Credential provisioning failed; device creation rolled back: " +
+              provisioned.getErrorMessage(),
+          500);
+    }
+
+    txGuard.commit();
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
