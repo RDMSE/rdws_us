@@ -249,7 +249,10 @@ private:
     size_t len = 0, offset = 0, total = 0;
     coap_get_data_large(request, &len, &data, &offset, &total);
 
-    const std::string body(reinterpret_cast<const char*>(data), len);
+    const auto body = (data != nullptr && len > 0)
+        ? std::string(reinterpret_cast<const char*>(data), len)
+        : std::string{};
+
     const int publishedCount = handlePayload(body);
 
     coap_pdu_set_code(response, publishedCount >= 0 ? COAP_RESPONSE_CODE_CHANGED
