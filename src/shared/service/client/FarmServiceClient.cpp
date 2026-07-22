@@ -39,6 +39,7 @@ bool FarmServiceClient::exists(const std::string& farmId) {
   rapidjson::Document envelope;
   envelope.Parse(result.responsePayload.c_str());
   if (envelope.HasParseError() || !envelope.IsObject()) {
+    logger::warn("FarmServiceClient: invalid JSON envelope from farm.get", farmId);
     return false;
   }
 
