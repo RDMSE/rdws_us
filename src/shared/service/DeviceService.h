@@ -1,6 +1,6 @@
 #pragma once
 #include "../repository/DeviceRepository.h"
-#include "../service/IFieldValidator.h"
+#include "client/IFieldValidator.h"
 #include "../types/service_result.h"
 
 namespace rdws::device {
