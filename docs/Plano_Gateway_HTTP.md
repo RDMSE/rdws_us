@@ -695,6 +695,61 @@ maior de desacoplamento.
 
 ---
 
+### Backlog — `routes.json` num volume não sincronizava rotas novas em redeploys ✅
+
+**Contexto (2026-07-22):** `docker-entrypoint.sh` só copia `routes.json` da imagem pro
+volume `gateway_data` (`docker-compose.qa-app.yml`) se o arquivo ainda não existir lá —
+proposital, pra não sobrescrever CRUD de rotas feito em runtime (`POST/PUT/DELETE
+/routes`, que persiste direto no volume via `EventRouter::persistIfConfigured`). Efeito
+colateral: uma rota nova commitada em `routes.json` (ex. `PATCH /devices/{id}/config`)
+nunca chegava sozinha a um gateway de QA/prod já deployado antes — só descoberto quando
+um `curl` real bateu 404 "No route found".
+
+**Corrigido:** `scripts/sync_gateway_routes.py` — compara `routes.json` do repo com o
+que já está carregado no gateway em runtime (`GET /routes`), casando por
+`(httpMethod, httpPath)` (não por `id`, já que `EventRouter::addRule` sempre gera um id
+novo em `POST /routes`, ignorando o do body — casar por id duplicaria a rota a cada
+deploy). Só cria o que falta via `POST /routes`; nunca atualiza nem apaga rotas
+existentes, preservando qualquer edição feita em runtime. Testado localmente contra o
+binário real do gateway (remoção + resync de 1 rota, depois confirmação de idempotência
+rodando 2x seguidas).
+
+- ✅ Step **"Sync routes.json into gateway"** adicionado a `deploy-qa.yml`, logo após o
+  health check — roda em todo deploy do QA a partir de agora.
+- ⬜ Replicar o mesmo step em `deploy-prod.yml` quando o deploy de produção for
+  ativado (hoje bloqueado por secrets pendentes — ver `Plano_Deployment.md`).
+- **Limitação conhecida:** o sync só *adiciona* rotas ausentes; se uma rota existente
+  mudar de definição no `routes.json` do repo (ex. `outputCapability` diferente para o
+  mesmo `httpMethod`+`httpPath`), o sync não propaga a mudança — decisão deliberada pra
+  não arriscar sobrescrever uma edição feita em runtime. Se isso virar necessidade real,
+  vai exigir uma estratégia de merge mais fina (comparar conteúdo completo, não só a
+  chave método+path).
+
+---
+
+### Backlog — CRUD de `/routes` sem autenticação
+
+**Contexto (2026-07-22, achado ao investigar o item acima):** os handlers de
+`GET/POST/PUT/DELETE /routes` (`src/service_broker/HttpGateway.cpp:362-459`) não chamam
+`auth_.authenticate(...)` como os demais endpoints (`/invoke/:capability` e o dispatch
+REST genérico chamam, ver linhas 199 e 616) — mesmo com `RDWS_AUTH_MODE=jwt` configurado.
+Como a porta HTTP do gateway (`3001`) é exposta publicamente
+(`docker-compose.qa-app.yml`, `"3001:3001"`), qualquer um que alcance
+`fedora-server:3001/routes` hoje pode criar/editar/apagar regras de roteamento sem token.
+
+**Decisão:** não corrigido ainda — registrar e priorizar depois. Corrigir exigiria
+decidir se `/routes` deve exigir o mesmo JWT de usuário comum ou uma role/escopo
+administrativo separado (provavelmente a segunda opção, já que CRUD de rotas é operação
+de infraestrutura, não de domínio).
+
+- ⬜ Adicionar checagem de auth aos 5 handlers de `/routes` em `HttpGateway.cpp`.
+- ⬜ Decidir se basta reusar `auth_.authenticate` (JWT de usuário) ou se merece uma role
+  `admin`/escopo próprio.
+- ⬜ Cobrir com teste de integração (`service_gateway_http_e2e_test` ou similar)
+  garantindo 401/403 sem token válido.
+
+---
+
 ## Próximo passo sugerido
 Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
 passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
