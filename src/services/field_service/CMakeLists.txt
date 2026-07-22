@@ -1,4 +1,5 @@
 add_executable(field_service AppFieldService.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/client/FarmServiceClient.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/FieldRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/FieldService.cpp
 )

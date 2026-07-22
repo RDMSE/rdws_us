@@ -6,6 +6,7 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/FieldRepository.h"
 #include "../../shared/service/FieldService.h"
+#include "../../shared/service/client/FarmServiceClient.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/capability_router.h"
@@ -64,14 +65,17 @@ private:
   std::string gatewayAddress;
   std::atomic<bool> running{false};
 
-  // DB/repo/svc — declared in dependency order
+  // DB/repo/svc — declared in dependency order. farmValidator_ binds to `client`
+  // (still unset at this point) and validates farm_id FKs via a sync call to
+  // farm_service through the gateway instead of hitting farm_service's own DB.
   PostgreSQLDatabase db_;
   FieldRepository repo_;
+  rdws::farm::FarmServiceClient farmValidator_;
   rdws::field::FieldService svc_;
 
 public:
   AppFieldService(const std::string& serviceId, const std::string& machineName, std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), farmValidator_(client), svc_(repo_, farmValidator_) {
     identity.machineName = machineName;
     identity.serviceName = "field_service";
     identity.serviceId = serviceId;
@@ -148,15 +152,18 @@ private:
     if (!farmId.empty() && !isNumericId(farmId)) {
       return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be numeric", 400);
     }
-    const auto fields = [&] {
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
       return svc.findAll(farmId);
     }();
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
-      for (const auto& f : fields) {
+      for (const auto& f : result.getData()) {
         arr.PushBack(fieldToJson(f, alloc), alloc);
       }
       return arr;
@@ -220,18 +227,18 @@ private:
       .updatedBy = json::getActorSubjectOrDefault(req)
     };
 
-    const std::string id = [&] {
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
       return svc.create(data);
     }();
-    if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Failed to create field", 500);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          return JsonObj(alloc).set("id", id).take();
+          return JsonObj(alloc).set("id", result.getData()).take();
         },
         201);
   }

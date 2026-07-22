@@ -14,7 +14,7 @@
 #include "../../shared/repository/DeviceRepository.h"
 #include "../../shared/service/DeviceCredentialService.h"
 #include "../../shared/service/DeviceService.h"
-#include "FieldServiceClient.h"
+#include "../../shared/service/client/FieldServiceClient.h"
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
