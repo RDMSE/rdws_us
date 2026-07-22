@@ -21,7 +21,7 @@ public:
   explicit FarmServiceClient(const std::unique_ptr<servicegateway::ServiceClient>& client)
       : client_(client) {}
 
-  [[nodiscard]] bool exists(const std::string& farmId) override;
+  [[nodiscard]] FarmValidation exists(const std::string& farmId) override;
 
 private:
   const std::unique_ptr<servicegateway::ServiceClient>& client_;
