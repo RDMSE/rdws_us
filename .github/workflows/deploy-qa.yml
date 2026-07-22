@@ -42,6 +42,9 @@ jobs:
       - name: Run Flyway migrations
         run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa --profile migrate run --rm migrate
 
+      - name: Ensure QA RabbitMQ is up
+        run: docker compose -f docker-compose.qa-mq.yml --env-file .env.qa up -d
+
       - name: Build and deploy gateway + services
         run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
 
