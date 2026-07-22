@@ -154,6 +154,65 @@ específico se algo não aparecer no navegador.
 Ver `docs/Plano_Deployment.md` §3 para os detalhes de infraestrutura e a decisão de
 design por trás da separação dev/QA.
 
+### Rodando o SensorSimulatorService contra o QA
+
+`sensor_simulator_service` é uma ferramenta standalone (ver tabela de microserviços
+acima) — não faz parte de nenhum `docker-compose.qa-*.yml`, então não sobe sozinho no
+deploy. Como o host QA não é necessariamente compatível com o ambiente de desenvolvimento pode não ter as libs de build (`libpqxx-dev` etc.) e o binário precisa das mesmas libs do container (Ubuntu 24.04, ABI possivelmente diferente do host QA), a forma mais simples é compilar via Docker e rodar o binário dentro de um container avulso, na
+mesma rede dos outros serviços do QA:
+
+```bash
+# builda só o estágio builder (toolchain completo + todos os binários, incluindo o
+# do simulador — ver Dockerfile, o builder não filtra por SERVICE de propósito)
+docker build --target builder -t rdws_us-builder:qa .
+
+# uma instância por device — repete o docker run trocando --device-id e as portas
+docker run -d \
+  --network rdws_qa_default \
+  --name sim-device-<id> \
+  -e DB_HOST=postgres -e DB_PORT=5432 \
+  -e DB_USER=rdws_user -e DB_PASSWORD=<senha do .env.qa> -e DB_NAME=rdws_qa \
+  -e INGESTION_HOST=ingestion_service -e INGESTION_PORT=5684 \
+  -e SIMULATOR_CONTROL_PORT=91<id> \
+  -e SIMULATOR_DATA_DIR=/data \
+  -v ~/sim_data/device_<id>:/data \
+  -p 91<id>:91<id> \
+  --restart unless-stopped \
+  rdws_us-builder:qa \
+  /src/build/bin/sensor_simulator_service --device-id <id> --gateway tcp://gateway:8080
+```
+
+Duas pegadinhas reais que já bateram aqui:
+
+- **`DB_PORT=5432`, não `5433`** — `5433` é só o mapeamento pro host
+  (`docker-compose.qa-db.yml`); dentro da rede Docker o Postgres escuta na porta padrão.
+- **`INGESTION_HOST` tem que ser `ingestion_service`** (nome do serviço no compose, DNS
+  interno) — o default do binário é `localhost`, que dentro do próprio container do
+  simulador não aponta pra lugar nenhum (gera `DTLS: coap_socket_recv: ICMP: Connection
+  refused` no log, fácil de confundir com bloqueio de firewall).
+
+Cada instância precisa de um `SIMULATOR_CONTROL_PORT`/`-p` diferente (a porta do
+`POST /simulate/{device_id}/trigger`); `DB_*`/`INGESTION_*`/`--gateway` podem ser
+compartilhados entre todas. `-v` é opcional — sem ele os arquivos de buffer
+(`<device_id>_<sensor_id>.data`) ficam só dentro do container, inspecionáveis via
+`docker exec sim-device-<id> ls /src/sim_data`.
+
+Se depois de um trigger (`curl -X POST http://localhost:91<id>/simulate/<id>/trigger`)
+nada aparecer no Grafana, siga a cadeia até achar onde parou:
+
+```bash
+docker logs sim-device-<id> --tail 30                       # simulador enviou?
+docker exec rdws_rabbitmq_qa rabbitmqctl list_queues \
+  name messages messages_ready messages_unacked             # chegou na fila?
+docker logs rdws_reading_writer_qa --tail 30                # consumidor gravou?
+docker exec -it rdws_postgres_qa psql -U rdws_user -d rdws_qa -c \
+  "SELECT id, sensor_id, timestamp, value FROM sensor_readings ORDER BY timestamp DESC LIMIT 10;"
+```
+
+Se o dado já está no Postgres mas não aparece no dashboard, o problema é só a variável
+`$device_id` (ou o intervalo de tempo) do painel "Sensor Readings" no Grafana — confirme
+que o device triggerado está selecionado ali.
+
 ## Documentação de planejamento (`docs/`)
 
 - `Plano_API_REST.md` — endpoints/capabilities de cada microserviço e contrato de payload.
@@ -173,7 +232,6 @@ design por trás da separação dev/QA.
 - `src/service_broker/`: gateway HTTP + broker de mensagens entre microserviços.
 - `src/services/`: microserviços de domínio (ver tabela acima).
 - `src/shared/`: código compartilhado (tipos, utils, validação, banco, repositórios).
-- `src/greeting_app/`: subprojeto de exemplo (gerado pelo `new_subproject.sh`).
 - `tools/new_subproject.sh`: gerador de novos subprojetos.
 
 ## Dependencies
@@ -187,7 +245,7 @@ design por trás da separação dev/QA.
 
 As restantes dependências (GoogleTest, cpp-httplib, spdlog, RapidJSON, tl::expected, valijson, `libcoap`, `rabbitmq-c`) são descarregadas e compiladas automaticamente via CMake FetchContent na primeira build — estático, sem pacote `apt` adicional além do `libssl-dev` acima.
 
-**Dependência de runtime (não de build)**: `ingestion_service`/`reading_writer_service` precisam de um broker RabbitMQ acessível (`RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`) para funcionar — não é baixado pelo CMake, é um serviço externo (ver `docker-compose.qa-mq.yml` ou suba um container avulso pra testar localmente, `docs/Plano_Ingestion_Implementacao.md` tem o comando exato).
+**Dependência de runtime (não de build)**: `ingestion_service`/`reading_writer_service` precisam de um broker RabbitMQ acessível (`RABBITMQ_HOST`/`PORT`/`USER`/`PASSWORD`) para funcionar — não é baixado pelo CMake, é um serviço externo. Localmente, suba `docker-compose.dev-mq.yml` (instância descartável, sem `restart:` — task `docker-up-dev-mq` no VS Code faz isso, `docker-down-dev-mq` derruba); em QA é o `docker-compose.qa-mq.yml` (sempre no ar, credenciais via `.env.qa`). `docs/Plano_Ingestion_Implementacao.md` tem o runbook completo.
 
 ## Build and tests
 
@@ -204,21 +262,42 @@ ctest --test-dir build --output-on-failure
 
 Requer `gdb` instalado (`sudo apt install gdb`).
 
-Primeiro compile em Debug Mode:
+Todas as configurações de debug (`.vscode/launch.json`) rodam a partir de `build-debug/`
+(separado do `build/` usado em "Build and tests" acima) e têm `cmake-build`
+(`.vscode/tasks.json`) como `preLaunchTask` — ou seja, o F5 já compila em Debug antes de
+rodar, não precisa compilar na mão primeiro.
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-cmake --build build
-```
+`.vscode/launch.json` tem uma configuração por serviço, em duas variantes cada:
 
-The `.vscode/launch.json` has three configurations:
+- **`<Serviço> (--dev)`** — modo dev standalone (não conecta em broker nenhum).
+- **`<Serviço> (<service_id>_001)`** — conecta no gateway local via
+  `unix:///tmp/rdws_gateway.sock` (ex. `Device Service (device_001)`).
 
-- **Debug service_broker_app** — inicia o broker na porta `8080` e socket `/tmp/service_broker.sock`
-- **Debug example_service --dev** — inicia um service em modo dev, conecta no broker via socket
-- **Debug Broker + Example Service** — sobe os dois simultaneamente (compound)
+Mais 4 variantes do **Gateway HTTP** (`porta 8085`/`3001`, socket
+`/tmp/rdws_gateway.sock`): plain, with persistence (`routes.json`), API key auth, JWT
+auth.
 
-**Ordem de inicialização:** o broker deve estar no ar antes de qualquer service conectar.
-Para garantir isso, inicie as configurações manualmente em sequência ou use o compound e aguarde o broker logar `ServiceBroker started successfully!` antes de interagir com o service.
+E ~10 **compounds** prontos combinando gateway + serviços pra cenários comuns — os mais
+usados:
+
+- **Gateway + All IoT Services (JWT)** — sobe o gateway (modo JWT) + todos os 7
+  microserviços de domínio de uma vez.
+- **Gateway + Device + Sensor Stack** — só o subconjunto device/device_config/sensor/
+  sensor_reading, pra trabalhar numa área sem subir tudo.
+- **Gateway + Auth + Farm + Field**, **Gateway + Auth**, **Gateway + N Services**
+  (variantes com `example_service`) — combinações menores para depuração pontual.
+
+`.vscode/tasks.json` também tem tasks equivalentes fora do debugger (`run-gateway`,
+`run-auth-service`, `run-farm-service`, etc. — mesmos binários/args, sem `gdb`), além de
+`run-sensor-simulator-service` (pede o `device-id` via prompt do VS Code, escolhe a
+porta de controle automaticamente como `9100 + device-id`, e usa `flock` pra recusar
+subir duas instâncias do mesmo device ao mesmo tempo) e `run-tests` (`ctest`).
+
+**Ordem de inicialização:** o gateway deve estar no ar antes de qualquer serviço
+conectar. Um compound já lança na ordem certa, mas não espera o gateway sinalizar
+"pronto" antes de disparar o próximo — se algum serviço falhar ao conectar no início,
+aguarde o gateway logar `Gateway ready` (linha final do startup, depois de TCP + UNIX +
+HTTP no ar) e reinicie só aquele serviço.
 
 ## Create a new subproject
 
