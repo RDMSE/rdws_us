@@ -26,6 +26,9 @@ bool FarmServiceClient::exists(const std::string& farmId) {
   const auto result = client_->invoke("farm.get", data);
 
   if (!result.success) {
+    if (result.statusCode == 404) {
+      return false;
+    }
     logger::warn("FarmServiceClient: farm.get invoke failed", farmId + ": " + result.errorMessage);
     return false;
   }
