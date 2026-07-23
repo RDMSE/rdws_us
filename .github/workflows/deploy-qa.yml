@@ -42,6 +42,9 @@ jobs:
       - name: Run Flyway migrations
         run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa --profile migrate run --rm migrate
 
+      - name: Ensure QA RabbitMQ is up
+        run: docker compose -f docker-compose.qa-mq.yml --env-file .env.qa up -d
+
       - name: Build and deploy gateway + services
         run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
 
@@ -57,6 +60,15 @@ jobs:
           echo "Gateway não respondeu saudável a tempo." >&2
           docker compose -f docker-compose.qa-app.yml --env-file .env.qa logs --tail=100
           exit 1
+
+      # gateway_data é um volume nomeado: docker-entrypoint.sh só semeia routes.json a
+      # partir da imagem se o arquivo ainda não existir no volume, pra não sobrescrever
+      # CRUD de rotas feito em runtime (POST/PUT/DELETE /routes). Isso significa que uma
+      # rota nova commitada no routes.json nunca chega sozinha num gateway já deployado
+      # — este passo fecha essa lacuna de forma idempotente (só cria o que falta, nunca
+      # sobrescreve o que já existe).
+      - name: Sync routes.json into gateway
+        run: python3 scripts/sync_gateway_routes.py routes.json http://localhost:3001
 
       - name: Clean up .env.qa
         if: always()
