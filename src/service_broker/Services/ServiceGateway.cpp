@@ -142,6 +142,13 @@ void ServiceGateway::stop() {
   {
     std::scoped_lock lock(connectionsMutex);
     for (const auto& fd : activeConnections | std::views::keys) {
+      // shutdown() first: each connection has its own detached reader thread
+      // blocked in recv() on this exact fd (see handleNewConnection). A bare
+      // close() only drops this thread's descriptor-table entry — the socket
+      // itself stays alive (and no FIN/EOF is delivered to the peer) until
+      // that blocked recv() call, which holds its own kernel reference, wakes
+      // up. shutdown(SHUT_RDWR) unblocks it immediately.
+      shutdown(fd, SHUT_RDWR);
       close(fd);
     }
     activeConnections.clear();
