@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <cstring>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <sys/socket.h>
@@ -209,35 +210,67 @@ InvokeResult ServiceClient::invoke(const std::string& capability, const rapidjso
 }
 
 void ServiceClient::run() {
-  if (!connect()) {
-    return;
-  }
+  constexpr auto kInitialBackoff = std::chrono::milliseconds(1000);
+  auto backoff = kInitialBackoff;
 
-  if (!registerService()) {
+  while (!stopRequested.load()) {
+    if (!connect()) {
+      backoff = waitBeforeReconnect(backoff);
+      continue;
+    }
+
+    if (!registerService()) {
+      disconnect();
+      backoff = waitBeforeReconnect(backoff);
+      continue;
+    }
+
+    backoff = kInitialBackoff;
+
+    // Start message and ping threads
+    messageThread = std::thread(&ServiceClient::messageLoop, this);
+    pingThread = std::thread(&ServiceClient::pingLoop, this);
+
+    logger::info("Service client running", identity.serviceId);
+
+    // Wait for threads to finish — they return once the connection drops
+    // (messageLoop tears down the connection on recv failure, which also
+    // unblocks pingLoop's connected-check).
+    if (messageThread.joinable()) {
+      messageThread.join();
+    }
+    if (pingThread.joinable()) {
+      pingThread.join();
+    }
+
+    if (stopRequested.load()) {
+      break;
+    }
+
+    logger::warn("Lost connection to broker, will attempt to reconnect", identity.serviceId);
     disconnect();
-    return;
-  }
-
-  // Start message and ping threads
-  messageThread = std::thread(&ServiceClient::messageLoop, this);
-  pingThread = std::thread(&ServiceClient::pingLoop, this);
-
-  logger::info("Service client running", identity.serviceId);
-
-  // Wait for threads to finish
-  if (messageThread.joinable()) {
-    messageThread.join();
-  }
-  if (pingThread.joinable()) {
-    pingThread.join();
+    backoff = waitBeforeReconnect(backoff);
   }
 }
 
 void ServiceClient::stop() {
+  stopRequested.store(true);
   disconnect();
   joinRequestThreads();
   // messageThread and pingThread are owned and joined by run().
   // Callers must join the thread that called run() to ensure full cleanup.
+}
+
+std::chrono::milliseconds ServiceClient::waitBeforeReconnect(std::chrono::milliseconds backoff) const {
+  constexpr auto kMaxBackoff = std::chrono::milliseconds(30000);
+
+  // Sleep in 1-second increments so stop() can interrupt promptly.
+  const auto totalMs = backoff.count();
+  for (int64_t slept = 0; slept < totalMs && !stopRequested.load(); slept += 1000) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(std::min<int64_t>(1000, totalMs - slept)));
+  }
+
+  return std::min(backoff * 2, kMaxBackoff);
 }
 
 int ServiceClient::createConnection() const {
@@ -323,7 +356,11 @@ bool ServiceClient::sendMessage(const rapidjson::Document& message) const {
   // — serialize the actual socket write so two messages can't interleave.
   std::scoped_lock lock(sendMutex_);
   const ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
-  return std::cmp_equal(sent, messageStr.length());
+  const bool ok = std::cmp_equal(sent, messageStr.length());
+  if (!ok) {
+    logger::error("Failed to send message to broker", strerror(errno));
+  }
+  return ok;
 }
 
 void ServiceClient::messageLoop() {
@@ -335,6 +372,10 @@ void ServiceClient::messageLoop() {
     if (bytesRead <= 0) {
       if (connected.load()) {
         logger::error("Connection lost to broker");
+        // Tear down the dead connection now rather than leaving `connected`
+        // true: otherwise pingLoop keeps silently failing to send on the
+        // stale socket until something else (e.g. invoke()) surfaces it.
+        disconnect();
       }
       break;
     }
