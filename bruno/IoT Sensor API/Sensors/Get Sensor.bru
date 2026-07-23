@@ -5,9 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/sensors/1
+  url: {{baseUrl}}/sensors/:sensId
   body: none
   auth: bearer
+}
+
+params:path {
+  sensId: 3
 }
 
 auth:bearer {
