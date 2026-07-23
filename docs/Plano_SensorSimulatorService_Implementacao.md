@@ -24,16 +24,18 @@ Este plano cobre três entregas em sequência, cada uma pré-requisito da próxi
 3. `SensorSimulatorService` propriamente dito (geração, persistência em arquivo, API de
    controle, envio CoAP/DTLS).
 
-**Fora do escopo deste plano** (adiado para quando o `IngestionService` for planejado,
-por não ter consumidor ainda):
+**Atualização**: o `IngestionService` (servidor CoAP/DTLS) já foi implementado
+(`src/services/ingestion_service/AppIngestionService.cpp`, PR #83) — deixou de ser
+bloqueador. Ele espera `POST` com body JSON `{ "device_id", "readings": [{ "sensor_id",
+"timestamp", "value", "unit"? }] }` e valida PSK via `coap_context_set_psk2` com lookup em
+`device_credential.list_active` (cache 60s). A verificação ponta-a-ponta real (simulador
+→ `IngestionService` → RabbitMQ) já é possível hoje, não só local/manual.
+
+**Fora do escopo deste plano**:
 - Evento `device_credential.changed` no EventBus (só o `IngestionService` precisa
   invalidar cache com isso — o `SensorSimulatorService` já busca a credencial ativa a
   cada ciclo via `device_credential.get_active`, sem cache, conforme o próprio
   `Plano_DeviceCredentials.md` §5 já resolve).
-- O `IngestionService` (servidor CoAP) em si — o simulador enviará para um destino que
-  ainda não existe do lado servidor. Verificação ponta-a-ponta real fica bloqueada até
-  ele existir; a verificação possível agora é local/manual (servidor CoAP de teste do
-  próprio libcoap, descartável, só para confirmar handshake DTLS + payload).
 - Versionamento de KEK / grace period de rotação (já registrados como adiados no próprio
   `Plano_DeviceCredentials.md` §7 e "Pontos em aberto").
 
@@ -214,8 +216,7 @@ Confirmado via CMakeLists.txt real da tag `v4.3.5`: todas as opções acima exis
   confirmar geração de arquivo `.data`, disparo manual via
   `POST /simulate/{id}/trigger` (nova coleção Bruno, mesmo padrão de
   `bruno/IoT Sensor API/`).
-- CoAP/DTLS: verificação manual/local — subir um servidor CoAP de teste (ex. o
-  `coap-server` de exemplo do próprio libcoap, ou um binário mínimo ad-hoc) com o mesmo
-  PSK provisionado, confirmar handshake DTLS + recebimento do payload. **Não é
-  verificação ponta-a-ponta real** (isso só quando o `IngestionService` existir) — deixar
-  isso explícito no relatório final, sem marcar como "done" completo.
+- CoAP/DTLS: com o `IngestionService` já implementado, a verificação ponta-a-ponta real é
+  possível — subir `ingestion_service` local com o mesmo PSK provisionado, disparar o
+  envio pelo `SensorSimulatorService` e confirmar handshake DTLS + payload aceito (`2.04
+  Changed`) + mensagem publicada em `sensor_readings` no RabbitMQ.

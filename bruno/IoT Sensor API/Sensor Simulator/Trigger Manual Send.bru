@@ -11,10 +11,13 @@ post {
 }
 
 params:path {
-  devId: {{ID}}
+  devId: {{devId}}
 }
 
-vars:pre-request {
-  devicePort: 91{{ID}}
-  ID: 14
+script:pre-request {
+  const id = String(bru.getEnvVar("ID"));
+  console.log("ID lido:", JSON.stringify(id));
+  bru.setVar("devId", id);
+  bru.setVar("devicePort", "91" + id.padStart(2, "0"));
+  console.log("devId:", bru.getVar("devId"), "devicePort:", bru.getVar("devicePort"));
 }

@@ -101,6 +101,20 @@ Sem necessidade de aplicação Qt: uma **nova coleção no Bruno** (mesmo padrã
 existentes em `bruno/IoT Sensor API/`) cobre a operação manual desses endpoints,
 reaproveitando a ferramenta que já é usada pro resto da API.
 
+## `IngestionService` (destino do envio) — implementado
+
+O `IngestionService` (servidor CoAP/DTLS que recebe os dados enviados por este serviço)
+já está implementado em `src/services/ingestion_service/AppIngestionService.cpp` (PR #83,
+commit `2d56561`). Escuta em `INGESTION_BIND_HOST:INGESTION_COAP_PORT` (default
+`0.0.0.0:5684`), valida PSK via `coap_context_set_psk2` (credenciais buscadas no gateway
+via `device_credential.list_active`, cacheadas 60s), e espera um `POST` com body JSON
+`{ "device_id": ..., "readings": [{ "sensor_id", "timestamp", "value", "unit"? }] }`.
+Leituras válidas são republicadas no RabbitMQ (`sensor_readings`). Esse é o schema de
+payload que o `Sensor Simulator Service` deve gerar no envio, e é o mesmo schema que o
+firmware real (`rdws_thingy_node`) deve mirar quando enviar via CoAP — ver
+`docs/Plano_Firmware.md`. Validação completa contra `device_config` ainda está deferida
+no lado do `IngestionService` (fora do escopo deste plano).
+
 ## Pontos em aberto
 
 - **Provisionamento de credenciais DTLS** (PSK/certificado) por device simulado —
