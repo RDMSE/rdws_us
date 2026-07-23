@@ -358,7 +358,12 @@ bool ServiceClient::sendMessage(const rapidjson::Document& message) const {
   const ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
   const bool ok = std::cmp_equal(sent, messageStr.length());
   if (!ok) {
-    logger::error("Failed to send message to broker", strerror(errno));
+    if (sent == -1) {
+      logger::error("Failed to send message to broker", strerror(errno));
+    } else {
+      logger::error("Failed to send message to broker",
+                     "short write: " + std::to_string(sent) + "/" + std::to_string(messageStr.length()));
+    }
   }
   return ok;
 }
