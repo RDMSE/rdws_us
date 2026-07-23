@@ -1,8 +1,8 @@
 #include "FieldServiceClient.h"
 
-#include "../../service_broker/Services/ServiceClient.h"
-#include "../../shared/utils/json_helper.h"
-#include "../../shared/utils/logger.h"
+#include "../../../service_broker/Services/ServiceClient.h"
+#include "../../utils/json_helper.h"
+#include "../../utils/logger.h"
 
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
