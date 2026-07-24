@@ -51,6 +51,13 @@ std::optional<double> getDouble(const rapidjson::Value& doc, const std::string& 
   return std::nullopt;
 }
 
+std::optional<double> getNumber(const rapidjson::Value& doc, const std::string& field) {
+  if (hasField(doc, field) && doc[field.c_str()].IsNumber()) {
+    return doc[field.c_str()].GetDouble();
+  }
+  return std::nullopt;
+}
+
 const rapidjson::Value* getObject(const rapidjson::Value& doc, const std::string& field) {
   if (hasField(doc, field) && doc[field.c_str()].IsObject()) {
     return &doc[field.c_str()];

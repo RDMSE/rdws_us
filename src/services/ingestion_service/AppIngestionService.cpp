@@ -40,15 +40,6 @@ using namespace servicegateway;
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
 
-namespace {
-
-std::string getenvOrDefault(const char* name, const std::string& def) {
-  const char* value = std::getenv(name);
-  return (value != nullptr && std::string(value).length() > 0) ? value : def;
-}
-
-} // namespace
-
 class AppIngestionService {
 public:
   AppIngestionService(std::string serviceId, std::string machineName, std::string gatewayAddress,
@@ -332,13 +323,13 @@ int main(int argc, char* argv[]) {
   logger::init("ingestion_service", "info", serviceId);
   rdws::Config(); // loads .env for native/dev runs before plain getenv() below
 
-  const std::string coapBindHost = getenvOrDefault("INGESTION_BIND_HOST", "0.0.0.0");
+  const std::string coapBindHost = rdws::Config::getEnvVarOrDefault("INGESTION_BIND_HOST", "0.0.0.0");
   const uint16_t coapPort =
-      static_cast<uint16_t>(std::stoi(getenvOrDefault("INGESTION_COAP_PORT", "5684")));
-  const std::string mqHost = getenvOrDefault("RABBITMQ_HOST", "localhost");
-  const uint16_t mqPort = static_cast<uint16_t>(std::stoi(getenvOrDefault("RABBITMQ_PORT", "5672")));
-  const std::string mqUser = getenvOrDefault("RABBITMQ_USER", "guest");
-  const std::string mqPassword = getenvOrDefault("RABBITMQ_PASSWORD", "guest");
+      static_cast<uint16_t>(std::stoi(rdws::Config::getEnvVarOrDefault("INGESTION_COAP_PORT", "5684")));
+  const std::string mqHost = rdws::Config::getEnvVarOrDefault("RABBITMQ_HOST", "localhost");
+  const uint16_t mqPort = static_cast<uint16_t>(std::stoi(rdws::Config::getEnvVarOrDefault("RABBITMQ_PORT", "5672")));
+  const std::string mqUser = rdws::Config::getEnvVarOrDefault("RABBITMQ_USER", "guest");
+  const std::string mqPassword = rdws::Config::getEnvVarOrDefault("RABBITMQ_PASSWORD", "guest");
 
   AppIngestionService service(serviceId, machineName, gatewayAddress, coapBindHost, coapPort,
                               mqHost, mqPort, mqUser, mqPassword);

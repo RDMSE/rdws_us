@@ -98,6 +98,11 @@ std::optional<std::string> Config::getEnvVar(const std::string& name) {
   return value != nullptr ? std::optional<std::string>{value} : std::nullopt;
 }
 
+std::string Config::getEnvVarOrDefault(const std::string& name, const std::string& def) {
+  const auto value = getEnvVar(name);
+  return (value && !value->empty()) ? *value : def;
+}
+
 void Config::loadEnvFile(const std::string& filename) {
   const auto filePath = (std::filesystem::current_path() / filename).string();
   dotenv::init(filePath.c_str());
