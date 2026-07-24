@@ -36,6 +36,11 @@ public:
   [[nodiscard]] bool isDevelopment() const;
   [[nodiscard]] bool isProduction() const;
 
+  // Reads an environment variable directly (bypassing the loaded settings map), falling
+  // back to `def` when unset or empty. For service main()s reading their own runtime
+  // config (host/port/credentials) rather than the shared settings loaded at construction.
+  [[nodiscard]] static std::string getEnvVarOrDefault(const std::string& name, const std::string& def);
+
 private:
   void loadEnvironmentVariables();
   static void loadEnvFile(const std::string& filename);

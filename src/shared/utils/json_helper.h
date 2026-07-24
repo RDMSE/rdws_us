@@ -12,6 +12,7 @@ namespace rdws::utils::json {
 [[nodiscard]] std::optional<int64_t> getInt64(const rapidjson::Value& doc, const std::string& field);
 [[nodiscard]] std::optional<bool> getBool(const rapidjson::Value& doc, const std::string& field);
 [[nodiscard]] std::optional<double> getDouble(const rapidjson::Value& doc, const std::string& field);
+[[nodiscard]] std::optional<double> getNumber(const rapidjson::Value& doc, const std::string& field);
 [[nodiscard]] const rapidjson::Value* getObject(const rapidjson::Value& doc, const std::string& field);
 [[nodiscard]] const rapidjson::Value* getArray(const rapidjson::Value& doc, const std::string& field);
 

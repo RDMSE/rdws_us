@@ -49,6 +49,7 @@ using namespace servicegateway;
 using namespace rdws::database;
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
+namespace utils = rdws::utils;
 
 namespace {
 
@@ -99,9 +100,18 @@ int readIntConfig(const std::string& configJson, const char* field, int defaultV
   return json::getInt(doc, field).value_or(defaultValue);
 }
 
-std::string getenvOrDefault(const char* name, const std::string& def) {
-  const char* value = std::getenv(name);
-  return (value != nullptr && std::string(value).length() > 0) ? value : def;
+// Builds a one-off JSON object body for HTTP responses via JsonObj (so field values
+// get proper JSON escaping, unlike hand-built "{\"key\":\"" + value + "\"}" strings).
+template <typename Build> std::string toJson(Build&& build) {
+  rapidjson::Document doc(rapidjson::kObjectType);
+  json::JsonObj obj(doc.GetAllocator());
+  build(obj);
+  rapidjson::Value value = obj.take();
+  doc.Swap(value);
+  rapidjson::StringBuffer buffer;
+  rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+  doc.Accept(writer);
+  return buffer.GetString();
 }
 
 } // namespace
@@ -272,11 +282,10 @@ private:
       doc.SetArray();
     }
 
-    rapidjson::Value reading(rapidjson::kObjectType);
     auto& alloc = doc.GetAllocator();
-    reading.AddMember("timestamp", rapidjson::Value(nowIso8601().c_str(), alloc), alloc);
-    reading.AddMember("value", value, alloc);
-    doc.PushBack(reading, alloc);
+    json::JsonObj reading(alloc);
+    reading.set("timestamp", nowIso8601()).set("value", value);
+    doc.PushBack(reading.take(), alloc);
 
     writeJsonArray(path, doc);
   }
@@ -346,7 +355,8 @@ private:
 
     rapidjson::Document payload(rapidjson::kObjectType);
     auto& alloc = payload.GetAllocator();
-    payload.AddMember("device_id", rapidjson::Value(deviceId_.c_str(), alloc), alloc);
+    json::JsonObj payloadObj(alloc);
+    payloadObj.set("device_id", deviceId_);
     rapidjson::Value readingsArr(rapidjson::kArrayType);
 
     std::vector<std::string> filesToClear;
@@ -364,28 +374,30 @@ private:
       }
       filesToClear.push_back(path);
       for (auto& reading : sensorReadings.GetArray()) {
-        if (!reading.IsObject() || !reading.HasMember("timestamp") ||
-            !reading.HasMember("value")) {
+
+        const auto timestamp = utils::json::getString(reading,"timestamp");
+        const auto value = utils::json::getNumber(reading,"value");
+
+        if (!timestamp.has_value() || !value.has_value()) {
           logger::warn("SensorSimulatorService: skipping malformed reading entry",
                       "device_id=" + deviceId_ + " sensor_id=" + sensor.sensorId);
           continue;
         }
-        rapidjson::Value entry(rapidjson::kObjectType);
-        entry.AddMember("sensor_id", rapidjson::Value(sensor.sensorId.c_str(), alloc), alloc);
-        entry.AddMember("unit", rapidjson::Value(sensor.unit.c_str(), alloc), alloc);
-        rapidjson::Value ts;
-        ts.CopyFrom(reading["timestamp"], alloc);
-        entry.AddMember("timestamp", ts, alloc);
-        rapidjson::Value val;
-        val.CopyFrom(reading["value"], alloc);
-        entry.AddMember("value", val, alloc);
-        readingsArr.PushBack(entry, alloc);
+
+        json::JsonObj entry(alloc);
+        entry.set("sensor_id", sensor.sensorId)
+             .set("unit", sensor.unit)
+             .set("timestamp", timestamp.value())
+             .set("value", value.value());
+        readingsArr.PushBack(entry.take(), alloc);
       }
     }
-    // AddMember moves readingsArr into payload (leaves it null) — capture what we
+    // setValue moves readingsArr into payloadObj (leaves it null) — capture what we
     // need before the move, not after.
     const auto readingsCount = readingsArr.Size();
-    payload.AddMember("readings", readingsArr, alloc);
+    payloadObj.setValue("readings", std::move(readingsArr));
+    rapidjson::Value payloadValue = payloadObj.take();
+    payload.Swap(payloadValue);
 
     if (readingsCount == 0) {
       logger::info("Nothing to transmit", "device_id=" + deviceId_);
@@ -429,8 +441,10 @@ private:
 
   [[nodiscard]] std::optional<FetchedCredential> fetchActiveCredential() const {
     rapidjson::Document req(rapidjson::kObjectType);
-    auto& alloc = req.GetAllocator();
-    req.AddMember("device_id", rapidjson::Value(deviceId_.c_str(), alloc), alloc);
+    json::JsonObj reqObj(req.GetAllocator());
+    reqObj.set("device_id", deviceId_);
+    rapidjson::Value reqValue = reqObj.take();
+    req.Swap(reqValue);
 
     const auto result = credentialClient_->invoke("device_credential.get_active", req);
     if (!result.success) {
@@ -466,8 +480,10 @@ private:
                        const std::string requestedDeviceId = req.matches[1];
                        if (requestedDeviceId != deviceId_) {
                          res.status = 404;
-                         res.set_content("{\"error\":\"This instance only simulates device_id " +
-                                            deviceId_ + "\"}",
+                         res.set_content(toJson([&](json::JsonObj& body) {
+                                           body.set("error", "This instance only simulates device_id " +
+                                                                  deviceId_);
+                                         }),
                                         "application/json");
                          return;
                        }
@@ -496,7 +512,10 @@ private:
                          triggerThreads_.emplace_back(std::move(triggerThread), done);
                        }
                        res.status = 202;
-                       res.set_content("{\"status\":\"triggered\"}", "application/json");
+                       res.set_content(toJson([](json::JsonObj& body) {
+                                        body.set("status", "triggered");
+                                       }),
+                                      "application/json");
                      });
   }
 };
@@ -531,12 +550,12 @@ int main(int argc, char* argv[]) {
 
   rdws::Config(); // loads .env for native/dev runs before plain getenv() below
 
-  const std::string ingestionHost = getenvOrDefault("INGESTION_HOST", "localhost");
+  const std::string ingestionHost = rdws::Config::getEnvVarOrDefault("INGESTION_HOST", "localhost");
   const uint16_t ingestionPort =
-      static_cast<uint16_t>(std::stoi(getenvOrDefault("INGESTION_PORT", "5684")));
-  const std::string dataDir = getenvOrDefault("SIMULATOR_DATA_DIR", "./sim_data");
+      static_cast<uint16_t>(std::stoi(rdws::Config::getEnvVarOrDefault("INGESTION_PORT", "5684")));
+  const std::string dataDir = rdws::Config::getEnvVarOrDefault("SIMULATOR_DATA_DIR", "./sim_data");
   const int httpControlPort =
-      std::stoi(getenvOrDefault("SIMULATOR_CONTROL_PORT", "9100"));
+      std::stoi(rdws::Config::getEnvVarOrDefault("SIMULATOR_CONTROL_PORT", "9100"));
 
   AppSensorSimulatorService service(deviceId, gatewayAddress, ingestionHost, ingestionPort,
                                     dataDir, httpControlPort);
