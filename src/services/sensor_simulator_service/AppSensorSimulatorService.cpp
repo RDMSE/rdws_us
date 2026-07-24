@@ -49,6 +49,7 @@ using namespace servicegateway;
 using namespace rdws::database;
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
+namespace utils = rdws::utils;
 
 namespace {
 
@@ -364,22 +365,22 @@ private:
       }
       filesToClear.push_back(path);
       for (auto& reading : sensorReadings.GetArray()) {
-        if (!reading.IsObject() || !reading.HasMember("timestamp") ||
-            !reading.HasMember("value")) {
+
+        const auto timestamp = utils::json::getString(reading,"timestamp");
+        const auto value = utils::json::getNumber(reading,"value");
+
+        if (!timestamp.has_value() || !value.has_value()) {
           logger::warn("SensorSimulatorService: skipping malformed reading entry",
                       "device_id=" + deviceId_ + " sensor_id=" + sensor.sensorId);
           continue;
         }
-        rapidjson::Value entry(rapidjson::kObjectType);
-        entry.AddMember("sensor_id", rapidjson::Value(sensor.sensorId.c_str(), alloc), alloc);
-        entry.AddMember("unit", rapidjson::Value(sensor.unit.c_str(), alloc), alloc);
-        rapidjson::Value ts;
-        ts.CopyFrom(reading["timestamp"], alloc);
-        entry.AddMember("timestamp", ts, alloc);
-        rapidjson::Value val;
-        val.CopyFrom(reading["value"], alloc);
-        entry.AddMember("value", val, alloc);
-        readingsArr.PushBack(entry, alloc);
+
+        json::JsonObj entry(alloc);
+        entry.set("sensor_id", sensor.sensorId)
+             .set("unit", sensor.unit)
+             .set("timestamp", timestamp.value())
+             .set("value", value.value());
+        readingsArr.PushBack(entry.take(), alloc);
       }
     }
     // AddMember moves readingsArr into payload (leaves it null) — capture what we
