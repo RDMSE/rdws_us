@@ -152,7 +152,7 @@ bool ServiceClient::sendResponse(const std::string& requestId,
 
 InvokeResult ServiceClient::invoke(const std::string& capability, const rapidjson::Document& data,
                                    const std::chrono::milliseconds timeout) {
-  if (!connected.load()) {
+  if (!connected.load() || !registered.load()) {
     return InvokeResult{.success = false, .statusCode = 0, .errorMessage = "Not connected to broker"};
   }
 
