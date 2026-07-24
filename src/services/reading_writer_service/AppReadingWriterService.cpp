@@ -96,6 +96,8 @@ void signalHandler(int sig) {
 int main(int /*argc*/, char* /*argv*/[]) {
   logger::init("reading_writer_service", "info", "reading_writer_001");
 
+  rdws::Config(); // loads .env for native/dev runs before plain getenv() below
+
   const std::string mqHost = rdws::Config::getEnvVarOrDefault("RABBITMQ_HOST", "localhost");
   const uint16_t mqPort = static_cast<uint16_t>(std::stoi(rdws::Config::getEnvVarOrDefault("RABBITMQ_PORT", "5672")));
   const std::string mqUser = rdws::Config::getEnvVarOrDefault("RABBITMQ_USER", "guest");
