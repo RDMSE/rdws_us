@@ -34,6 +34,7 @@ private:
 
   std::atomic<bool> connected{false};
   std::atomic<bool> registered{false};
+  std::atomic<bool> stopRequested{false};
   std::thread messageThread;
   std::thread pingThread;
 
@@ -98,7 +99,8 @@ public:
   [[nodiscard]] InvokeResult invoke(const std::string& capability, const rapidjson::Document& data,
                                     std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
 
-  // Main event loop
+  // Main event loop. Reconnects with backoff on connection loss; keeps retrying
+  // until stop() is called.
   void run();
   void stop();
 
@@ -108,6 +110,9 @@ private:
   [[nodiscard]] bool sendMessage(const rapidjson::Document& message) const;
   void messageLoop();
   void pingLoop() const;
+  // Blocks in small increments (so stop() can interrupt promptly) for `backoff`,
+  // then doubles it up to a cap. Returns the next backoff to use.
+  std::chrono::milliseconds waitBeforeReconnect(std::chrono::milliseconds backoff) const;
 
   // Message handlers
   void handleMessage(const std::string& message);

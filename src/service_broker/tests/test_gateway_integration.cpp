@@ -399,6 +399,55 @@ TEST_F(GatewayIntegrationTest, Invoke_CallerReachesResponder_Success) {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 6b — regression: a SINGLE ServiceClient instance must reconnect on
+// its own after the broker connection drops (e.g. gateway restart), without
+// the owning process re-creating the client. Covers the run()/messageLoop()
+// reconnect-with-backoff loop added after SensorSimulatorService went silent
+// for ~20min following a dropped connection with no automatic recovery.
+// ---------------------------------------------------------------------------
+TEST_F(GatewayIntegrationTest, ClientReconnectsAutomatically_AfterGatewayRestart) {
+  const std::string sock = "/tmp/rdws_gw_integ_6b.sock";
+  const int port = 19210;
+
+  ASSERT_TRUE(startGateway(port, sock)) << "Gateway failed to start";
+
+  startClient(makeIdentity("integ_autoreconnect_001", {"echo"}), "unix://" + sock);
+  client->setRequestHandler([](const rapidjson::Document&) -> rapidjson::Document {
+    rapidjson::Document resp;
+    resp.SetObject();
+    resp.AddMember("success", true, resp.GetAllocator());
+    return resp;
+  });
+  ASSERT_TRUE(waitForRegistration(*gw)) << "Service did not register in time";
+
+  // Kill the gateway out from under the still-running client — this closes the
+  // client's socket fd server-side, so its messageLoop() sees recv() fail and
+  // (with the fix) tears down and retries connect() on its own, without stop()
+  // ever being called on the client.
+  gw->stop();
+
+  // Bring a brand-new gateway back up on the same addresses. The client thread
+  // is still alive (never stopped) and must reconnect + re-register by itself.
+  gw = std::make_unique<ServiceGateway>(port, sock);
+  ASSERT_TRUE(gw->start()) << "Gateway failed to restart";
+  ASSERT_TRUE(waitForSocket(sock)) << "Restarted gateway socket did not appear";
+
+  ASSERT_TRUE(waitForRegistration(*gw, std::chrono::milliseconds(10000)))
+      << "Client did not reconnect and re-register on its own after gateway restart";
+
+  rapidjson::Document payload;
+  payload.SetObject();
+
+  const std::string requestId = gw->sendRequest("echo", payload);
+  ASSERT_FALSE(requestId.empty()) << "sendRequest should find the auto-reconnected service";
+
+  const PendingRequest result = gw->waitForResponse(requestId, std::chrono::milliseconds(2000));
+
+  EXPECT_EQ(result.state, RequestState::COMPLETED);
+  EXPECT_EQ(result.statusCode, 200);
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 7 — ServiceClient::invoke(): no service registered for the capability
 // ---------------------------------------------------------------------------
 TEST_F(GatewayIntegrationTest, Invoke_NoServiceForCapability_ReturnsFailure) {
