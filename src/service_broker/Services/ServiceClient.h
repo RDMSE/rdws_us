@@ -30,7 +30,11 @@ class ServiceClient {
 private:
   ServiceIdentity identity;
   std::string gatewayAddress; // "tcp://localhost:8080" or "unix:///tmp/service_gateway.sock"
-  int socketFd = -1;
+  // Written by connect()/disconnect() on the client's run() thread, read from
+  // invoke()/sendMessage() by arbitrary caller threads — must be atomic so a
+  // reconnect's new fd is visible to infrequent callers (e.g. a credential
+  // fetch invoked every ~30min from a separate thread).
+  std::atomic<int> socketFd{-1};
 
   std::atomic<bool> connected{false};
   std::atomic<bool> registered{false};

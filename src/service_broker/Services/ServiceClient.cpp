@@ -53,10 +53,16 @@ void ServiceClient::disconnect() {
   connected.store(false);
   registered.store(false);
 
-  if (socketFd != -1) {
-    shutdown(socketFd, SHUT_RDWR); // unblock any blocking recv() in messageLoop
-    close(socketFd);
-    socketFd = -1;
+  // shutdown() first, without the lock, so a sendMessage() blocked in send()
+  // gets unstuck instead of holding sendMutex_ until it times out; the actual
+  // close() + fd invalidation is then serialized against sendMessage() so it
+  // can never operate on a closed/reused fd.
+  const int fd = socketFd.load();
+  if (fd != -1) {
+    shutdown(fd, SHUT_RDWR); // unblock any blocking recv()/send() on this fd
+    std::scoped_lock lock(sendMutex_);
+    close(fd);
+    socketFd.store(-1);
   }
 
   logger::info("Disconnected from broker");
@@ -154,6 +160,9 @@ InvokeResult ServiceClient::invoke(const std::string& capability, const rapidjso
                                    const std::chrono::milliseconds timeout) {
   if (!connected.load()) {
     return InvokeResult{.success = false, .statusCode = 0, .errorMessage = "Not connected to broker"};
+  }
+  if (!registered.load()) {
+    return InvokeResult{.success = false, .statusCode = 0, .errorMessage = "Not yet registered with broker"};
   }
 
   const std::string requestId =
@@ -345,17 +354,18 @@ int ServiceClient::createConnection() const {
 }
 
 bool ServiceClient::sendMessage(const rapidjson::Document& message) const {
-  if (socketFd == -1) {
-    return false;
-  }
-
   const std::string messageStr = json::docToString(message) + std::string("\n");
 
   // Request handlers now run on their own thread (see handleRequest) and may call
   // sendResponse()/invoke() concurrently with each other and with the message loop
-  // — serialize the actual socket write so two messages can't interleave.
+  // — serialize the actual socket write so two messages can't interleave, and so
+  // the fd can't be close()'d by disconnect() while we're using it (see disconnect()).
   std::scoped_lock lock(sendMutex_);
-  const ssize_t sent = send(socketFd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
+  const int fd = socketFd.load();
+  if (fd == -1) {
+    return false;
+  }
+  const ssize_t sent = send(fd, messageStr.c_str(), messageStr.length(), MSG_NOSIGNAL);
   const bool ok = std::cmp_equal(sent, messageStr.length());
   if (!ok) {
     const auto msg = "Failed to send message to broker ";
