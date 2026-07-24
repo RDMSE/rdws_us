@@ -10,6 +10,7 @@
 //
 
 #include "../../shared/amqp/amqp_client.h"
+#include "../../shared/config/config.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/SensorReadingRepository.h"
 #include "../../shared/utils/json_helper.h"
@@ -25,15 +26,6 @@
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
 using namespace rdws::database;
-
-namespace {
-
-std::string getenvOrDefault(const char* name, const std::string& def) {
-  const char* value = std::getenv(name);
-  return (value != nullptr && std::string(value).length() > 0) ? value : def;
-}
-
-} // namespace
 
 class AppReadingWriterService {
 public:
@@ -104,10 +96,10 @@ void signalHandler(int sig) {
 int main(int /*argc*/, char* /*argv*/[]) {
   logger::init("reading_writer_service", "info", "reading_writer_001");
 
-  const std::string mqHost = getenvOrDefault("RABBITMQ_HOST", "localhost");
-  const uint16_t mqPort = static_cast<uint16_t>(std::stoi(getenvOrDefault("RABBITMQ_PORT", "5672")));
-  const std::string mqUser = getenvOrDefault("RABBITMQ_USER", "guest");
-  const std::string mqPassword = getenvOrDefault("RABBITMQ_PASSWORD", "guest");
+  const std::string mqHost = rdws::Config::getEnvVarOrDefault("RABBITMQ_HOST", "localhost");
+  const uint16_t mqPort = static_cast<uint16_t>(std::stoi(rdws::Config::getEnvVarOrDefault("RABBITMQ_PORT", "5672")));
+  const std::string mqUser = rdws::Config::getEnvVarOrDefault("RABBITMQ_USER", "guest");
+  const std::string mqPassword = rdws::Config::getEnvVarOrDefault("RABBITMQ_PASSWORD", "guest");
 
   AppReadingWriterService service(mqHost, mqPort, mqUser, mqPassword);
   gService = &service;
