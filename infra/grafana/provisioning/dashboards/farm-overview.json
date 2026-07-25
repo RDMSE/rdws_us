@@ -1,0 +1,346 @@
+{
+  "title": "Farm Overview",
+  "uid": "rdws-farm-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "farm_id",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "rdws-persistence"
+        },
+        "query": {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "rdws-persistence"
+          },
+          "rawSql": "SELECT id::text, name FROM farms ORDER BY name",
+          "format": "table",
+          "rawQuery": true
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "field_id",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "rdws-persistence"
+        },
+        "query": {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "rdws-persistence"
+          },
+          "rawSql": "SELECT id::text, name FROM fields WHERE ($farm_id IS NULL OR farm_id::text IN ($farm_id)) ORDER BY name",
+          "format": "table",
+          "rawQuery": true
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "device_id",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "rdws-persistence"
+        },
+        "query": {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "rdws-persistence"
+          },
+          "rawSql": "SELECT d.id::text, d.type::text || ' #' || d.id::text FROM devices d WHERE ($field_id IS NULL OR d.field_id::text IN ($field_id)) ORDER BY d.type, d.id",
+          "format": "table",
+          "rawQuery": true
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "sensor_type",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "rdws-persistence"
+        },
+        "query": {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "rdws-persistence"
+          },
+          "rawSql": "SELECT DISTINCT type::text FROM sensors ORDER BY type",
+          "format": "table",
+          "rawQuery": true
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "time_interval",
+        "type": "interval",
+        "hide": 0,
+        "options": [
+          {
+            "text": "1h",
+            "value": "1h"
+          },
+          {
+            "text": "6h",
+            "value": "6h"
+          },
+          {
+            "text": "24h",
+            "value": "24h"
+          },
+          {
+            "text": "7d",
+            "value": "7d"
+          }
+        ],
+        "current": {
+          "text": "6h",
+          "value": "6h"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Platform Health (services healthy / total)",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rdws-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rdws_gateway_services_healthy",
+          "legendFormat": "healthy"
+        },
+        {
+          "refId": "B",
+          "expr": "rdws_gateway_services_total",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active Connections / Pending Requests",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rdws-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rdws_gateway_active_connections",
+          "legendFormat": "active_connections"
+        },
+        {
+          "refId": "B",
+          "expr": "rdws_gateway_pending_requests",
+          "legendFormat": "pending_requests"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Devices Online / Offline",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT\n  sum(CASE WHEN last_seen >= now() - interval '10 minutes' THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN last_seen < now() - interval '10 minutes' OR last_seen IS NULL THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\nFROM (\n  SELECT d.id, max(sr.timestamp) AS last_seen\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN sensors s ON s.device_id = d.id\n  LEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\n  WHERE ($field_id IS NULL OR d.field_id::text IN ($field_id)) AND ($farm_id IS NULL OR f.farm_id::text IN ($farm_id))\n  GROUP BY d.id\n) t",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Device Locations (map)",
+      "type": "geomap",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature') AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE ($field_id IS NULL OR d.field_id::text IN ($field_id)) AND ($farm_id IS NULL OR f.farm_id::text IN ($farm_id)) AND ($device_id IS NULL OR d.id::text IN ($device_id))\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
+          "rawQuery": true
+        }
+      ],
+      "options": {
+        "map": {
+          "center": {
+            "lat": 0,
+            "lon": 0,
+            "zoom": 2
+          }
+        },
+        "featureKey": "device_id",
+        "tooltip": "${device_name} - last_seen: ${last_seen}",
+        "showLegend": false
+      }
+    },
+    {
+      "id": 5,
+      "title": "Farm Summary KPIs",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "collapsed": false
+    },
+    {
+      "id": 10,
+      "title": "Sensor readings — $sensor_type",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND ($farm_id IS NULL OR fm.id::text IN ($farm_id))\n  AND ($field_id IS NULL OR f.id::text IN ($field_id))\n  AND ($device_id IS NULL OR d.id::text IN ($device_id))\n  AND ($sensor_type IS NULL OR s.type::text IN ($sensor_type))\nGROUP BY time, metric\nORDER BY time",
+          "rawQuery": true
+        }
+      ],
+      "repeat": "sensor_type"
+    },
+    {
+      "id": 11,
+      "title": "Recent Sensor Readings — $sensor_type",
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND ($farm_id IS NULL OR fm.id::text IN ($farm_id))\n  AND ($field_id IS NULL OR f.id::text IN ($field_id))\n  AND ($device_id IS NULL OR d.id::text IN ($device_id))\n  AND ($sensor_type IS NULL OR s.type::text IN ($sensor_type))\nORDER BY sr.timestamp DESC\nLIMIT 200",
+          "rawQuery": true
+        }
+      ],
+      "repeat": "sensor_type"
+    },
+    {
+      "id": 20,
+      "title": "Logs (Loki)",
+      "type": "logs",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "rdws-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{device_id=~\"$device_id\"}"
+        }
+      ]
+    }
+  ]
+}
