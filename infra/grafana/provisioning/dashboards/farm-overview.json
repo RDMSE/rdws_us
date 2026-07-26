@@ -24,7 +24,7 @@
             "type": "postgres",
             "uid": "rdws-persistence"
           },
-          "rawSql": "SELECT id::text, name FROM farms ORDER BY name",
+          "rawSql": "SELECT id::text AS __value, name AS __text FROM farms ORDER BY name",
           "format": "table",
           "rawQuery": true
         },
@@ -51,7 +51,7 @@
             "type": "postgres",
             "uid": "rdws-persistence"
           },
-          "rawSql": "SELECT id::text, name FROM fields WHERE ($farm_id IS NULL OR farm_id::text IN ($farm_id)) ORDER BY name",
+          "rawSql": "SELECT id::text AS __value, name AS __text FROM fields WHERE (farm_id::text IN (${farm_id:singlequote})) ORDER BY name",
           "format": "table",
           "rawQuery": true
         },
@@ -78,7 +78,7 @@
             "type": "postgres",
             "uid": "rdws-persistence"
           },
-          "rawSql": "SELECT d.id::text, d.type::text || ' #' || d.id::text FROM devices d WHERE ($field_id IS NULL OR d.field_id::text IN ($field_id)) ORDER BY d.type, d.id",
+          "rawSql": "SELECT d.id::text AS __value, d.type::text || ' #' || d.id::text AS __text FROM devices d WHERE (d.field_id::text IN (${field_id:singlequote})) ORDER BY d.type, d.id",
           "format": "table",
           "rawQuery": true
         },
@@ -105,7 +105,7 @@
             "type": "postgres",
             "uid": "rdws-persistence"
           },
-          "rawSql": "SELECT DISTINCT type::text FROM sensors ORDER BY type",
+          "rawSql": "SELECT DISTINCT s.type::text AS __value, s.type::text AS __text FROM sensors s JOIN devices d ON d.id = s.device_id WHERE (d.id::text IN (${device_id:singlequote})) ORDER BY __text",
           "format": "table",
           "rawQuery": true
         },
@@ -221,7 +221,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT\n  sum(CASE WHEN last_seen >= now() - interval '10 minutes' THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN last_seen < now() - interval '10 minutes' OR last_seen IS NULL THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\nFROM (\n  SELECT d.id, max(sr.timestamp) AS last_seen\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN sensors s ON s.device_id = d.id\n  LEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\n  WHERE ($field_id IS NULL OR d.field_id::text IN ($field_id)) AND ($farm_id IS NULL OR f.farm_id::text IN ($farm_id))\n  GROUP BY d.id\n) t",
+          "rawSql": "SELECT\n  sum(CASE WHEN last_seen >= now() - interval '10 minutes' THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN last_seen < now() - interval '10 minutes' OR last_seen IS NULL THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\nFROM (\n  SELECT d.id, max(sr.timestamp) AS last_seen\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN sensors s ON s.device_id = d.id\n  LEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\n  WHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote}))\n  GROUP BY d.id\n) t",
           "rawQuery": true
         }
       ]
@@ -244,21 +244,93 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature') AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE ($field_id IS NULL OR d.field_id::text IN ($field_id)) AND ($farm_id IS NULL OR f.farm_id::text IN ($farm_id)) AND ($device_id IS NULL OR d.id::text IN ($device_id))\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
+          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature') AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote})) AND (d.id::text IN (${device_id:singlequote})) AND d.location IS NOT NULL\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
+          "rawQuery": true
+        },
+        {
+          "refId": "B",
+          "format": "table",
+          "rawSql": "SELECT id::text AS farm_id, name AS farm_name, ST_Y(location) AS lat, ST_X(location) AS lon\nFROM farms\nWHERE id::text IN (${farm_id:singlequote}) AND location IS NOT NULL",
+          "rawQuery": true
+        },
+        {
+          "refId": "C",
+          "format": "table",
+          "rawSql": "SELECT f.id::text AS field_id, f.name AS field_name, ST_Y(ST_Centroid(f.geometry)) AS lat, ST_X(ST_Centroid(f.geometry)) AS lon\nFROM fields f\nWHERE (f.id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote})) AND f.geometry IS NOT NULL",
           "rawQuery": true
         }
       ],
       "options": {
-        "map": {
-          "center": {
-            "lat": 0,
-            "lon": 0,
-            "zoom": 2
-          }
+        "view": {
+          "id": "zero",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 2,
+          "allLayers": true
         },
-        "featureKey": "device_id",
-        "tooltip": "${device_name} - last_seen: ${last_seen}",
-        "showLegend": false
+        "basemap": {
+          "type": "default",
+          "name": "Basemap",
+          "config": {}
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showScale": false,
+          "showMeasure": false,
+          "showDebug": false
+        },
+        "tooltip": {
+          "mode": "details"
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Farms",
+            "location": { "mode": "coords", "latitudeField": "lat", "longitudeField": "lon" },
+            "filterData": { "id": "byRefId", "options": "B" },
+            "config": {
+              "style": {
+                "color": { "fixed": "blue" },
+                "size": { "fixed": 8 },
+                "symbol": { "fixed": "img/icons/marker/circle.svg" }
+              },
+              "showLegend": true
+            },
+            "tooltip": true
+          },
+          {
+            "type": "markers",
+            "name": "Fields",
+            "location": { "mode": "coords", "latitudeField": "lat", "longitudeField": "lon" },
+            "filterData": { "id": "byRefId", "options": "C" },
+            "config": {
+              "style": {
+                "color": { "fixed": "green" },
+                "size": { "fixed": 6 },
+                "symbol": { "fixed": "img/icons/marker/square.svg" }
+              },
+              "showLegend": true
+            },
+            "tooltip": true
+          },
+          {
+            "type": "markers",
+            "name": "Devices",
+            "location": { "mode": "coords", "latitudeField": "lat", "longitudeField": "lon" },
+            "filterData": { "id": "byRefId", "options": "A" },
+            "config": {
+              "style": {
+                "color": { "fixed": "orange" },
+                "size": { "fixed": 5 },
+                "symbol": { "fixed": "img/icons/marker/triangle.svg" }
+              },
+              "showLegend": true
+            },
+            "tooltip": true
+          }
+        ]
       }
     },
     {
@@ -291,11 +363,12 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND ($farm_id IS NULL OR fm.id::text IN ($farm_id))\n  AND ($field_id IS NULL OR f.id::text IN ($field_id))\n  AND ($device_id IS NULL OR d.id::text IN ($device_id))\n  AND ($sensor_type IS NULL OR s.type::text IN ($sensor_type))\nGROUP BY time, metric\nORDER BY time",
+          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nGROUP BY time, metric\nORDER BY time",
           "rawQuery": true
         }
       ],
-      "repeat": "sensor_type"
+      "repeat": "sensor_type",
+      "repeatDirection": "v"
     },
     {
       "id": 11,
@@ -315,11 +388,12 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND ($farm_id IS NULL OR fm.id::text IN ($farm_id))\n  AND ($field_id IS NULL OR f.id::text IN ($field_id))\n  AND ($device_id IS NULL OR d.id::text IN ($device_id))\n  AND ($sensor_type IS NULL OR s.type::text IN ($sensor_type))\nORDER BY sr.timestamp DESC\nLIMIT 200",
+          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nORDER BY sr.timestamp DESC\nLIMIT 200",
           "rawQuery": true
         }
       ],
-      "repeat": "sensor_type"
+      "repeat": "sensor_type",
+      "repeatDirection": "v"
     },
     {
       "id": 20,
@@ -338,7 +412,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{device_id=~\"$device_id\"}"
+          "expr": "{job=\"rdws_dev\"}"
         }
       ]
     }
