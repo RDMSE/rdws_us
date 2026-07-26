@@ -13,6 +13,7 @@
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"
+#include "../../shared/service/client/DeviceConfigServiceClient.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
 
@@ -66,6 +67,10 @@ public:
     identity.maxConcurrent = 1;
     identity.capabilities = {}; // pure client — never serves a capability
     credentialClient_ = std::make_unique<ServiceClient>(identity, gatewayAddress_);
+    // Reuses the same gateway connection as credentialClient_ — this service only
+    // ever opens one. Unlike App*Service's `client`, credentialClient_ is never
+    // reassigned on reconnect (see run()), so holding it by reference is safe here.
+    configClient_ = std::make_unique<rdws::device_config::DeviceConfigServiceClient>(credentialClient_);
 
     return true;
   }
@@ -105,6 +110,7 @@ private:
 
   rdws::amqp::AmqpProducer producer_;
   std::unique_ptr<ServiceClient> credentialClient_;
+  std::unique_ptr<rdws::device_config::DeviceConfigServiceClient> configClient_;
   std::thread clientThread_;
   std::thread refreshThread_;
   std::atomic<bool> running_{false};
@@ -244,25 +250,62 @@ private:
         ? std::string(reinterpret_cast<const char*>(data), len)
         : std::string{};
 
-    const int publishedCount = handlePayload(body);
+    const auto result = handlePayload(body);
 
-    coap_pdu_set_code(response, publishedCount >= 0 ? COAP_RESPONSE_CODE_CHANGED
-                                                    : COAP_RESPONSE_CODE_BAD_REQUEST);
+    coap_pdu_set_code(response, result.published >= 0 ? COAP_RESPONSE_CODE_CHANGED
+                                                       : COAP_RESPONSE_CODE_BAD_REQUEST);
+
+    // Piggyback the device's current config on the ACK of its regular transmission
+    // (Plano_Ingestion.md, "Envio antecipado por gatilho local") instead of opening a
+    // second CoAP port/endpoint just for config — the device already talks to this
+    // port every cycle.
+    if (result.published >= 0 && !result.deviceId.empty()) {
+      attachConfigToResponse(result.deviceId, response);
+    }
   }
 
-  // Returns the number of readings published, or -1 on a format error (missing
-  // device_id/readings, or a reading missing required fields).
-  int handlePayload(const std::string& body) {
+  void attachConfigToResponse(const std::string& deviceId, coap_pdu_t* response) {
+    const auto cfg = configClient_->getConfig(deviceId);
+    if (!cfg.found || cfg.configJson.empty()) {
+      return;
+    }
+
+    rapidjson::Document ackDoc(rapidjson::kObjectType);
+    auto& alloc = ackDoc.GetAllocator();
+    rapidjson::Value obj = json::JsonObj(alloc).setJsonOrString("config", cfg.configJson).take();
+    ackDoc.Swap(obj);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    ackDoc.Accept(writer);
+
+    // Content-Format: application/json (RFC 7252 §12.3). Plain coap_add_data (no
+    // Block2) is enough while device_config stays small; switch to
+    // coap_add_data_large_response if config payloads grow past a single datagram.
+    const uint8_t mediaType = COAP_MEDIATYPE_APPLICATION_JSON;
+    coap_add_option(response, COAP_OPTION_CONTENT_FORMAT, sizeof(mediaType), &mediaType);
+    coap_add_data(response, buffer.GetSize(), reinterpret_cast<const uint8_t*>(buffer.GetString()));
+  }
+
+  struct PayloadResult {
+    int published = -1; // -1 on a format error, else number of readings published
+    std::string deviceId;
+  };
+
+  // Returns the number of readings published (and the device_id they belong to), or
+  // published=-1 on a format error (missing device_id/readings, or a reading missing
+  // required fields).
+  PayloadResult handlePayload(const std::string& body) {
     rapidjson::Document doc;
     if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
       logger::warn("IngestionService: malformed JSON payload", "");
-      return -1;
+      return {};
     }
     const auto deviceId = json::getString(doc, "device_id");
     const auto* readings = json::getArray(doc, "readings");
     if (!deviceId || readings == nullptr) {
       logger::warn("IngestionService: payload missing device_id/readings", "");
-      return -1;
+      return {};
     }
 
     int published = 0;
@@ -294,7 +337,7 @@ private:
         logger::error("IngestionService: failed to publish reading to RabbitMQ", "");
       }
     }
-    return published;
+    return {.published = published, .deviceId = *deviceId};
   }
 };
 

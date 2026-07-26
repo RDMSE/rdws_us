@@ -1,4 +1,6 @@
-add_executable(ingestion_service AppIngestionService.cpp)
+add_executable(ingestion_service AppIngestionService.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/client/DeviceConfigServiceClient.cpp
+)
 
 target_link_libraries(ingestion_service PRIVATE
     service_gateway_core
