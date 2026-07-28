@@ -262,7 +262,7 @@
       ],
       "options": {
         "view": {
-          "id": "zero",
+          "id": "fitData",
           "lat": 0,
           "lon": 0,
           "zoom": 2,
@@ -288,7 +288,7 @@
           {
             "type": "markers",
             "name": "Farms",
-            "location": { "mode": "coords", "latitudeField": "lat", "longitudeField": "lon" },
+            "location": { "mode": "coords", "latitude": "lat", "longitude": "lon" },
             "filterData": { "id": "byRefId", "options": "B" },
             "config": {
               "style": {
@@ -303,7 +303,7 @@
           {
             "type": "markers",
             "name": "Fields",
-            "location": { "mode": "coords", "latitudeField": "lat", "longitudeField": "lon" },
+            "location": { "mode": "coords", "latitude": "lat", "longitude": "lon" },
             "filterData": { "id": "byRefId", "options": "C" },
             "config": {
               "style": {
@@ -318,7 +318,7 @@
           {
             "type": "markers",
             "name": "Devices",
-            "location": { "mode": "coords", "latitudeField": "lat", "longitudeField": "lon" },
+            "location": { "mode": "coords", "latitude": "lat", "longitude": "lon" },
             "filterData": { "id": "byRefId", "options": "A" },
             "config": {
               "style": {
