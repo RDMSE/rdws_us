@@ -412,7 +412,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=\"rdws_dev\"}"
+           "expr": "{env=~\".+\"}"
         }
       ]
     }
