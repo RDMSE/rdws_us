@@ -292,8 +292,8 @@
             "filterData": { "id": "byRefId", "options": "B" },
             "config": {
               "style": {
-                "color": { "fixed": "blue" },
-                "size": { "fixed": 8 },
+                "color": { "fixed": "light-blue" },
+                "size": { "fixed": 10 },
                 "symbol": { "fixed": "img/icons/marker/circle.svg" }
               },
               "showLegend": true
@@ -307,8 +307,8 @@
             "filterData": { "id": "byRefId", "options": "C" },
             "config": {
               "style": {
-                "color": { "fixed": "green" },
-                "size": { "fixed": 6 },
+                "color": { "fixed": "light-green" },
+                "size": { "fixed": 9 },
                 "symbol": { "fixed": "img/icons/marker/square.svg" }
               },
               "showLegend": true
@@ -322,8 +322,8 @@
             "filterData": { "id": "byRefId", "options": "A" },
             "config": {
               "style": {
-                "color": { "fixed": "orange" },
-                "size": { "fixed": 5 },
+                "color": { "fixed": "yellow" },
+                "size": { "fixed": 9 },
                 "symbol": { "fixed": "img/icons/marker/triangle.svg" }
               },
               "showLegend": true
