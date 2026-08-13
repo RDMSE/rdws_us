@@ -250,6 +250,31 @@ private:
                                                     : COAP_RESPONSE_CODE_BAD_REQUEST);
   }
 
+  // Optional `location: {"lat": ..., "lon": ...}` on the payload (Plano_Ingestion.md) -
+  // gateways without a fixed installation point (e.g. a mobile/roaming device) report
+  // their position on every send cycle. Fire-and-forget over the same broker connection
+  // already used for credential refresh; a failure here shouldn't block reading ingestion.
+  void reportLocation(const std::string& deviceId, const rapidjson::Value& location) {
+    const auto lat = json::getDouble(location, "lat");
+    const auto lon = json::getDouble(location, "lon");
+    if (!lat || !lon) {
+      logger::warn("IngestionService: location present but missing lat/lon", "");
+      return;
+    }
+
+    const std::string wkt = "POINT(" + std::to_string(*lon) + " " + std::to_string(*lat) + ")";
+
+    rapidjson::Document req(rapidjson::kObjectType);
+    auto& alloc = req.GetAllocator();
+    req.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    req.AddMember("location", rapidjson::Value(wkt.c_str(), alloc), alloc);
+
+    const auto result = credentialClient_->invoke("device.update_location", req);
+    if (!result.success) {
+      logger::warn("IngestionService: device.update_location failed", result.errorMessage);
+    }
+  }
+
   // Returns the number of readings published, or -1 on a format error (missing
   // device_id/readings, or a reading missing required fields).
   int handlePayload(const std::string& body) {
@@ -263,6 +288,10 @@ private:
     if (!deviceId || readings == nullptr) {
       logger::warn("IngestionService: payload missing device_id/readings", "");
       return -1;
+    }
+
+    if (const auto* location = json::getObject(doc, "location")) {
+      reportLocation(*deviceId, *location);
     }
 
     int published = 0;
