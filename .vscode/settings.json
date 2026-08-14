@@ -1,7 +1,8 @@
 {
     "cmake.generator": "Unix Makefiles",
-    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.buildDirectory": "${workspaceFolder}/build-debug",
     "cmake.configureOnOpen": false,
     "cmake.buildBeforeRun": true,
-    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json"
+    "cmake.ctest.testExplorerIntegrationEnabled": true,
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build-debug/compile_commands.json"
 }
