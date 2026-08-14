@@ -43,6 +43,17 @@ OperationResult DeviceService::update(const std::string& id, const DeviceUpdate&
   return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});
 }
 
+OperationResult DeviceService::updateLocation(const std::string& id,
+                                              const std::string& locationWkt) {
+  if (!repo_.findById(id)) {
+    return OperationResult::error("Device not found for id " + id, 404);
+  }
+  if (!repo_.updateLocation(id, locationWkt)) {
+    return OperationResult::error("Failed to update device location", 500);
+  }
+  return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});
+}
+
 OperationResult DeviceService::remove(const std::string& id) {
   if (!repo_.findById(id)) {
     return OperationResult::error("Device not found for id " + id, 404);

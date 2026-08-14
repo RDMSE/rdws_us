@@ -60,6 +60,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD não definido (ver .env.dev-db.example)}
       DB_NAME: ${DB_NAME:-rdws_us_dev}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_DISABLE_BRUTE_FORCE_LOGIN_PROTECTION: "false"
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_dev_data:/var/lib/grafana

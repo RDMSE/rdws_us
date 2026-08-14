@@ -53,6 +53,11 @@ public:
   [[nodiscard]] virtual std::optional<Device> findById(const std::string& id) = 0;
   [[nodiscard]] virtual std::string create(const DeviceCreate& data) = 0;
   [[nodiscard]] virtual bool update(const std::string& id, const DeviceUpdate& data) = 0;
+  // Narrow, single-field update (location only) - lets a low-privilege caller like
+  // IngestionService report device position without needing type/status (device.update
+  // requires both). Mirrors the device_credential.* internal-capability pattern.
+  [[nodiscard]] virtual bool updateLocation(const std::string& id,
+                                            const std::string& locationWkt) = 0;
   [[nodiscard]] virtual bool remove(const std::string& id) = 0;
   // Sensors of a single simulated device (is_simulated = true), for SensorSimulatorService.
   [[nodiscard]] virtual std::vector<SimulatedSensor>
@@ -67,6 +72,7 @@ public:
   [[nodiscard]] std::optional<Device> findById(const std::string& id) override;
   [[nodiscard]] std::string create(const DeviceCreate& data) override;
   [[nodiscard]] bool update(const std::string& id, const DeviceUpdate& data) override;
+  [[nodiscard]] bool updateLocation(const std::string& id, const std::string& locationWkt) override;
   [[nodiscard]] bool remove(const std::string& id) override;
   [[nodiscard]] std::vector<SimulatedSensor>
   findSimulatedSensorsByDeviceId(const std::string& deviceId) override;

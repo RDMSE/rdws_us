@@ -19,6 +19,8 @@ public:
   [[nodiscard]] rdws::types::ServiceResult<std::string> create(const DeviceCreate& data);
   [[nodiscard]] rdws::types::OperationResult update(const std::string& id,
                                                     const DeviceUpdate& data);
+  [[nodiscard]] rdws::types::OperationResult updateLocation(const std::string& id,
+                                                            const std::string& locationWkt);
   [[nodiscard]] rdws::types::OperationResult remove(const std::string& id);
 
 private:

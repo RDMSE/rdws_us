@@ -91,6 +91,13 @@ bool DeviceRepository::update(const std::string& id, const DeviceUpdate& data) {
   return db_.execCommand(query, params);
 }
 
+bool DeviceRepository::updateLocation(const std::string& id, const std::string& locationWkt) {
+  const std::string query = "UPDATE devices SET location=ST_SetSRID(ST_GeomFromText($1),4326), "
+                            "updated_at=now() WHERE id=$2";
+  const std::vector<std::string> params = {locationWkt, id};
+  return db_.execCommand(query, params);
+}
+
 bool DeviceRepository::remove(const std::string& id) {
   std::string query = "DELETE FROM devices WHERE id = $1";
   std::vector<std::string> params = {id};
