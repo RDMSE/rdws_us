@@ -184,6 +184,10 @@ public:
         "device_credential.rotate",
         "device_credential.revoke",
         "device_credential.list_active",
+        // Internal-only, same reasoning as device_credential.* above: IngestionService
+        // reports device position per payload (Plano_Ingestion.md) and shouldn't need
+        // type/status just to do that - device.update requires both, this doesn't.
+        "device.update_location",
     };
 
     deviceHandlers_ = {
@@ -194,6 +198,7 @@ public:
            return handleCreate(ctx, svc);
          }},
         {"device.update", handleUpdate},
+        {"device.update_location", handleUpdateLocation},
         {"device.delete", handleDelete},
     };
     credentialHandlers_ = {
@@ -420,6 +425,29 @@ private:
     };
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.update(id, data);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+  }
+
+  // Internal-only (not routed via HTTP/routes.json) - device_id comes in the request
+  // body rather than a path param, since callers here are other services (IngestionService),
+  // not the REST gateway.
+  static rapidjson::Document handleUpdateLocation(const rdws::utils::CapabilityContext& ctx,
+                                                  rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
+    const auto deviceId = json::getString(req, "device_id");
+    const auto locationWkt = json::getString(req, "location");
+
+    if (!deviceId || deviceId->empty() || !isNumericId(*deviceId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
+    }
+    if (!locationWkt || locationWkt->empty()) {
+      return ResponseHelper::returnErrorDoc("Missing field: location", 400);
+    }
+
+    auto t = ctx.profiler.scoped("db.query");
+    const auto result = svc.updateLocation(*deviceId, *locationWkt);
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
