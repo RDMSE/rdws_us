@@ -46,8 +46,9 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
 - **sensors**
     - id : BIGINT (PK, auto-increment)
     - device_id : BIGINT (FK → devices.id) NOT NULL
-    - type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity', 'other') NOT NULL
-    - unit : VARCHAR(32) NOT NULL (ex: '°C', '%', 'pH')
+    - type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity', 'other', 'pressure', 'co2') NOT NULL
+        - `pressure` e `co2` adicionados na migration V9 (RDWS-103) — ver "Decisão: tipos `pressure` e `co2`" em Observações Técnicas
+    - unit : VARCHAR(32) NOT NULL (ex: '°C', '%', 'pH', 'kPa', 'ppm')
     - location : POINT (PostGIS)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
@@ -138,3 +139,13 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
     - **JSONB** em vez de JSON para `device_configurations` (indexável, mais eficiente)
     - **TIMESTAMPTZ** em todos os campos de data (armazena UTC, essencial para IoT distribuído)
     - Connection pooling via **PgBouncer**
+
+### Decisão: tipos `pressure` e `co2` no `sensor_type` (RDWS-103)
+
+- **Contexto:** o `rdws_thingy_node` exporta pressão atmosférica (LPS22HB) e qualidade do ar como eCO2 em ppm (CCS811, canal `SENSOR_CHAN_CO2` do Zephyr). Sem um tipo dedicado, as duas grandezas eram gravadas como `'other'`, ficando indistinguíveis entre si no mesmo device — e de qualquer sensor futuro realmente não categorizado.
+- **Decisão:** adicionar `'pressure'` e `'co2'` ao enum `sensor_type` via `db/migrations/V9__sensor_type_pressure_co2.sql` (`ALTER TYPE ... ADD VALUE`).
+- **Unidades esperadas:** `pressure` → `kPa` (unidade do `SENSOR_CHAN_PRESS` no Zephyr; usar `hPa` só se o firmware/loader converter explicitamente); `co2` → `ppm`.
+- **Observações:**
+    - O CCS811 fornece **eCO2** (CO2 equivalente estimado a partir de VOCs), não CO2 medido por NDIR. O tipo `co2` representa esse valor; se no futuro entrar um sensor de CO2 real ou de TVOC, avaliar um tipo separado (ex.: `tvoc`).
+    - `ALTER TYPE ... ADD VALUE` não é reversível no PostgreSQL (não há `DROP VALUE`); remover os tipos exigiria recriar o enum.
+    - Os valores adicionados vão para o fim do enum — a ordem do enum não deve ser usada para ordenação semântica.
