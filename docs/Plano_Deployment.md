@@ -103,6 +103,49 @@ homelab (aceitável, já que o homelab não tem o teto de memória apertado da V
 - Migrations (Flyway) rodam uma vez por banco/ambiente — mesmo `db/migrations/`, `.toml`
   com env vars diferentes por ambiente (`DB_NAME=rdws_dev|rdws_qa|rdws_prod`).
 
+## 2.2 Exposição pública do CoAP (devices reais)
+
+Devices com firmware Zephyr (`rdws_weather_node`) não rodam Tailscale, então o
+`IngestionService` precisa ser alcançável por um endpoint UDP público assim que houver
+hardware fora da LAN de casa (Wi-Fi em campo ou NB-IoT, que sai sempre pela rede da
+operadora). **A VPS é a porta de entrada pública de todos os ambientes**, mas o QA
+continua inteiro no homelab:
+
+| Ambiente | Onde roda o `IngestionService` | Como o device chega |
+|---|---|---|
+| dev (bancada) | notebook ou homelab | LAN direto (`fedora-server:5684`), sem VPS |
+| QA | homelab (compose de QA, junto do RabbitMQ e do `rdws_qa`) | VPS `:5685` → relay UDP → `fedora-server:5684` via Tailscale |
+| prod | VPS (`docker-compose.prod-app.yml`) | VPS `:5684` |
+
+- **VPS entra no tailnet** — o device não precisa, a VPS sim. É o que permite o relay de
+  QA alcançar o homelab sem expor nada da rede de casa.
+- **Relay de QA é "burro"** (nginx `stream` com `listen 5685 udp` ou `socat`): só repassa
+  datagramas, sem conhecer PSK nem terminar DTLS — o DTLS continua ponta a ponta entre
+  device e `IngestionService`. Custo de memória desprezível no teto de 1GB da VPS. O IP
+  de origem real do device se perde no relay, o que não importa: a identidade vem da
+  `psk_identity` do handshake.
+- **Por que não mover o `IngestionService` de QA pra VPS**: publicaria no RabbitMQ do
+  homelab atravessando o tailnet — dependência entre redes no caminho crítico, e mistura
+  ambientes na mesma máquina. Com o relay, QA segue isolado e o que o `deploy-qa.yml`
+  sobe continua valendo sem mudança.
+- **Alternativas descartadas**:
+  - *Tailscale Funnel* — só expõe TCP (HTTPS/TLS), não UDP.
+  - *Port-forward no roteador de casa* — CGNAT comum nas operadoras, IP dinâmico
+    (exigiria DDNS) e expõe a rede doméstica.
+- **Hardening da porta UDP exposta** (vale para QA e prod):
+  - HelloVerifyRequest (cookie DTLS) ativo contra amplificação/spoofing — padrão no
+    libcoap, confirmar no servidor.
+  - Rate limit por IP de origem no firewall da VPS (nftables); só `5684/udp` e
+    `5685/udp` abertos além do SSH.
+  - Portas distintas e conjuntos de PSK distintos por ambiente (`rdws_qa` × `rdws_prod`)
+    — device de QA nunca autentica em prod.
+- **NB-IoT (futuro)**: o endpoint é o mesmo, mas o NAT da operadora expira rápido
+  (às vezes < 1 min) e troca IP/porta entre envios, derrubando a sessão DTLS e forçando
+  handshake completo a cada acordada. Mitigação: **DTLS Connection ID (RFC 9146)** —
+  suportado pelo mbedTLS do Zephyr; verificar suporte no libcoap com o backend usado pelo
+  `IngestionService` (suspeita: CID só nos backends Mbed TLS/tinydtls, não OpenSSL). O
+  relay de QA é transparente a CID (só repassa datagramas).
+
 ## 3. Observabilidade ✅
 
 - ✅ **`GET /metrics/prometheus`** no `service_gateway_http`
@@ -432,6 +475,10 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
     não tem `limits_config.volume_enabled: true`; sem isso, o recurso de "Log volume"
     do Explore do Grafana (histograma de volume de logs) mostra aviso de não configurado.
     Não afeta o dashboard principal (`gateway-overview.json`), só o Explore.
+11. **Endpoint CoAP público** (§2.2) — quando o primeiro `rdws_weather_node` sair da
+    bancada. VPS no tailnet, relay UDP `5685 → fedora-server:5684` para QA, firewall
+    (nftables + rate limit) e `5684/udp` publicado no compose de prod. Na bancada o
+    device fala direto com o homelab pela LAN, sem depender deste passo.
 
 ## Verificação
 

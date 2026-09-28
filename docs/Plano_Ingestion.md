@@ -32,6 +32,10 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
   - Validar contra `device_config` (schema esperado, ranges plausíveis) — leituras fora do schema são descartadas/logadas, não publicadas na fila.
   - Publicar na fila persistente.
 - Não acessa o banco diretamente — é stateless em relação à persistência.
+- Exposição à internet (devices reais sem Tailscale): VPS como porta de entrada pública,
+  com relay UDP para o QA no homelab e hardening da porta — ver
+  `Plano_Deployment.md` §2.2. Para NB-IoT, avaliar DTLS Connection ID (RFC 9146) no
+  servidor.
 
 ## Fila persistente
 
