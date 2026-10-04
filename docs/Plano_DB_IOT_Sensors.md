@@ -49,6 +49,9 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity', 'other', 'pressure', 'co2') NOT NULL
         - `pressure` e `co2` adicionados na migration V9 (RDWS-103) — ver "Decisão: tipos `pressure` e `co2`" em Observações Técnicas
     - unit : VARCHAR(32) NOT NULL (ex: '°C', '%', 'pH', 'kPa', 'ppm')
+        - Nomenclatura em revisão: o `Plano_Telemetria.md` (DP1) decide se o banco adota as
+          unidades SenML (`Cel`, `%RH`, `Pa`) ou se o `IngestionService` converte o payload
+          para a nomenclatura atual.
     - location : POINT (PostGIS)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
@@ -121,6 +124,26 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
 
 ---
 
+## Telemetria de diagnóstico do device (planejado)
+
+Definida no `Plano_Telemetria.md`; ainda não implementada.
+
+- **device_telemetry** *(append-only, particionada por `timestamp`)* — snapshot de
+  diagnóstico por transmissão (RSSI, SNR, `boot_count`, `reset_reason`, uso do FS…).
+    - device_id : BIGINT (FK → devices.id) NOT NULL
+    - timestamp : TIMESTAMPTZ NOT NULL
+    - data : JSONB NOT NULL
+    - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
+    - UNIQUE (device_id, timestamp)
+- **devices.last_seen** : TIMESTAMPTZ — ou derivado de `max(created_at)` das leituras
+  (D10 do `Plano_Telemetria.md`, em aberto).
+- Futuro (estação agregadora): **devices.parent_device_id** : BIGINT (FK → devices.id).
+- Bateria e painel solar continuam como sensores em `sensor_readings` (D6), por causa do
+  alerting.
+- O mecanismo de criação/retenção de partições deve ser o mesmo de `sensor_readings`.
+
+---
+
 ## Retenção de Dados
 
 | Período         | Ação                                      |
@@ -128,6 +151,9 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
 | 0 – 90 dias     | Leituras brutas, acesso frequente          |
 | 90 dias – 1 ano | Compressão (TimescaleDB) ou tablespace frio |
 | > 1 ano         | Arquivamento ou agregação por hora/dia     |
+
+`device_telemetry` tem retenção própria, mais curta (30–90 dias, em aberto no
+`Plano_Telemetria.md`): diagnóstico não tem valor agronômico de longo prazo.
 
 ---
 

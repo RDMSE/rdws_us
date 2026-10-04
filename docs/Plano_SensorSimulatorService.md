@@ -115,6 +115,13 @@ firmware real (`rdws_thingy_node`) deve mirar quando enviar via CoAP — ver
 `docs/Plano_Firmware.md`. Validação completa contra `device_config` ainda está deferida
 no lado do `IngestionService` (fora do escopo deste plano).
 
+**Mudança de contrato planejada (`Plano_Telemetria.md`):** o payload migra para SenML
+JSON (Content-Format `110`), com ids locais de sensor, várias janelas por pacote e
+registros de diagnóstico do device. O simulador acompanha na Fase 2 daquele plano,
+gerando SenML com diagnóstico e múltiplas janelas, e passa a ser o primeiro cliente do
+formato novo, antes do firmware. Até lá, continua no JSON atual, que o
+`IngestionService` mantém durante a transição.
+
 ## Pontos em aberto
 
 - **Provisionamento de credenciais DTLS** (PSK/certificado) por device simulado —

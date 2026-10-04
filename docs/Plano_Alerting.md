@@ -137,6 +137,10 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
 - `window_minutes` cobre "média na janela"; tendência de subida/descida (derivada, não média) fica de fora do desenho inicial — avaliar se é necessário antes de implementar ou se entra numa v2.
 - Tempo de escalonamento (`N` minutos até virar SMS) e cadeia de contatos por fazenda: onde vive essa config — nova tabela (`farm_contacts`?) ou reaproveita `users` com algum vínculo à fazenda?
 - Escolha do provedor de SMS (custo, cobertura nacional, API) — decisão de implementação, não de arquitetura.
+- **Alertas de frota ficam fora deste plano** (`Plano_Telemetria.md` D10): estação
+  silenciosa (sem envio além de N × intervalo) e atraso de ingestão são de
+  operação/manutenção, não do produtor, e têm canal de notificação separado. Bateria e
+  painel solar continuam em `sensor_readings` (D6) justamente para serem avaliados aqui.
 - Onde o `AlertingService` roda no gateway existente: como capability registrada (`alerting.evaluate` chamado por algo) ou como worker puro sem capability HTTP, no mesmo espírito do `ReadingWriterService`? Tende a ser worker puro, já que não responde a nenhuma chamada síncrona.
 
 ## Ordem de implementação e dependências

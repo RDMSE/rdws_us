@@ -82,6 +82,10 @@ Após esse retorno, a chave nunca mais é exposta em texto puro por nenhum endpo
 
 ## 5. Consumo pelo IngestionService e pelo SensorSimulatorService
 
+> A identidade do device numa mensagem deve vir da `psk_identity` do handshake, não do
+> corpo: hoje o `device_id` do payload não é conferido contra a PSK. Fase 0 do
+> `Plano_Telemetria.md` (D4).
+
 Mantendo o princípio já registrado no `Plano_Ingestion.md` de que o `IngestionService`
 é stateless em relação à persistência:
 
