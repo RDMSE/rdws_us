@@ -1,7 +1,7 @@
 //
 // SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update,
 // sensor.delete, plus internal-only sensor.list_owners (not in routes.json; IngestionService's
-// sensor_id -> device_id cache, Plano_Telemetria.md Fase 0)
+// sensor_id -> {device_id, unit} cache, Plano_Telemetria.md Fase 0/DP1)
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
@@ -163,8 +163,9 @@ private:
     });
   }
 
-  // Bulk sensor_id -> device_id pairs, so IngestionService can drop readings for sensors that
-  // don't belong to the device authenticated by the DTLS PSK.
+  // Bulk sensor_id -> {device_id, unit}, so IngestionService can drop readings for sensors that
+  // don't belong to the device authenticated by the DTLS PSK, and convert SenML units to
+  // sensors.unit (Plano_Telemetria.md, DP1).
   static rapidjson::Document handleListOwners(const rdws::utils::CapabilityContext& ctx,
                                               rdws::sensor::SensorService& svc) {
     const auto sensors = [&] {
@@ -176,7 +177,11 @@ private:
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& s : sensors) {
-        arr.PushBack(json::JsonObj(alloc).set("id", s.id).set("device_id", s.deviceId).take(),
+        arr.PushBack(json::JsonObj(alloc)
+                         .set("id", s.id)
+                         .set("device_id", s.deviceId)
+                         .set("unit", s.unit)
+                         .take(),
                      alloc);
       }
       return arr;

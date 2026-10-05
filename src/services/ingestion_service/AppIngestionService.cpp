@@ -126,9 +126,14 @@ private:
   std::mutex cacheMutex_;
   std::unordered_map<std::string, CachedCredential> pskCache_;
 
-  // sensor_id -> device_id (sensor.list_owners). A failed refresh keeps the previous map.
+  // sensor_id -> owner + sensors.unit (sensor.list_owners). A failed refresh keeps the
+  // previous map.
+  struct SensorInfo {
+    std::string deviceId;
+    std::string unit; // sensors.unit, target of the SenML unit conversion (DP1)
+  };
   std::mutex ownersMutex_;
-  std::unordered_map<std::string, std::string> sensorOwners_;
+  std::unordered_map<std::string, SensorInfo> sensorOwners_;
   bool ownersLoaded_ = false;
 
   static constexpr int kRefreshIntervalSec = 60;
@@ -170,12 +175,13 @@ private:
       return;
     }
 
-    std::unordered_map<std::string, std::string> owners;
+    std::unordered_map<std::string, SensorInfo> owners;
     for (const auto& entry : dataArr->GetArray()) {
       const auto sensorId = json::getString(entry, "id");
       const auto deviceId = json::getString(entry, "device_id");
       if (sensorId && deviceId) {
-        owners.emplace(*sensorId, *deviceId);
+        owners.emplace(*sensorId,
+                       SensorInfo{*deviceId, json::getString(entry, "unit").value_or("")});
       }
     }
 
@@ -375,7 +381,7 @@ private:
     }
 
     // Snapshot under the lock: publishing below talks to RabbitMQ and shouldn't hold it.
-    std::unordered_map<std::string, std::string> owners;
+    std::unordered_map<std::string, SensorInfo> owners;
     {
       std::scoped_lock lock(ownersMutex_);
       if (!ownersLoaded_) {
@@ -400,10 +406,11 @@ private:
         continue;
       }
       const auto owner = owners.find(*sensorId);
-      if (owner == owners.end() || owner->second != authDeviceId) {
+      if (owner == owners.end() || owner->second.deviceId != authDeviceId) {
         logger::warn("IngestionService: sensor doesn't belong to the device, dropping reading",
                      "device_id=" + authDeviceId + " sensor_id=" + *sensorId + " owner=" +
-                         (owner == owners.end() ? std::string("unknown") : owner->second));
+                         (owner == owners.end() ? std::string("unknown")
+                                                : owner->second.deviceId));
         continue;
       }
 
