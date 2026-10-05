@@ -10,6 +10,9 @@
 // sensor.list_owners, no mesmo refresh periódico das PSKs; enquanto ele nunca carregou,
 // a resposta é 5.03 para o device reenviar depois em vez de perder dados.
 //
+// Formatos (despacho pelo Content-Format da requisição): 110 = SenML JSON
+// (Plano_Telemetria.md, D1–D3/DP1–DP3); 50 ou ausente = JSON legado {device_id, readings}.
+//
 // Validação: só formato mínimo (campos obrigatórios presentes/tipos corretos) —
 // validação completa contra device_config fica para uma iteração futura
 // (Plano_Ingestion_Implementacao.md).
@@ -19,6 +22,8 @@
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"
+#include "../../shared/senml/conversion.h"
+#include "../../shared/senml/senml.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
 
@@ -31,13 +36,17 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <csignal>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -322,7 +331,8 @@ private:
         ? std::string(reinterpret_cast<const char*>(data), len)
         : std::string{};
 
-    const int result = handlePayload(deviceId, body);
+    const int result = isSenml(request) ? handleSenml(deviceId, body)
+                                        : handlePayload(deviceId, body);
 
     coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
                                 : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
@@ -359,6 +369,146 @@ private:
   static constexpr int kForbidden = -2;
   static constexpr int kUnavailable = -3;
 
+  static constexpr unsigned kContentFormatSenmlJson = 110; // application/senml+json
+
+  static bool isSenml(const coap_pdu_t* request) {
+    coap_opt_iterator_t it;
+    const coap_opt_t* opt = coap_check_option(request, COAP_OPTION_CONTENT_FORMAT, &it);
+    return opt != nullptr && coap_decode_var_bytes(coap_opt_value(opt), coap_opt_length(opt)) ==
+                                 kContentFormatSenmlJson;
+  }
+
+  // Snapshot under the lock: publishing talks to RabbitMQ and shouldn't hold it. nullopt
+  // while the cache has never loaded (caller answers kUnavailable).
+  std::optional<std::unordered_map<std::string, SensorInfo>> snapshotOwners() {
+    std::scoped_lock lock(ownersMutex_);
+    if (!ownersLoaded_) {
+      logger::warn("IngestionService: sensor owner cache not loaded yet, asking to retry", "");
+      return std::nullopt;
+    }
+    return sensorOwners_;
+  }
+
+  // False (and logs) when the sensor isn't registered to the authenticated device.
+  static bool ownedBy(const std::unordered_map<std::string, SensorInfo>& owners,
+                      const std::string& sensorId, const std::string& deviceId) {
+    const auto owner = owners.find(sensorId);
+    if (owner != owners.end() && owner->second.deviceId == deviceId) {
+      return true;
+    }
+    logger::warn("IngestionService: sensor doesn't belong to the device, dropping reading",
+                 "device_id=" + deviceId + " sensor_id=" + sensorId + " owner=" +
+                     (owner == owners.end() ? std::string("unknown") : owner->second.deviceId));
+    return false;
+  }
+
+  bool publishReading(const std::string& deviceId, const std::string& sensorId,
+                      const std::string& timestamp, double value, const std::string& unit,
+                      int flags) {
+    rapidjson::Document msg(rapidjson::kObjectType);
+    auto& alloc = msg.GetAllocator();
+    msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    msg.AddMember("sensor_id", rapidjson::Value(sensorId.c_str(), alloc), alloc);
+    msg.AddMember("timestamp", rapidjson::Value(timestamp.c_str(), alloc), alloc);
+    msg.AddMember("value", value, alloc);
+    msg.AddMember("unit", rapidjson::Value(unit.c_str(), alloc), alloc);
+    msg.AddMember("flags", flags, alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    msg.Accept(writer);
+
+    if (!producer_.publish(buffer.GetString())) {
+      logger::error("IngestionService: failed to publish reading to RabbitMQ", "");
+      return false;
+    }
+    return true;
+  }
+
+  // SenML JSON pack (Plano_Telemetria.md). Names are bn + n with bn = "<device_id>/" (DP2):
+  // a numeric remainder is a global sensor_id (F1), "seq" is packet metadata, anything else
+  // is device diagnostics (D2) — only logged until device_telemetry exists (1e).
+  // Whole pack: unparseable -> kFormatError, any name outside the authenticated device ->
+  // kForbidden. Per record (dropped with a log, the rest goes on): foreign sensor, no
+  // numeric value, time_unsynced or unknown fl_ bits (DP3/F3), unit without a rule (DP1).
+  int handleSenml(const std::string& authDeviceId, const std::string& body) {
+    const auto now = static_cast<double>(std::time(nullptr));
+    const auto pack = rdws::senml::parse(body, now);
+    if (!pack) {
+      logger::warn("IngestionService: malformed SenML pack", pack.error());
+      return kFormatError;
+    }
+
+    const std::string prefix = authDeviceId + "/";
+    for (const auto& rec : *pack) {
+      if (rec.name.compare(0, prefix.size(), prefix) != 0) {
+        logger::warn("IngestionService: SenML name outside the PSK's device, rejecting",
+                     "authenticated=" + authDeviceId + " name=" + rec.name);
+        return kForbidden;
+      }
+    }
+
+    const auto owners = snapshotOwners();
+    if (!owners) {
+      return kUnavailable;
+    }
+
+    int published = 0;
+    int sensorRecords = 0;
+    std::string seq = "-";
+    std::string diagnostics;
+    for (const auto& rec : *pack) {
+      const std::string local = rec.name.substr(prefix.size());
+      const bool numeric = !local.empty() && std::all_of(local.begin(), local.end(), [](char c) {
+        return std::isdigit(static_cast<unsigned char>(c)) != 0;
+      });
+
+      if (!numeric) {
+        if (local == "seq") {
+          seq = rec.value ? std::to_string(static_cast<long long>(*rec.value)) : "?";
+        } else {
+          diagnostics += (diagnostics.empty() ? "" : ",") + local;
+        }
+        continue;
+      }
+
+      ++sensorRecords;
+      const std::string ctx = "device_id=" + authDeviceId + " sensor_id=" + local;
+      if (!ownedBy(*owners, local, authDeviceId)) {
+        continue;
+      }
+      if (!rec.value) {
+        logger::warn("IngestionService: SenML sensor record without numeric v, dropping", ctx);
+        continue;
+      }
+      if ((rec.flags & rdws::senml::kFlagTimeUnsynced) != 0 ||
+          (rec.flags & ~rdws::senml::kKnownFlags) != 0) {
+        logger::warn("IngestionService: SenML record unsynced or with unknown flags, dropping",
+                     ctx + " fl_=" + std::to_string(rec.flags));
+        continue;
+      }
+      const auto& sensorUnit = owners->at(local).unit;
+      const auto value = rdws::senml::toSensorUnit(*rec.value, rec.unit, sensorUnit);
+      if (!value) {
+        logger::warn("IngestionService: SenML unit has no conversion, dropping",
+                     ctx + " u=" + rec.unit + " sensor_unit=" + sensorUnit);
+        continue;
+      }
+
+      if (publishReading(authDeviceId, local, rdws::senml::toIso8601(rec.time), *value,
+                         sensorUnit, rec.flags)) {
+        ++published;
+      }
+    }
+
+    logger::info("IngestionService: SenML pack",
+                 "device_id=" + authDeviceId + " seq=" + seq + " records=" +
+                     std::to_string(pack->size()) + " sensor_records=" +
+                     std::to_string(sensorRecords) + " published=" + std::to_string(published) +
+                     " diagnostics=" + (diagnostics.empty() ? "-" : diagnostics));
+    return published;
+  }
+
   // Returns the number of readings published, kFormatError on a malformed payload (missing
   // device_id/readings), kForbidden when the body's device_id isn't the authenticated one, or
   // kUnavailable while the sensor owner cache has never loaded.
@@ -380,15 +530,9 @@ private:
       return kForbidden;
     }
 
-    // Snapshot under the lock: publishing below talks to RabbitMQ and shouldn't hold it.
-    std::unordered_map<std::string, SensorInfo> owners;
-    {
-      std::scoped_lock lock(ownersMutex_);
-      if (!ownersLoaded_) {
-        logger::warn("IngestionService: sensor owner cache not loaded yet, asking to retry", "");
-        return kUnavailable;
-      }
-      owners = sensorOwners_;
+    const auto owners = snapshotOwners();
+    if (!owners) {
+      return kUnavailable;
     }
 
     if (const auto* location = json::getObject(doc, "location")) {
@@ -405,31 +549,11 @@ private:
         logger::warn("IngestionService: reading missing required field, skipping", "");
         continue;
       }
-      const auto owner = owners.find(*sensorId);
-      if (owner == owners.end() || owner->second.deviceId != authDeviceId) {
-        logger::warn("IngestionService: sensor doesn't belong to the device, dropping reading",
-                     "device_id=" + authDeviceId + " sensor_id=" + *sensorId + " owner=" +
-                         (owner == owners.end() ? std::string("unknown")
-                                                : owner->second.deviceId));
+      if (!ownedBy(*owners, *sensorId, authDeviceId)) {
         continue;
       }
-
-      rapidjson::Document msg(rapidjson::kObjectType);
-      auto& alloc = msg.GetAllocator();
-      msg.AddMember("device_id", rapidjson::Value(deviceId->c_str(), alloc), alloc);
-      msg.AddMember("sensor_id", rapidjson::Value(sensorId->c_str(), alloc), alloc);
-      msg.AddMember("timestamp", rapidjson::Value(timestamp->c_str(), alloc), alloc);
-      msg.AddMember("value", *value, alloc);
-      msg.AddMember("unit", rapidjson::Value(unit.value_or("").c_str(), alloc), alloc);
-
-      rapidjson::StringBuffer buffer;
-      rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-      msg.Accept(writer);
-
-      if (producer_.publish(buffer.GetString())) {
+      if (publishReading(*deviceId, *sensorId, *timestamp, *value, unit.value_or(""), 0)) {
         ++published;
-      } else {
-        logger::error("IngestionService: failed to publish reading to RabbitMQ", "");
       }
     }
     return published;

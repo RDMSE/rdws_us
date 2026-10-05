@@ -1,3 +1,4 @@
+#include "senml/conversion.h"
 #include "senml/senml.h"
 
 #include <gtest/gtest.h>
@@ -108,4 +109,29 @@ TEST(SenmlParse, InvalidFlags_Rejected) {
   EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":-1}])", kNow));
   EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":70000}])", kNow));
   EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":"2"}])", kNow));
+}
+
+using rdws::senml::toIso8601;
+using rdws::senml::toSensorUnit;
+
+TEST(SenmlConversion, UnitRules) {
+  EXPECT_DOUBLE_EQ(*toSensorUnit(98780, "Pa", "kPa"), 98.78);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(25.4, "Cel", "°C"), 25.4);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(62.1, "%RH", "%"), 62.1);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(0.31, "/", "%"), 31);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(1200, "lx", "lux"), 1200);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(6.8, "pH", "pH"), 6.8); // identical units pass through
+  EXPECT_DOUBLE_EQ(*toSensorUnit(9, "kPa", "kPa"), 9);   // even if not a SenML unit
+}
+
+TEST(SenmlConversion, NoRule_Rejected) {
+  EXPECT_FALSE(toSensorUnit(1, "", "°C"));     // u is mandatory for sensors
+  EXPECT_FALSE(toSensorUnit(1, "Cel", "kPa")); // wrong quantity
+  EXPECT_FALSE(toSensorUnit(1, "%RH", "°C"));
+}
+
+TEST(SenmlConversion, Iso8601) {
+  EXPECT_EQ(toIso8601(1791035100), "2026-10-03T13:45:00.000Z");
+  EXPECT_EQ(toIso8601(1791035100.25), "2026-10-03T13:45:00.250Z");
+  EXPECT_EQ(toIso8601(1791035100.9996), "2026-10-03T13:45:01.000Z");
 }
