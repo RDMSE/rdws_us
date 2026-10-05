@@ -32,7 +32,8 @@ ServiceResult<ActiveCredential> DeviceCredentialService::getActive(const std::st
   }
   try {
     const std::string plaintext = cipher_.decrypt(credential->pskKeyEnc);
-    return ServiceResult<ActiveCredential>::success({credential->pskIdentity, plaintext});
+    return ServiceResult<ActiveCredential>::success(
+        {credential->pskIdentity, plaintext, credential->deviceId});
   } catch (const std::exception& e) {
     return ServiceResult<ActiveCredential>::error(
         std::string("Failed to decrypt device credential: ") + e.what(), 500);
@@ -44,7 +45,8 @@ ServiceResult<std::vector<ActiveCredential>> DeviceCredentialService::listActive
   std::vector<ActiveCredential> result;
   result.reserve(credentials.size());
   for (const auto& credential : credentials) {
-    result.push_back({credential.pskIdentity, cipher_.decrypt(credential.pskKeyEnc)});
+    result.push_back(
+        {credential.pskIdentity, cipher_.decrypt(credential.pskKeyEnc), credential.deviceId});
   }
   return ServiceResult<std::vector<ActiveCredential>>::success(std::move(result));
 }

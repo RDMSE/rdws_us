@@ -18,6 +18,7 @@ struct ProvisionedCredential {
 struct ActiveCredential {
   std::string pskIdentity;
   std::string pskKeyPlaintext; // raw key bytes, decrypted just-in-time
+  std::string deviceId;        // lets IngestionService resolve the device from the DTLS session
 };
 
 class DeviceCredentialService {

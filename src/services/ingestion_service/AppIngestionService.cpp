@@ -109,11 +109,12 @@ private:
   std::thread refreshThread_;
   std::atomic<bool> running_{false};
 
-  // psk_identity -> plaintext key, refreshed periodically (poll instead of the
+  // psk_identity -> plaintext key + owning device, refreshed periodically (poll instead of the
   // EventBus bridge that Plano_DeviceCredentials.md envisions — see
   // Plano_Ingestion_Implementacao.md for the trade-off).
   struct CachedCredential {
     std::string key;
+    std::string deviceId;
     coap_bin_const_t bin{}; // .s points into `key`'s storage, kept alive by the map
   };
   std::mutex cacheMutex_;
@@ -159,12 +160,14 @@ private:
     for (const auto& entry : dataArr->GetArray()) {
       const auto identity = json::getString(entry, "psk_identity");
       const auto keyHex = json::getString(entry, "psk_key");
-      if (!identity || !keyHex) {
+      const auto deviceId = json::getString(entry, "device_id");
+      if (!identity || !keyHex || !deviceId) {
         continue;
       }
       const auto keyBytes = rdws::crypto::fromHex(*keyHex);
       CachedCredential cred;
       cred.key = std::string(keyBytes.begin(), keyBytes.end());
+      cred.deviceId = *deviceId;
       auto [it, inserted] = pskCache_.emplace(*identity, std::move(cred));
       it->second.bin.length = it->second.key.size();
       it->second.bin.s = reinterpret_cast<const uint8_t*>(it->second.key.data());

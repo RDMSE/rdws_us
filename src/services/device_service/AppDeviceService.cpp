@@ -496,7 +496,7 @@ private:
   }
 
   // Bulk fetch — no device_id filter, returns every active credential. Used by
-  // IngestionService to build/refresh its in-memory psk_identity -> key cache.
+  // IngestionService to build/refresh its in-memory psk_identity -> {key, device_id} cache.
   static rapidjson::Document
   handleCredentialListActive(const rdws::utils::CapabilityContext& ctx,
                              rdws::device::DeviceCredentialService& svc) {
@@ -511,6 +511,7 @@ private:
         arr.PushBack(JsonObj(alloc)
                         .set("psk_identity", credential.pskIdentity)
                         .set("psk_key", rdws::crypto::toHex(credential.pskKeyPlaintext))
+                        .set("device_id", credential.deviceId)
                         .take(),
                     alloc);
       }
