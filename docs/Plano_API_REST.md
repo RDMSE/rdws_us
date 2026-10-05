@@ -70,7 +70,7 @@ apareceu num log de debug em 2026-10-02 e ficou sem rotação por falta dessa ro
 - Requests no Bruno: `Devices/Rotate Device Credential` e `Revoke Device Credential`.
 - Quando o `rotate` passar a valer pra hardware em campo, entra o grace period que o
   `Plano_DeviceCredentials.md` §6 adiou.
-- Depois: rotacionar a PSK do device 12 e reprovisionar a placa com `rdws psk set`.
+- ✅ PSK do device 12 rotacionada e placa reprovisionada com `rdws psk set` (2026-10-05).
 
 ### DeviceConfigService
 

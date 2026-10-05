@@ -299,9 +299,14 @@ e não tem lugar para as outras duas.
 
 ### Fase 0 — Identidade pela PSK (antes do SenML)
 Independente do formato, e pré-requisito de segurança. Pode valer já para o JSON atual.
-- ⬜ `IngestionService`: obter a `psk_identity` da sessão DTLS e resolver o device.
-- ⬜ `IngestionService`: rejeitar `sensor_id` que não pertença ao device autenticado
-  (formato atual) e, no formato atual, ignorar ou conferir o `device_id` do corpo.
+- ✅ `IngestionService`: obter a `psk_identity` da sessão DTLS e resolver o device
+  (`list_active` passou a trazer o `device_id`). Credencial fora do cache → `4.01`.
+  Validado no QA em 2026-10-05.
+- ✅ `IngestionService`: `device_id` do corpo diferente do da PSK → `4.03` (decidido em
+  2026-10-05). Validado no QA com o device 12.
+- ⬜ `IngestionService`: `sensor_id` que não pertença ao device autenticado é descartado
+  com log, e a mensagem segue com `2.04` (rejeitar faria o firmware reenviar para sempre).
+  Mapa `sensor_id → device_id` por cache com poll, via capability nova `sensor.list_owners`.
 
 ### Fase 1 — Contrato e backend
 - ✅ Decidir DP1, DP2 e DP3 (2026-10-05).
