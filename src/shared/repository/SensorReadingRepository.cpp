@@ -57,11 +57,11 @@ std::optional<SensorReading> SensorReadingRepository::findById(const std::string
 }
 
 bool SensorReadingRepository::insert(const std::string& sensorId, const std::string& timestamp,
-                                     const std::string& value) {
+                                     const std::string& value, int flags) {
   const std::string query =
-      "INSERT INTO sensor_readings (sensor_id, timestamp, value) VALUES ($1, $2, $3) "
+      "INSERT INTO sensor_readings (sensor_id, timestamp, value, flags) VALUES ($1, $2, $3, $4) "
       "ON CONFLICT (sensor_id, timestamp) DO NOTHING";
-  const std::vector<std::string> params = {sensorId, timestamp, value};
+  const std::vector<std::string> params = {sensorId, timestamp, value, std::to_string(flags)};
   return db_.execCommand(query, params);
 }
 
