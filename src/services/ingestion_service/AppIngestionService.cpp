@@ -39,10 +39,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <csignal>
 #include <cstring>
+#include <map>
 #include <ctime>
 #include <memory>
 #include <mutex>
@@ -50,6 +52,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 using namespace servicegateway;
 namespace json = rdws::utils::json;
@@ -63,11 +66,12 @@ public:
       : serviceId_(std::move(serviceId)), machineName_(std::move(machineName)),
         gatewayAddress_(std::move(gatewayAddress)), coapBindHost_(std::move(coapBindHost)),
         coapPort_(coapPort),
-        producer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
-                 "sensor_readings") {}
+        producer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
+        telemetryProducer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
+                           "device_telemetry") {}
 
   bool initialize() {
-    if (!producer_.connect()) {
+    if (!producer_.connect() || !telemetryProducer_.connect()) {
       logger::error("IngestionService: failed to connect to RabbitMQ", "");
       return false;
     }
@@ -119,6 +123,7 @@ private:
   uint16_t coapPort_;
 
   rdws::amqp::AmqpProducer producer_;
+  rdws::amqp::AmqpProducer telemetryProducer_; // device diagnostics (Plano_Telemetria.md D5)
   std::unique_ptr<ServiceClient> credentialClient_;
   std::thread clientThread_;
   std::thread refreshThread_;
@@ -425,9 +430,49 @@ private:
     return true;
   }
 
+  // One device_telemetry row per instant: {"device_id", "timestamp", "data": {name: value}}.
+  // A failed publish only logs — diagnostics never block the readings' 2.04.
+  void publishTelemetry(const std::string& deviceId, double time,
+                        const std::vector<const rdws::senml::Record*>& records) {
+    rapidjson::Document msg(rapidjson::kObjectType);
+    auto& alloc = msg.GetAllocator();
+    rapidjson::Value data(rapidjson::kObjectType);
+    const size_t prefixLen = deviceId.size() + 1; // "<device_id>/"
+    for (const auto* rec : records) {
+      rapidjson::Value key(rec->name.substr(prefixLen).c_str(), alloc);
+      rapidjson::Value value;
+      if (rec->value) {
+        // Counters (seq, boot_count, ...) stay integers in the JSONB instead of 812.0.
+        const double v = *rec->value;
+        if (std::trunc(v) == v && std::fabs(v) < 9.0e15) {
+          value.SetInt64(static_cast<int64_t>(v));
+        } else {
+          value.SetDouble(v);
+        }
+      } else if (rec->boolValue) {
+        value.SetBool(*rec->boolValue);
+      } else {
+        value.SetString(rec->stringValue->c_str(), alloc);
+      }
+      data.RemoveMember(key); // a repeated name at the same instant: last one wins
+      data.AddMember(key, value, alloc);
+    }
+    msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    msg.AddMember("timestamp", rapidjson::Value(rdws::senml::toIso8601(time).c_str(), alloc),
+                  alloc);
+    msg.AddMember("data", data, alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    msg.Accept(writer);
+    if (!telemetryProducer_.publish(buffer.GetString())) {
+      logger::error("IngestionService: failed to publish device telemetry to RabbitMQ", "");
+    }
+  }
+
   // SenML JSON pack (Plano_Telemetria.md). Names are bn + n with bn = "<device_id>/" (DP2):
-  // a numeric remainder is a global sensor_id (F1), "seq" is packet metadata, anything else
-  // is device diagnostics (D2) — only logged until device_telemetry exists (1e).
+  // a numeric remainder is a global sensor_id (F1); anything else ("seq" included) is device
+  // diagnostics (D2), grouped by instant into device_telemetry rows (D5).
   // Whole pack: unparseable -> kFormatError, any name outside the authenticated device ->
   // kForbidden. Per record (dropped with a log, the rest goes on): foreign sensor, no
   // numeric value, time_unsynced or unknown fl_ bits (DP3/F3), unit without a rule (DP1).
@@ -457,6 +502,7 @@ private:
     int sensorRecords = 0;
     std::string seq = "-";
     std::string diagnostics;
+    std::map<double, std::vector<const rdws::senml::Record*>> telemetry;
     for (const auto& rec : *pack) {
       const std::string local = rec.name.substr(prefix.size());
       const bool numeric = !local.empty() && std::all_of(local.begin(), local.end(), [](char c) {
@@ -469,6 +515,7 @@ private:
         } else {
           diagnostics += (diagnostics.empty() ? "" : ",") + local;
         }
+        telemetry[rec.time].push_back(&rec);
         continue;
       }
 
@@ -499,6 +546,10 @@ private:
                          sensorUnit, rec.flags)) {
         ++published;
       }
+    }
+
+    for (const auto& [time, records] : telemetry) {
+      publishTelemetry(authDeviceId, time, records);
     }
 
     logger::info("IngestionService: SenML pack",

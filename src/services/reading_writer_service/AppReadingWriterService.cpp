@@ -9,10 +9,14 @@
 // after the insert is confirmed, so a crash mid-processing leaves the message for
 // redelivery instead of losing it.
 //
+// Also consumes the "device_telemetry" queue (device diagnostics from SenML packs,
+// Plano_Telemetria.md D5) and upserts into device_telemetry (V11), same ack policy.
+//
 
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
 #include "../../shared/database/postgresql_database.h"
+#include "../../shared/repository/DeviceTelemetryRepository.h"
 #include "../../shared/repository/SensorReadingRepository.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
@@ -32,21 +36,25 @@ class AppReadingWriterService {
 public:
   AppReadingWriterService(std::string mqHost, uint16_t mqPort, std::string mqUser,
                           std::string mqPassword)
-      : repo_(db_),
-        consumer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
-                 "sensor_readings") {}
+      : repo_(db_), telemetryRepo_(db_),
+        consumer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
+        telemetryConsumer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
+                           "device_telemetry") {}
 
   bool initialize() {
     db_.connect();
-    return consumer_.connect();
+    return consumer_.connect() && telemetryConsumer_.connect();
   }
 
   void run() {
     running_.store(true);
     logger::info("ReadingWriterService starting", "");
     while (running_.load()) {
+      // Alternate between the queues; each wait is short so neither starves the other.
       (void)consumer_.consumeOne(
-          [this](const std::string& body) { return handleMessage(body); }, 1000);
+          [this](const std::string& body) { return handleMessage(body); }, 500);
+      (void)telemetryConsumer_.consumeOne(
+          [this](const std::string& body) { return handleTelemetryMessage(body); }, 500);
     }
     logger::info("ReadingWriterService stopped", "");
   }
@@ -56,7 +64,9 @@ public:
 private:
   PostgreSQLDatabase db_;
   rdws::sensor_reading::SensorReadingRepository repo_;
+  rdws::device_telemetry::DeviceTelemetryRepository telemetryRepo_;
   rdws::amqp::AmqpConsumer consumer_;
+  rdws::amqp::AmqpConsumer telemetryConsumer_;
   std::atomic<bool> running_{false};
 
   // Returns true (ack) iff the write succeeded — a parse/format error also acks
@@ -83,6 +93,31 @@ private:
     const bool ok = repo_.insert(*sensorId, *timestamp, std::to_string(*value), flags);
     if (!ok) {
       logger::error("ReadingWriterService: DB insert failed, leaving message unacked", body);
+      return false;
+    }
+    return true;
+  }
+
+  // {"device_id": "12", "timestamp": "...Z", "data": {"seq": 812, "rssi": -67, ...}}
+  bool handleTelemetryMessage(const std::string& body) {
+    rapidjson::Document doc;
+    if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
+      logger::error("ReadingWriterService: malformed telemetry message, discarding", body);
+      return true;
+    }
+
+    const auto deviceId = json::getString(doc, "device_id");
+    const auto timestamp = json::getString(doc, "timestamp");
+    const auto* data = json::getObject(doc, "data");
+    if (!deviceId || !timestamp || data == nullptr) {
+      logger::error("ReadingWriterService: telemetry message missing required field, discarding",
+                    body);
+      return true;
+    }
+
+    if (!telemetryRepo_.upsert(*deviceId, *timestamp, json::docToString(*data))) {
+      logger::error("ReadingWriterService: telemetry upsert failed, leaving message unacked",
+                    body);
       return false;
     }
     return true;
