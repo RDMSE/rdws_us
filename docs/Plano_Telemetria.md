@@ -275,6 +275,21 @@ Decisão em cada item; as opções ficam registradas pelo histórico.
   cadastrada, e o servidor só confere `u` = `sensors.unit`.
 - Em ambos os casos, `u` divergente é erro explícito, nunca gravado silenciosamente.
 
+Tabela de conversão (2026-10-05, a partir das unidades cadastradas no `rdws_qa`;
+`rdws::senml::toSensorUnit` em `src/shared/senml/conversion.cpp`):
+
+| SenML (`u`) | `sensors.unit` | Fator | Tipo |
+|---|---|---|---|
+| `Cel` | `°C` | ×1 | temperature |
+| `%RH` | `%` | ×1 | humidity |
+| `/` (razão 0–1) | `%` | ×100 | moisture |
+| `Pa` | `kPa` | ÷1000 | pressure |
+| `lx` | `lux` | ×1 | luminosity |
+| igual ao cadastrado (ex.: `pH`) | idem | ×1 | qualquer |
+
+Sem `u`, ou par sem regra: o registro é descartado com log e o resto do pacote segue
+(`2.04`), como na Fase 0.
+
 ### DP2 — `bn` no device principal (D1, D4) → (b) manter o id do device
 
 Com o device derivado da PSK (D4), o `bn` com o id do device é redundante, e obriga o
