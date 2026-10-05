@@ -5,7 +5,10 @@
 // periódico do cache de PSKs) e ao RabbitMQ (produtor, uma mensagem por leitura).
 //
 // Identidade: o device vem da PSK identity da sessão DTLS; um device_id no corpo diferente
-// dele é rejeitado com 4.03 (Plano_Telemetria.md, Fase 0).
+// dele é rejeitado com 4.03, e leituras de sensor de outro device (ou desconhecido) são
+// descartadas com log (Plano_Telemetria.md, Fase 0). O mapa sensor -> device vem de
+// sensor.list_owners, no mesmo refresh periódico das PSKs; enquanto ele nunca carregou,
+// a resposta é 5.03 para o device reenviar depois em vez de perder dados.
 //
 // Validação: só formato mínimo (campos obrigatórios presentes/tipos corretos) —
 // validação completa contra device_config fica para uma iteração futura
@@ -84,7 +87,7 @@ public:
     while (!credentialClient_->isConnected() && std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    refreshCache(); // synchronous first load, so the cache isn't empty at startup
+    refreshCaches(); // synchronous first load, so the caches aren't empty at startup
     refreshThread_ = std::thread([this] { refreshLoop(); });
 
     runCoapServer(); // blocks until shutdown()
@@ -123,6 +126,11 @@ private:
   std::mutex cacheMutex_;
   std::unordered_map<std::string, CachedCredential> pskCache_;
 
+  // sensor_id -> device_id (sensor.list_owners). A failed refresh keeps the previous map.
+  std::mutex ownersMutex_;
+  std::unordered_map<std::string, std::string> sensorOwners_;
+  bool ownersLoaded_ = false;
+
   static constexpr int kRefreshIntervalSec = 60;
 
   void refreshLoop() {
@@ -131,16 +139,54 @@ private:
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
       if (running_.load()) {
-        refreshCache();
+        refreshCaches();
       }
     }
   }
 
-  void refreshCache() {
+  void refreshCaches() {
     if (!credentialClient_ || !credentialClient_->isConnected()) {
-      logger::warn("IngestionService: not connected to gateway, skipping credential refresh", "");
+      logger::warn("IngestionService: not connected to gateway, skipping cache refresh", "");
       return;
     }
+    refreshCredentials();
+    refreshSensorOwners();
+  }
+
+  void refreshSensorOwners() {
+    rapidjson::Document req(rapidjson::kObjectType);
+    const auto result = credentialClient_->invoke("sensor.list_owners", req);
+    if (!result.success) {
+      logger::error("sensor.list_owners failed", result.errorMessage);
+      return;
+    }
+
+    rapidjson::Document envelope;
+    if (envelope.Parse(result.responsePayload.c_str()).HasParseError() || !envelope.IsObject()) {
+      return;
+    }
+    const auto* dataArr = json::getArray(envelope, "data");
+    if (dataArr == nullptr) {
+      return;
+    }
+
+    std::unordered_map<std::string, std::string> owners;
+    for (const auto& entry : dataArr->GetArray()) {
+      const auto sensorId = json::getString(entry, "id");
+      const auto deviceId = json::getString(entry, "device_id");
+      if (sensorId && deviceId) {
+        owners.emplace(*sensorId, *deviceId);
+      }
+    }
+
+    std::scoped_lock lock(ownersMutex_);
+    sensorOwners_ = std::move(owners);
+    ownersLoaded_ = true;
+    logger::info("IngestionService: sensor owner cache refreshed",
+                 "count=" + std::to_string(sensorOwners_.size()));
+  }
+
+  void refreshCredentials() {
 
     rapidjson::Document req(rapidjson::kObjectType);
     const auto result = credentialClient_->invoke("device_credential.list_active", req);
@@ -274,6 +320,7 @@ private:
 
     coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
                                 : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
+                                : result == kUnavailable ? COAP_RESPONSE_CODE_SERVICE_UNAVAILABLE
                                                          : COAP_RESPONSE_CODE_CHANGED);
   }
 
@@ -304,9 +351,11 @@ private:
 
   static constexpr int kFormatError = -1;
   static constexpr int kForbidden = -2;
+  static constexpr int kUnavailable = -3;
 
   // Returns the number of readings published, kFormatError on a malformed payload (missing
-  // device_id/readings), or kForbidden when the body's device_id isn't the authenticated one.
+  // device_id/readings), kForbidden when the body's device_id isn't the authenticated one, or
+  // kUnavailable while the sensor owner cache has never loaded.
   int handlePayload(const std::string& authDeviceId, const std::string& body) {
     rapidjson::Document doc;
     if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
@@ -325,6 +374,17 @@ private:
       return kForbidden;
     }
 
+    // Snapshot under the lock: publishing below talks to RabbitMQ and shouldn't hold it.
+    std::unordered_map<std::string, std::string> owners;
+    {
+      std::scoped_lock lock(ownersMutex_);
+      if (!ownersLoaded_) {
+        logger::warn("IngestionService: sensor owner cache not loaded yet, asking to retry", "");
+        return kUnavailable;
+      }
+      owners = sensorOwners_;
+    }
+
     if (const auto* location = json::getObject(doc, "location")) {
       reportLocation(*deviceId, *location);
     }
@@ -337,6 +397,13 @@ private:
       const auto unit = json::getString(reading, "unit");
       if (!sensorId || !timestamp || !value) {
         logger::warn("IngestionService: reading missing required field, skipping", "");
+        continue;
+      }
+      const auto owner = owners.find(*sensorId);
+      if (owner == owners.end() || owner->second != authDeviceId) {
+        logger::warn("IngestionService: sensor doesn't belong to the device, dropping reading",
+                     "device_id=" + authDeviceId + " sensor_id=" + *sensorId + " owner=" +
+                         (owner == owners.end() ? std::string("unknown") : owner->second));
         continue;
       }
 

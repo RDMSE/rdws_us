@@ -307,6 +307,9 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
 - ⬜ `IngestionService`: `sensor_id` que não pertença ao device autenticado é descartado
   com log, e a mensagem segue com `2.04` (rejeitar faria o firmware reenviar para sempre).
   Mapa `sensor_id → device_id` por cache com poll, via capability nova `sensor.list_owners`.
+  Enquanto o mapa nunca carregou (ex.: `SensorService` fora no startup), a resposta é `5.03`
+  para o device guardar os arquivos e reenviar, em vez de descartar tudo. Sensor recém-criado
+  só é aceito após o próximo refresh (até 60 s).
 
 ### Fase 1 — Contrato e backend
 - ✅ Decidir DP1, DP2 e DP3 (2026-10-05).
