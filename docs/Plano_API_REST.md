@@ -48,7 +48,7 @@ Cada recurso é um microserviço independente que se conecta ao gateway pelo soc
 | PUT      | /devices/{id}    | device.update    | Atualiza device                   |
 | DELETE   | /devices/{id}    | device.delete    | Remove device                     |
 
-#### ⬜ Próximo: rotação e revogação de credencial via REST
+#### ✅ Rotação e revogação de credencial via REST (2026-10-05)
 
 `device_credential.rotate` e `device_credential.revoke` já existem no `DeviceService`
 (`Plano_DeviceCredentials.md` §6), mas hoje são **internos de propósito** (fora do
@@ -61,9 +61,13 @@ apareceu num log de debug em 2026-10-02 e ficou sem rotação por falta dessa ro
 | POST   | /devices/{id}/credential/rotate     | device_credential.rotate  | Gera nova PSK (retornada uma única vez), revoga a atual |
 | POST   | /devices/{id}/credential/revoke     | device_credential.revoke  | Revoga a PSK ativa                                    |
 
-- Restringir a `admin`, porque é operação sensível. A resposta do `rotate` traz a chave
-  em claro, como no `device.create`.
-- Hoje os handlers leem `device_id` do corpo. Com a rota, o id vem do path.
+- Restrito a `admin`, porque é operação sensível. A resposta do `rotate` traz a chave
+  em claro, como no `device.create`. A checagem fica no handler (`requireAdmin()` em
+  `AppDeviceService.cpp`): com identidade injetada pelo gateway, exige a claim
+  `role = admin` (senão `403`); sem identidade (modo `none` em dev, ou invoke interno),
+  passa, como as demais rotas.
+- O id vem do path (`{id}`); invokes internos ainda podem mandar `device_id` no corpo.
+- Requests no Bruno: `Devices/Rotate Device Credential` e `Revoke Device Credential`.
 - Quando o `rotate` passar a valer pra hardware em campo, entra o grace period que o
   `Plano_DeviceCredentials.md` §6 adiou.
 - Depois: rotacionar a PSK do device 12 e reprovisionar a placa com `rdws psk set`.

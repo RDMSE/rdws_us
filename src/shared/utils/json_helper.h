@@ -26,6 +26,15 @@ namespace rdws::utils::json {
 // updated_by is never left empty on a create()/update() call.
 [[nodiscard]] std::string getActorSubjectOrDefault(const rapidjson::Value& req);
 
+// True when AuthMiddleware injected lambdaContext.identity, i.e. the request came through
+// the HTTP gateway with an auth mode other than NONE.
+[[nodiscard]] bool hasActorIdentity(const rapidjson::Value& req);
+
+// Reads lambdaContext.identity.claims.<claim> (e.g. "role" from the JWT). Returns nullopt if
+// any level is absent.
+[[nodiscard]] std::optional<std::string> getActorClaim(const rapidjson::Value& req,
+                                                       const std::string& claim);
+
 template <typename T>
 concept JsonSettable =
     std::is_arithmetic_v<std::decay_t<T>> || std::convertible_to<T, std::string> ||

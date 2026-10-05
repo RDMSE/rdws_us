@@ -1,8 +1,9 @@
 //
 // DeviceService — capabilities: device.list, device.get, device.create, device.update,
-// device.delete, plus internal-only device_credential.get_active/rotate/revoke (not
-// present in routes.json — only reachable via ServiceClient::invoke, never HTTP; see
-// Plano_DeviceCredentials.md). device_credential.provision is not a standalone
+// device.delete, device_credential.rotate/revoke (admin only, POST
+// /devices/{id}/credential/rotate|revoke — Plano_API_REST.md), plus internal-only
+// device_credential.get_active/list_active (not present in routes.json — only reachable via
+// ServiceClient::invoke, never HTTP; see Plano_DeviceCredentials.md). device_credential.provision is not a standalone
 // capability — it only runs atomically inside handleCreate (device.create).
 //
 
@@ -28,6 +29,7 @@
 #include <cstdlib>
 #include <csignal>
 #include <memory>
+#include <optional>
 #include <algorithm>
 #include <cctype>
 #include <rapidjson/document.h>
@@ -177,12 +179,13 @@ public:
         "device.create",
         "device.update",
         "device.delete",
+        // Exposed over HTTP, admin only (see requireAdmin()).
+        "device_credential.rotate",
+        "device_credential.revoke",
         // Internal-only — deliberately absent from routes.json. Note:
         // device_credential.provision is NOT listed here — it's never invoked as a
         // standalone capability, only atomically from within handleCreate (device.create).
         "device_credential.get_active",
-        "device_credential.rotate",
-        "device_credential.revoke",
         "device_credential.list_active",
         // Internal-only, same reasoning as device_credential.* above: IngestionService
         // reports device position per payload (Plano_Ingestion.md) and shouldn't need
@@ -495,6 +498,23 @@ private:
     });
   }
 
+  // Credential rotation/revocation is sensitive (rotate returns the new key in clear), so over
+  // HTTP only role=admin may call it. Requests without an injected identity (auth mode NONE in
+  // dev, or an internal ServiceClient::invoke) are let through, same as every other route.
+  static std::optional<rapidjson::Document> requireAdmin(const rapidjson::Document& req) {
+    if (json::hasActorIdentity(req) && json::getActorClaim(req, "role") != "admin") {
+      return ResponseHelper::returnErrorDoc("Forbidden: admin role required", 403);
+    }
+    return std::nullopt;
+  }
+
+  // HTTP routes carry the id in the path (/devices/{id}/credential/...); internal invokes
+  // send it as a device_id body field.
+  static std::string credentialDeviceId(const rapidjson::Document& req) {
+    std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
+    return id.empty() ? json::getString(req, "device_id").value_or(std::string{}) : id;
+  }
+
   // Bulk fetch — no device_id filter, returns every active credential. Used by
   // IngestionService to build/refresh its in-memory psk_identity -> {key, device_id} cache.
   static rapidjson::Document
@@ -523,10 +543,15 @@ private:
   handleCredentialRotate(const rdws::utils::CapabilityContext& ctx,
                          rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
-    const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
-    if (deviceId.empty() || !isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
+    if (auto denied = requireAdmin(req)) {
+      return std::move(*denied);
     }
+    const std::string deviceId = credentialDeviceId(req);
+    if (deviceId.empty() || !isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid device id", 400);
+    }
+    logger::info("device_credential.rotate",
+                 "device_id=" + deviceId + " by=" + json::getActorSubjectOrDefault(req));
 
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.rotate(deviceId);
@@ -545,10 +570,15 @@ private:
   handleCredentialRevoke(const rdws::utils::CapabilityContext& ctx,
                          rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
-    const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
-    if (deviceId.empty() || !isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
+    if (auto denied = requireAdmin(req)) {
+      return std::move(*denied);
     }
+    const std::string deviceId = credentialDeviceId(req);
+    if (deviceId.empty() || !isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid device id", 400);
+    }
+    logger::info("device_credential.revoke",
+                 "device_id=" + deviceId + " by=" + json::getActorSubjectOrDefault(req));
 
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.revoke(deviceId);
