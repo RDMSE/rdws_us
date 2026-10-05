@@ -78,3 +78,13 @@ target_link_libraries(shared_id_validation_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_id_validation_tests)
+# --- json_helper actor identity unit tests ---
+add_executable(shared_json_helper_tests
+    test_json_helper.cpp
+)
+target_link_libraries(shared_json_helper_tests PRIVATE
+    rdws_shared_json_utils
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_json_helper_tests)

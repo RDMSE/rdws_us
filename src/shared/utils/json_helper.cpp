@@ -72,12 +72,15 @@ const rapidjson::Value* getArray(const rapidjson::Value& doc, const std::string&
   return nullptr;
 }
 
-std::optional<std::string> getActorSubject(const rapidjson::Value& req) {
+namespace {
+const rapidjson::Value* getActorIdentity(const rapidjson::Value& req) {
   const auto* lambdaContext = getObject(req, "lambdaContext");
-  if (!lambdaContext) {
-    return std::nullopt;
-  }
-  const auto* identity = getObject(*lambdaContext, "identity");
+  return lambdaContext ? getObject(*lambdaContext, "identity") : nullptr;
+}
+} // namespace
+
+std::optional<std::string> getActorSubject(const rapidjson::Value& req) {
+  const auto* identity = getActorIdentity(req);
   if (!identity) {
     return std::nullopt;
   }
@@ -93,6 +96,16 @@ std::optional<std::string> getActorSubject(const rapidjson::Value& req) {
 
 std::string getActorSubjectOrDefault(const rapidjson::Value& req) {
   return getActorSubject(req).value_or("system");
+}
+
+bool hasActorIdentity(const rapidjson::Value& req) {
+  return getActorIdentity(req) != nullptr;
+}
+
+std::optional<std::string> getActorClaim(const rapidjson::Value& req, const std::string& claim) {
+  const auto* identity = getActorIdentity(req);
+  const auto* claims = identity ? getObject(*identity, "claims") : nullptr;
+  return claims ? getString(*claims, claim) : std::nullopt;
 }
 
 std::string docToString(const rapidjson::Value& doc) {
