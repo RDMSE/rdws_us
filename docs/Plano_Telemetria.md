@@ -186,7 +186,8 @@ que o device reiniciou.
   unidade (DP1).
 - Registros com nome reservado de diagnóstico → agrupados por timestamp resolvido numa
   linha de `device_telemetry`.
-- `seq` → metadado da mensagem (log, detecção de perda).
+- `seq` → metadado da mensagem, gravado no `data` de `device_telemetry` junto do
+  diagnóstico do mesmo instante (decidido em 2026-10-05), para detectar perda depois.
 - `fl_` → flags da leitura (DP3), gravadas em `sensor_readings.flags` (F3). Um registro
   com o bit de trigger marca a mensagem para priorização futura.
 - O firmware não conhece essa separação.
@@ -365,17 +366,21 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
 - ✅ Decidir DP1, DP2 e DP3 (2026-10-05).
 - ✅ Definir o corpo da resposta CoAP (D11, 2026-10-05).
 - ✅ 1a. Decisões F1–F4 e lista de nomes de diagnóstico (D2), 2026-10-05.
-- ⬜ 1b. `sensor.list_owners` traz também `unit`; o cache do `IngestionService` vira
+- ✅ 1b. `sensor.list_owners` traz também `unit`; o cache do `IngestionService` vira
   `sensor_id → {device_id, unit}` (base para DP1).
-- ⬜ 1c. Parser SenML JSON como função pura em lib compartilhada, com testes unitários:
+- ✅ 1c. Parser SenML JSON como função pura em lib compartilhada, com testes unitários:
   resolve `bn`/`bt`/`t`/`n`/`u`/`v`/`vb`/`fl_`, rejeita campo terminado em `_`
   desconhecido, aceita qualquer número em `v`.
-- ⬜ 1d. `IngestionService`: despacho por Content-Format (`110` SenML, `50` JSON atual);
+- ✅ 1d. `IngestionService`: despacho por Content-Format (`110` SenML, `50` JSON atual);
   no SenML, prefixo do `bn` contra a PSK (`4.03`), dono do sensor, conversão de unidade
   (DP1), `flags` (F3, migration com `sensor_readings.flags`). Diagnóstico só logado.
+  Validado no QA em 2026-10-05 (`V10`; pacote misto com descartes por `fl_`, unidade e
+  dono; `Pa` → `kPa`; `bn` de outro device → `4.03`).
 - ⬜ 1e. Migration `device_telemetry` (D5, sem partição — F2); `IngestionService`
   publica o diagnóstico numa fila `device_telemetry`, agrupado por timestamp; o
-  `ReadingWriterService` consome e grava com idempotência.
+  `ReadingWriterService` consome e grava com idempotência. Decidido em 2026-10-05: `seq`
+  vai no `data`; conflito em `(device_id, timestamp)` mescla as chaves
+  (`data || EXCLUDED.data`); o próprio `ReadingWriterService` consome as duas filas.
 
 ### Fase 2 — Simulador e firmware
 - ⬜ `SensorSimulatorService` gerando SenML, incluindo diagnóstico e múltiplas janelas.
@@ -408,7 +413,6 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
 - Mecanismo de partições e retenção, comum a `sensor_readings` e `device_telemetry` (D5).
 - Período de retenção de `device_telemetry`.
 - Quando desativar o formato JSON legado no `IngestionService`.
-- Se `seq` é persistido (para métricas de perda de pacotes) ou só logado.
 - Se vale uma coluna `category` em `sensors` para separar sensores lógicos de saúde
   (bateria/solar) dos ambientais no dashboard do produtor.
 - Se o firmware pode esvaziar o backlog parcialmente numa sessão, o que decide se
