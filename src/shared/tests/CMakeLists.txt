@@ -88,3 +88,14 @@ target_link_libraries(shared_json_helper_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_json_helper_tests)
+
+# --- SenML parser unit tests ---
+add_executable(shared_senml_tests
+    test_senml.cpp
+)
+target_link_libraries(shared_senml_tests PRIVATE
+    rdws_shared_senml
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_senml_tests)
