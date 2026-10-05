@@ -4,9 +4,10 @@
 // connection at all: just a direct Postgres connection and an AMQP consumer.
 //
 // Consumes the "sensor_readings" queue (one message per reading, published by
-// IngestionService; optional "flags" = SenML fl_ bitmask, V10) and writes to sensor_readings, idempotently (UNIQUE(sensor_id,
-// timestamp), V8 migration) — only acks after the insert is confirmed, so a crash
-// mid-processing leaves the message for redelivery instead of losing it.
+// IngestionService; optional "flags" = SenML fl_ bitmask, V10) and writes to
+// sensor_readings, idempotently (UNIQUE(sensor_id, timestamp), V8 migration) — only acks
+// after the insert is confirmed, so a crash mid-processing leaves the message for
+// redelivery instead of losing it.
 //
 
 #include "../../shared/amqp/amqp_client.h"

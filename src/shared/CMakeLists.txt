@@ -128,6 +128,8 @@ target_link_libraries(rdws_shared_coap PUBLIC
 )
 
 add_library(rdws_shared_senml
+    senml/conversion.cpp
+    senml/conversion.h
     senml/senml.cpp
     senml/senml.h
 )
