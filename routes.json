@@ -224,6 +224,34 @@
     "updatedAt": "2026-06-18T00:00:00Z"
   },
   {
+    "id": "device-credential-rotate",
+    "name": "POST /devices/{id}/credential/rotate → device_credential.rotate",
+    "inputCapability": "device_credential.rotate",
+    "outputCapability": "device_credential.rotate",
+    "httpMethod": "POST",
+    "httpPath": "/devices/{id}/credential/rotate",
+    "priority": 10,
+    "enabled": true,
+    "condition": null,
+    "fallbackCapability": null,
+    "createdAt": "2026-10-05T00:00:00Z",
+    "updatedAt": "2026-10-05T00:00:00Z"
+  },
+  {
+    "id": "device-credential-revoke",
+    "name": "POST /devices/{id}/credential/revoke → device_credential.revoke",
+    "inputCapability": "device_credential.revoke",
+    "outputCapability": "device_credential.revoke",
+    "httpMethod": "POST",
+    "httpPath": "/devices/{id}/credential/revoke",
+    "priority": 10,
+    "enabled": true,
+    "condition": null,
+    "fallbackCapability": null,
+    "createdAt": "2026-10-05T00:00:00Z",
+    "updatedAt": "2026-10-05T00:00:00Z"
+  },
+  {
     "id": "device-config-get",
     "name": "GET /devices/{id}/config → device_config.get",
     "inputCapability": "device_config.get",
