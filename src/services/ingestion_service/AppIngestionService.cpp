@@ -151,6 +151,7 @@ private:
   bool ownersLoaded_ = false;
 
   static constexpr int kRefreshIntervalSec = 60;
+  static constexpr unsigned kSessionTimeoutSec = 60;
 
   void refreshLoop() {
     while (running_.load()) {
@@ -271,6 +272,12 @@ private:
     // libcoap reassemble a fragmented (Block1) request before calling our resource
     // handler, so onRequest() always sees the complete payload in one shot.
     coap_context_set_block_mode(ctx, COAP_BLOCK_USE_LIBCOAP | COAP_BLOCK_SINGLE_BODY);
+    // Idle sessions go after 60 s instead of libcoap's 300 s. The eswifi module reconnects
+    // from the same source port (5684) after a reboot, so a station reset mid-cycle (no
+    // close_notify) has its new ClientHello delivered to the stale session and ignored; its
+    // ~31 s of retries keep that session alive. With a short timeout the stale session
+    // expires between uplink cycles and the next cycle handshakes normally.
+    coap_context_set_session_timeout(ctx, kSessionTimeoutSec);
 
     coap_dtls_spsk_t setupData{};
     setupData.version = COAP_DTLS_SPSK_SETUP_VERSION;
