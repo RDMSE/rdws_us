@@ -54,9 +54,10 @@ de separar medição de diagnóstico foi mantida. Os pontos que motivaram a revi
 - Migração futura para **SenML CBOR** (Content-Format `112`, `application/senml+cbor`)
   quando o tamanho do payload pesar no NB-IoT. Zephyr tem `zcbor`. A estrutura é a mesma,
   só muda a codificação.
-- Estrutura plana, sem aninhamento: `bn` (base name) identifica o device (ver **DP2**:
-  pode ser omitido), `bt` (base time, epoch) ancora o tempo e `t` é relativo ao `bt`.
-  Várias janelas cabem no mesmo pacote.
+- Estrutura plana, sem aninhamento (array de registros; o `"e"` do rascunho pré-RFC não
+  existe na RFC 8428): `bn` (base name) identifica o device (**DP2**, decidido: mantido),
+  `bt` (base time, epoch) ancora o tempo e `t` é relativo ao `bt`. Várias janelas cabem
+  no mesmo pacote.
 - O parser deve aceitar qualquer número em `v` (`IsNumber()`), não só `IsDouble()` como
   o parser atual: no exemplo abaixo, `98780` e `812` são inteiros.
 - Ganho de tamanho em relação ao formato atual: o timestamp ISO de 20 caracteres repetido
@@ -67,8 +68,7 @@ Exemplo:
 ```json
 [
   {"bn":"1234/", "bt":1791035100, "n":"seq", "v":812},
-  {"n":"trigger", "vb":false},
-  {"n":"1", "u":"Cel", "v":25.4},
+  {"n":"1", "u":"Cel", "v":25.4, "fl_":2},
   {"n":"2", "u":"%RH", "v":62.1},
   {"n":"3", "u":"Pa",  "v":98780},
   {"n":"7", "u":"V",   "v":3.912},
@@ -92,23 +92,30 @@ Exemplo:
     id local → `sensor_id` por device**, recarregado por poll periódico via capability,
     no mesmo padrão do cache de PSK (`device_credential.list_active`).
 - **Diagnóstico**: nomes reservados (`rssi`, `snr`, `boot_count`, `reset_reason`, …).
-- **Metadados de pacote**: o SenML não tem campos de cabeçalho. `seq` e `trigger` viajam
-  como registros (`{"n":"seq","v":...}`, `{"n":"trigger","vb":true}`).
+- **Metadados de pacote**: o SenML não tem campos de cabeçalho. `seq` viaja como registro
+  (`{"n":"seq","v":...}`). O `trigger` deixou de ser registro de pacote e virou flag do
+  registro que disparou (DP3).
 
-### D3 — Unidades (em aberto, ver DP1)
+### D3 — Unidades (DP1 decidido: o servidor converte)
 
 - Seguir o registro IANA de unidades SenML (`Cel`, `%RH`, `Pa`, `V`, …) no payload.
-- **Contradição a resolver:** a proposta original normalizava a pressão em `Pa` no firmware
-  e mantinha `sensors.unit` como referência, com `u` opcional. Mas `sensors.unit` usa
-  outra nomenclatura (`kPa` decidido no RDWS-103, `%` em vez de `%RH`, `°C` em vez de
-  `Cel`). Sem uma regra de conversão, um valor em `Pa` gravado num sensor em `kPa` fica
-  1000× errado sem erro visível. Opções em **DP1**.
+- O SenML usa a grafia do UCUM, mas só aceita os símbolos do registro dele: prefixos SI
+  são desaconselhados (RFC 8428 §12.1) e o valor vai na unidade base (`98780` em `Pa`, não
+  `98.78` em `kPa`). `kPa` não existe no registro, nem como unidade secundária da RFC 8798
+  (que tem `hPa`, mas cujo uso exige SenML versão nova ou campo must-understand). `°C` não
+  é símbolo nem do SenML nem do UCUM (`Cel`).
+- `sensors.unit` usa outra nomenclatura (`kPa` decidido no RDWS-103, `%` em vez de `%RH`,
+  `°C` em vez de `Cel`). Por isso o `IngestionService` converte (DP1, opção a); o banco e
+  os dashboards não mudam.
 
 ### D4 — Identidade
 
 - O device é derivado da **PSK identity** do DTLS. O `bn` é validado contra ela: se
   divergir, a mensagem é rejeitada. Um device com credencial válida não pode escrever em
   nome de outro.
+- O `bn` com o id do device é redundante, mas fica (DP2, opção b): facilita ler pacotes
+  no debug. No firmware, o id deixa de vir do Kconfig e passa a ser provisionado pelo
+  shell (`rdws id set <id>`, em `settings`, como a PSK).
 
 ### D5 — Diagnóstico como série temporal, em tabela própria
 
@@ -163,7 +170,9 @@ que o device reiniciou.
   `sensor_readings`, como hoje).
 - Registros com nome reservado de diagnóstico → agrupados por timestamp resolvido numa
   linha de `device_telemetry`.
-- `seq`/`trigger` → metadados da mensagem (log, detecção de perda, priorização futura).
+- `seq` → metadado da mensagem (log, detecção de perda).
+- `fl_` → flags da leitura (DP3). Um registro com o bit de trigger marca a mensagem para
+  priorização futura.
 - O firmware não conhece essa separação.
 
 ### D9 — Diagnóstico do sistema de arquivos (LittleFS)
@@ -220,11 +229,25 @@ Uma estação sem conectividade não consegue reportar que está sem conectivida
 O contrato vai mudar de qualquer jeito, então definir junto o corpo do ACK, hoje vazio:
 `config_version` e `rules_version` (piggyback, `Plano_Ingestion.md` e
 `Plano_Firmware_WeatherNode.md` §3). É pré-requisito do passo 4 do firmware (config vinda
-do backend). Formato do corpo (SenML, JSON curto ou CBOR) a definir junto com DP1–DP3.
+do backend).
 
-## Decisões pendentes (DP)
+Decidido (2026-10-05): **JSON curto**, Content-Format `50`:
 
-### DP1 — Referência de unidades (D3)
+```json
+{"cfg":3,"rul":1}
+```
+
+- SenML é para medições; versões de config ficariam forçadas nele.
+- CBOR entra junto com a Fase 4. Até lá o JSON é legível no debug, e o Zephyr tem `json.h`
+  para o parse.
+- `2.04` **sem corpo** continua válido e significa "nada mudou": firmware e servidor
+  podem ser atualizados em qualquer ordem.
+
+## Decisões de contrato (DP, decididas em 2026-10-05)
+
+Decisão em cada item; as opções ficam registradas pelo histórico.
+
+### DP1 — Referência de unidades (D3) → (a) o servidor converte
 
 - **(a) O servidor converte.** Tabela de conversão SenML ↔ `sensors.unit` no
   `IngestionService` (`Pa` → `kPa` ÷ 1000, `Cel` → `°C`, `%RH` → `%`). `u` passa a ser
@@ -235,7 +258,7 @@ do backend). Formato do corpo (SenML, JSON curto ou CBOR) a definir junto com DP
   cadastrada, e o servidor só confere `u` = `sensors.unit`.
 - Em ambos os casos, `u` divergente é erro explícito, nunca gravado silenciosamente.
 
-### DP2 — `bn` no device principal (D1, D4)
+### DP2 — `bn` no device principal (D1, D4) → (b) manter o id do device
 
 Com o device derivado da PSK (D4), o `bn` com o id do device é redundante, e obriga o
 firmware a conhecer o próprio `device_id` (hoje `CONFIG_RDWS_DEVICE_ID`, que se quer
@@ -246,7 +269,7 @@ eliminar).
 - **(b) Manter `bn` com o id do device**, validado contra a PSK como proposto no D4.
   Redundância deliberada, ao custo de bytes e de provisionar o id no firmware.
 
-### DP3 — Flags por registro (`trigger`, `partial_window`, `time_unsynced`)
+### DP3 — Flags por registro (`trigger`, `partial_window`, `time_unsynced`) → (a) `fl_`
 
 O firmware marca flags **por registro** (`struct record.flags`): qual leitura disparou o
 edge trigger, janela incompleta, timestamp sem relógio. A proposta original leva `trigger`
@@ -281,8 +304,8 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
   (formato atual) e, no formato atual, ignorar ou conferir o `device_id` do corpo.
 
 ### Fase 1 — Contrato e backend
-- ⬜ Decidir DP1, DP2 e DP3.
-- ⬜ Definir o corpo da resposta CoAP (D11).
+- ✅ Decidir DP1, DP2 e DP3 (2026-10-05).
+- ✅ Definir o corpo da resposta CoAP (D11, 2026-10-05).
 - ⬜ Definir lista de nomes reservados de diagnóstico.
 - ⬜ Definir como o id local de sensor é declarado em `device_config`.
 - ⬜ Migration Flyway: `device_telemetry` particionada, com política de retenção.
@@ -300,11 +323,12 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
 
 ### Fase 2 — Simulador e firmware
 - ⬜ `SensorSimulatorService` gerando SenML, incluindo diagnóstico e múltiplas janelas.
-- ⬜ Firmware: encoder SenML JSON com `bt`/`t`, `seq`, `trigger` e diagnóstico.
+- ⬜ Firmware: encoder SenML JSON com `bt`/`t`, `seq`, `fl_` e diagnóstico, unidades SenML
+  (pressão em `Pa`).
 - ⬜ Firmware: coleta de `fs_used_pct`, `fs_errors` e evento `fs_reformat`, uma vez por
   transmissão (D9). O `fs_reformat` exige trocar o automount por montagem explícita.
-- ⬜ Firmware: ids locais (D2) no lugar dos `sensor_id` do Kconfig, e sem `device_id`
-  conforme DP2.
+- ⬜ Firmware: ids locais (D2) no lugar dos `sensor_id` do Kconfig, e `device_id` no `bn`
+  (DP2) provisionado pelo shell (`rdws id set`) em vez do `CONFIG_RDWS_DEVICE_ID`.
 - ⬜ Teste ponta-a-ponta: firmware/simulador → `IngestionService` → fila → banco, sem
   duplicação em reenvio.
 
@@ -323,8 +347,6 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
 - Acesso do `IngestionService` (stateless) ao `device_config` para traduzir ids locais.
   Proposta em D2 (cache por poll); depende da pendência já registrada em
   `Plano_Ingestion.md` sobre validação contra `device_config`.
-- DP1, DP2 e DP3 (decisões pendentes acima).
-- Formato do corpo da resposta CoAP (D11).
 - Mecanismo de partições e retenção, comum a `sensor_readings` e `device_telemetry` (D5).
 - Período de retenção de `device_telemetry`.
 - Quando desativar o formato JSON legado no `IngestionService`.
