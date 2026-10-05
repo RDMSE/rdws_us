@@ -1,6 +1,7 @@
 //
 // SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update,
-// sensor.delete
+// sensor.delete, plus internal-only sensor.list_owners (not in routes.json; IngestionService's
+// sensor_id -> device_id cache, Plano_Telemetria.md Fase 0)
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
@@ -75,8 +76,8 @@ public:
     identity.version = "v1.0.0";
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
-    identity.capabilities = {"sensor.list", "sensor.get", "sensor.create", "sensor.update",
-                             "sensor.delete"};
+    identity.capabilities = {"sensor.list",   "sensor.get",    "sensor.create",
+                             "sensor.update", "sensor.delete", "sensor.list_owners"};
   }
 
   bool initialize() {
@@ -125,6 +126,7 @@ private:
             {"sensor.create", handleCreate},
             {"sensor.update", handleUpdate},
             {"sensor.delete", handleDelete},
+            {"sensor.list_owners", handleListOwners},
         };
 
     try {
@@ -156,6 +158,26 @@ private:
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& s : sensors) {
         arr.PushBack(sensorToJson(s, alloc), alloc);
+      }
+      return arr;
+    });
+  }
+
+  // Bulk sensor_id -> device_id pairs, so IngestionService can drop readings for sensors that
+  // don't belong to the device authenticated by the DTLS PSK.
+  static rapidjson::Document handleListOwners(const rdws::utils::CapabilityContext& ctx,
+                                              rdws::sensor::SensorService& svc) {
+    const auto sensors = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findAll();
+    }();
+
+    auto t = ctx.profiler.scoped("json.serialize");
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& s : sensors) {
+        arr.PushBack(json::JsonObj(alloc).set("id", s.id).set("device_id", s.deviceId).take(),
+                     alloc);
       }
       return arr;
     });
