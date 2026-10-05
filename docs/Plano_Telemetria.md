@@ -362,7 +362,7 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
   para o device guardar os arquivos e reenviar, em vez de descartar tudo. Sensor recém-criado
   só é aceito após o próximo refresh (até 60 s). Validado no QA em 2026-10-05.
 
-### Fase 1 — Contrato e backend
+### Fase 1 — Contrato e backend ✅
 - ✅ Decidir DP1, DP2 e DP3 (2026-10-05).
 - ✅ Definir o corpo da resposta CoAP (D11, 2026-10-05).
 - ✅ 1a. Decisões F1–F4 e lista de nomes de diagnóstico (D2), 2026-10-05.
@@ -376,11 +376,13 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
   (DP1), `flags` (F3, migration com `sensor_readings.flags`). Diagnóstico só logado.
   Validado no QA em 2026-10-05 (`V10`; pacote misto com descartes por `fl_`, unidade e
   dono; `Pa` → `kPa`; `bn` de outro device → `4.03`).
-- ⬜ 1e. Migration `device_telemetry` (D5, sem partição — F2); `IngestionService`
+- ✅ 1e. Migration `device_telemetry` (D5, sem partição — F2); `IngestionService`
   publica o diagnóstico numa fila `device_telemetry`, agrupado por timestamp; o
   `ReadingWriterService` consome e grava com idempotência. Decidido em 2026-10-05: `seq`
   vai no `data`; conflito em `(device_id, timestamp)` mescla as chaves
   (`data || EXCLUDED.data`); o próprio `ReadingWriterService` consome as duas filas.
+  Validado no QA em 2026-10-05 (`V11`; dois instantes viram duas linhas; reenvio não
+  duplica; `boot_count` mesclado na linha existente).
 
 ### Fase 2 — Simulador e firmware
 - ⬜ `SensorSimulatorService` gerando SenML, incluindo diagnóstico e múltiplas janelas.
