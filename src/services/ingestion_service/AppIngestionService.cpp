@@ -4,6 +4,9 @@
 // conecta no Postgres, só ao gateway (device_credential.list_active, refresh
 // periódico do cache de PSKs) e ao RabbitMQ (produtor, uma mensagem por leitura).
 //
+// Identidade: o device vem da PSK identity da sessão DTLS; um device_id no corpo diferente
+// dele é rejeitado com 4.03 (Plano_Telemetria.md, Fase 0).
+//
 // Validação: só formato mínimo (campos obrigatórios presentes/tipos corretos) —
 // validação completa contra device_config fica para uma iteração futura
 // (Plano_Ingestion_Implementacao.md).
@@ -109,11 +112,12 @@ private:
   std::thread refreshThread_;
   std::atomic<bool> running_{false};
 
-  // psk_identity -> plaintext key, refreshed periodically (poll instead of the
+  // psk_identity -> plaintext key + owning device, refreshed periodically (poll instead of the
   // EventBus bridge that Plano_DeviceCredentials.md envisions — see
   // Plano_Ingestion_Implementacao.md for the trade-off).
   struct CachedCredential {
     std::string key;
+    std::string deviceId;
     coap_bin_const_t bin{}; // .s points into `key`'s storage, kept alive by the map
   };
   std::mutex cacheMutex_;
@@ -159,12 +163,14 @@ private:
     for (const auto& entry : dataArr->GetArray()) {
       const auto identity = json::getString(entry, "psk_identity");
       const auto keyHex = json::getString(entry, "psk_key");
-      if (!identity || !keyHex) {
+      const auto deviceId = json::getString(entry, "device_id");
+      if (!identity || !keyHex || !deviceId) {
         continue;
       }
       const auto keyBytes = rdws::crypto::fromHex(*keyHex);
       CachedCredential cred;
       cred.key = std::string(keyBytes.begin(), keyBytes.end());
+      cred.deviceId = *deviceId;
       auto [it, inserted] = pskCache_.emplace(*identity, std::move(cred));
       it->second.bin.length = it->second.key.size();
       it->second.bin.s = reinterpret_cast<const uint8_t*>(it->second.key.data());
@@ -222,7 +228,7 @@ private:
                                      coap_pdu_t* response) {
                                     auto* self = static_cast<AppIngestionService*>(
                                         coap_context_get_app_data(coap_session_get_context(session)));
-                                    self->onRequest(request, response);
+                                    self->onRequest(session, request, response);
                                   });
     coap_add_resource(ctx, resource);
 
@@ -235,7 +241,27 @@ private:
     coap_free_context(ctx);
   }
 
-  void onRequest(const coap_pdu_t* request, coap_pdu_t* response) {
+  // Device bound to the DTLS session's PSK identity (Plano_Telemetria.md, Fase 0). Empty if
+  // the credential left the cache (revoked/rotated) after the handshake.
+  std::string authenticatedDeviceId(coap_session_t* session) {
+    const coap_bin_const_t* identity = coap_session_get_psk_identity(session);
+    if (identity == nullptr) {
+      return {};
+    }
+    const std::string identityStr(reinterpret_cast<const char*>(identity->s), identity->length);
+    std::scoped_lock lock(cacheMutex_);
+    const auto it = pskCache_.find(identityStr);
+    return it == pskCache_.end() ? std::string{} : it->second.deviceId;
+  }
+
+  void onRequest(coap_session_t* session, const coap_pdu_t* request, coap_pdu_t* response) {
+    const auto deviceId = authenticatedDeviceId(session);
+    if (deviceId.empty()) {
+      logger::warn("IngestionService: session has no known PSK identity, rejecting", "");
+      coap_pdu_set_code(response, COAP_RESPONSE_CODE_UNAUTHORIZED);
+      return;
+    }
+
     const uint8_t* data = nullptr;
     size_t len = 0, offset = 0, total = 0;
     coap_get_data_large(request, &len, &data, &offset, &total);
@@ -244,10 +270,11 @@ private:
         ? std::string(reinterpret_cast<const char*>(data), len)
         : std::string{};
 
-    const int publishedCount = handlePayload(body);
+    const int result = handlePayload(deviceId, body);
 
-    coap_pdu_set_code(response, publishedCount >= 0 ? COAP_RESPONSE_CODE_CHANGED
-                                                    : COAP_RESPONSE_CODE_BAD_REQUEST);
+    coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
+                                : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
+                                                         : COAP_RESPONSE_CODE_CHANGED);
   }
 
   // Optional `location: {"lat": ..., "lon": ...}` on the payload (Plano_Ingestion.md) -
@@ -275,19 +302,27 @@ private:
     }
   }
 
-  // Returns the number of readings published, or -1 on a format error (missing
-  // device_id/readings, or a reading missing required fields).
-  int handlePayload(const std::string& body) {
+  static constexpr int kFormatError = -1;
+  static constexpr int kForbidden = -2;
+
+  // Returns the number of readings published, kFormatError on a malformed payload (missing
+  // device_id/readings), or kForbidden when the body's device_id isn't the authenticated one.
+  int handlePayload(const std::string& authDeviceId, const std::string& body) {
     rapidjson::Document doc;
     if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
       logger::warn("IngestionService: malformed JSON payload", "");
-      return -1;
+      return kFormatError;
     }
     const auto deviceId = json::getString(doc, "device_id");
     const auto* readings = json::getArray(doc, "readings");
     if (!deviceId || readings == nullptr) {
       logger::warn("IngestionService: payload missing device_id/readings", "");
-      return -1;
+      return kFormatError;
+    }
+    if (*deviceId != authDeviceId) {
+      logger::warn("IngestionService: payload device_id doesn't match the PSK, rejecting",
+                   "authenticated=" + authDeviceId + " payload=" + *deviceId);
+      return kForbidden;
     }
 
     if (const auto* location = json::getObject(doc, "location")) {
