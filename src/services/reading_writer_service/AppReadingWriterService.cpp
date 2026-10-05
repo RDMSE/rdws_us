@@ -4,7 +4,7 @@
 // connection at all: just a direct Postgres connection and an AMQP consumer.
 //
 // Consumes the "sensor_readings" queue (one message per reading, published by
-// IngestionService) and writes to sensor_readings, idempotently (UNIQUE(sensor_id,
+// IngestionService; optional "flags" = SenML fl_ bitmask, V10) and writes to sensor_readings, idempotently (UNIQUE(sensor_id,
 // timestamp), V8 migration) — only acks after the insert is confirmed, so a crash
 // mid-processing leaves the message for redelivery instead of losing it.
 //
@@ -76,7 +76,10 @@ private:
       return true;
     }
 
-    const bool ok = repo_.insert(*sensorId, *timestamp, std::to_string(*value));
+    // Optional: only SenML payloads carry fl_ (Plano_Telemetria.md, DP3); legacy JSON doesn't.
+    const int flags = json::getInt(doc, "flags").value_or(0);
+
+    const bool ok = repo_.insert(*sensorId, *timestamp, std::to_string(*value), flags);
     if (!ok) {
       logger::error("ReadingWriterService: DB insert failed, leaving message unacked", body);
       return false;
