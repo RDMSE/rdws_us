@@ -67,34 +67,48 @@ Exemplo:
 
 ```json
 [
-  {"bn":"1234/", "bt":1791035100, "n":"seq", "v":812},
-  {"n":"1", "u":"Cel", "v":25.4, "fl_":2},
-  {"n":"2", "u":"%RH", "v":62.1},
-  {"n":"3", "u":"Pa",  "v":98780},
-  {"n":"7", "u":"V",   "v":3.912},
+  {"bn":"12/", "bt":1791035100, "n":"seq", "v":812},
+  {"n":"31", "u":"Cel", "v":25.4, "fl_":2},
+  {"n":"32", "u":"%RH", "v":62.1},
+  {"n":"33", "u":"Pa",  "v":98780},
+  {"n":"37", "u":"V",   "v":3.912},
   {"n":"rssi", "v":-67},
-  {"n":"1", "t":600, "v":25.1},
-  {"n":"2", "t":600, "v":61.8}
+  {"n":"31", "t":600, "v":25.1},
+  {"n":"32", "t":600, "v":61.8}
 ]
 ```
 
 ### D2 — Nomes (`n`)
 
-- **Sensores**: `n` é um **id local** do sensor, definido em `device_config`. O
-  `IngestionService` traduz id local → `sensor_id` global. Isso desacopla o firmware dos
-  ids do banco.
-  - Efeito de segurança: um id local só existe dentro do device autenticado (D4), então a
-    estação não consegue gravar em sensor de outro device. Hoje consegue, porque manda
-    `sensor_id` global.
-  - Resolve o mapeamento canal → `sensor_id` fixo no build do firmware (ponto em aberto
-    do `Plano_Firmware_WeatherNode.md`).
-  - O `IngestionService` não acessa o banco: manter um **cache em memória do mapeamento
-    id local → `sensor_id` por device**, recarregado por poll periódico via capability,
-    no mesmo padrão do cache de PSK (`device_credential.list_active`).
-- **Diagnóstico**: nomes reservados (`rssi`, `snr`, `boot_count`, `reset_reason`, …).
+O nome completo de um registro é `bn` + `n` (RFC 8428 §4.5.1). O servidor confere o
+prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
+
+- **Sensores**: `n` numérico é o **`sensor_id` global** do banco (F1: o id local
+  proposto antes foi abandonado). Os dois motivos dele já estão cobertos: a segurança
+  pelo descarte de sensor de outro device (Fase 0) e o mapeamento fixo no build pela
+  config vinda do backend (passo 4 do firmware), que já usa `sensor_id` global.
 - **Metadados de pacote**: o SenML não tem campos de cabeçalho. `seq` viaja como registro
   (`{"n":"seq","v":...}`). O `trigger` deixou de ser registro de pacote e virou flag do
   registro que disparou (DP3).
+- **Diagnóstico**: qualquer outro nome. Os conhecidos (2026-10-05):
+
+  | `n`             | Tipo | Unidade implícita | Significado                               |
+  |-----------------|------|-------------------|-------------------------------------------|
+  | `rssi`          | `v`  | dBm               | Sinal do enlace (Wi-Fi/NB-IoT), D5        |
+  | `snr`           | `v`  | dB                | Relação sinal-ruído (NB-IoT), D5          |
+  | `boot_count`    | `v`  | contagem          | Contador de boots, D7                     |
+  | `reset_reason`  | `v`  | bitmask           | Causa do reset (`hwinfo` do Zephyr), D7   |
+  | `fs_used_pct`   | `v`  | % (0–100)         | Ocupação do LittleFS, D9                  |
+  | `fs_errors`     | `v`  | contagem          | Falhas de escrita/montagem, D9            |
+  | `fs_reformat`   | `vb` | evento            | FS reformatado (dado perdido), D9         |
+  | `backlog_count` | `v`  | registros         | Pendentes, só com envio parcial (D9)      |
+
+  - Diagnóstico vai **sem `u`**: a unidade é fixa por nome (RFC 8428 permite registro
+    sem unidade quando o contexto a define). Evita `dBm` (só existe como unidade
+    secundária, RFC 8798) e `%` (não recomendado no registro SenML).
+  - Nome fora da tabela não é erro: vai para `device_telemetry` mesmo assim (o JSONB do D5
+    existe para o firmware poder adicionar métricas sem mudar o servidor), e a tabela
+    acima é atualizada quando a métrica ganhar uso.
 
 ### D3 — Unidades (DP1 decidido: o servidor converte)
 
@@ -129,7 +143,7 @@ CREATE TABLE device_telemetry (
   data       JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (device_id, timestamp)
-) PARTITION BY RANGE (timestamp);
+);
 ```
 
 Motivos:
@@ -146,11 +160,12 @@ Trade-off aceito: queries do tipo `(data->>'rssi')::int` e sem validação de ti
 banco. Se alguma métrica virar consulta frequente, criar índice de expressão ou
 promovê-la a coluna.
 
-Particionamento: o `UNIQUE (device_id, timestamp)` é válido na tabela particionada porque
-inclui a chave de partição. Falta definir **quem cria as partições futuras e derruba as
-antigas** (retenção): `pg_partman`, um job agendado ou uma migration periódica. O mesmo
-problema existe para `sensor_readings` (`Plano_DB_IOT_Sensors.md`), então a solução deve
-ser uma só para as duas tabelas.
+Particionamento (F2, 2026-10-05): **a tabela nasce sem partição**, como `sensor_readings`.
+O volume é de uma linha por transmissão por device. Particionar e reter as duas tabelas é
+um item próprio, depois (Fase 3): falta definir **quem cria as partições futuras e
+derruba as antigas** (`pg_partman`, um job agendado ou uma migration periódica), e a
+solução deve ser uma só para as duas. O `UNIQUE (device_id, timestamp)` continua válido
+quando particionar, porque inclui a chave de partição.
 
 ### D6 — Bateria e painel solar permanecem em `sensor_readings`
 
@@ -166,13 +181,14 @@ que o device reiniciou.
 
 ### D8 — Roteamento no `IngestionService`
 
-- Registros com `n` numérico (id local de sensor) → `sensor_readings` (via fila
-  `sensor_readings`, como hoje).
+- Registros com `n` numérico (`sensor_id`) → `sensor_readings` (via fila
+  `sensor_readings`, como hoje), depois de conferir o dono (Fase 0) e converter a
+  unidade (DP1).
 - Registros com nome reservado de diagnóstico → agrupados por timestamp resolvido numa
   linha de `device_telemetry`.
 - `seq` → metadado da mensagem (log, detecção de perda).
-- `fl_` → flags da leitura (DP3). Um registro com o bit de trigger marca a mensagem para
-  priorização futura.
+- `fl_` → flags da leitura (DP3), gravadas em `sensor_readings.flags` (F3). Um registro
+  com o bit de trigger marca a mensagem para priorização futura.
 - O firmware não conhece essa separação.
 
 ### D9 — Diagnóstico do sistema de arquivos (LittleFS)
@@ -223,6 +239,7 @@ Uma estação sem conectividade não consegue reportar que está sem conectivida
   descarregou o backlog.
 - Esses alertas são **de frota** (operação/manutenção), não do produtor. Ficam separados
   do `AlertingService`, que avalia `sensor_readings`.
+- `last_seen` foi para a **Fase 3** (F4, 2026-10-05), junto da regra que o consome.
 
 ### D11 — Corpo da resposta CoAP
 
@@ -282,10 +299,28 @@ e não tem lugar para as outras duas.
 - **(b) Registros de pacote**, como na proposta original, aceitando perder a associação
   com a leitura. `time_unsynced` não seria enviado (o firmware já não envia hoje).
 
+No servidor (F3, 2026-10-05):
+
+- Bits: `0x1` `time_unsynced`, `0x2` `trigger`, `0x4` `partial_window` (os mesmos de
+  `RECORD_FLAG_*` em `rdws_weather_node/src/sensing/record.h`).
+- Gravado em `sensor_readings.flags SMALLINT NOT NULL DEFAULT 0`: janela parcial é
+  informação de qualidade do dado, útil no dashboard.
+- Registro com `time_unsynced` é **descartado com log**: sem relógio, o timestamp não
+  significa nada.
+- Bit desconhecido é erro do registro (descartado com log), coerente com o `_` de
+  must-understand.
+
+## Decisões de implementação da Fase 1 (F, 2026-10-05)
+
+- **F1**: sem id local de sensor; `n` é o `sensor_id` global (D2).
+- **F2**: `device_telemetry` sem partição por enquanto (D5).
+- **F3**: `fl_` gravado em `sensor_readings.flags`; `time_unsynced` descartado (DP3).
+- **F4**: `last_seen` movido para a Fase 3 (D10).
+
 ## Futuro — estação como agregadora de sensores sem fio (fora do escopo deste device)
 
 - **Payload**: cada nó filho é outro `bn` no mesmo pacote SenML (ex.:
-  `"bn":"1234/ble-a3/"`). Sem JSON aninhado: o parser continua linear no firmware e no
+  `"bn":"12/ble-a3/"`). Sem JSON aninhado: o parser continua linear no firmware e no
   backend. Diagnóstico do nó filho (bateria do nó, RSSI do enlace BLE/ZigBee) segue o
   mesmo padrão.
 - **Banco**: `devices.type` já tem `gateway`. Adicionar `parent_device_id` em `devices`
@@ -297,37 +332,35 @@ e não tem lugar para as outras duas.
 
 ## Fases
 
-### Fase 0 — Identidade pela PSK (antes do SenML)
+### Fase 0 — Identidade pela PSK (antes do SenML) ✅
 Independente do formato, e pré-requisito de segurança. Pode valer já para o JSON atual.
 - ✅ `IngestionService`: obter a `psk_identity` da sessão DTLS e resolver o device
   (`list_active` passou a trazer o `device_id`). Credencial fora do cache → `4.01`.
   Validado no QA em 2026-10-05.
 - ✅ `IngestionService`: `device_id` do corpo diferente do da PSK → `4.03` (decidido em
   2026-10-05). Validado no QA com o device 12.
-- ⬜ `IngestionService`: `sensor_id` que não pertença ao device autenticado é descartado
+- ✅ `IngestionService`: `sensor_id` que não pertença ao device autenticado é descartado
   com log, e a mensagem segue com `2.04` (rejeitar faria o firmware reenviar para sempre).
   Mapa `sensor_id → device_id` por cache com poll, via capability nova `sensor.list_owners`.
   Enquanto o mapa nunca carregou (ex.: `SensorService` fora no startup), a resposta é `5.03`
   para o device guardar os arquivos e reenviar, em vez de descartar tudo. Sensor recém-criado
-  só é aceito após o próximo refresh (até 60 s).
+  só é aceito após o próximo refresh (até 60 s). Validado no QA em 2026-10-05.
 
 ### Fase 1 — Contrato e backend
 - ✅ Decidir DP1, DP2 e DP3 (2026-10-05).
 - ✅ Definir o corpo da resposta CoAP (D11, 2026-10-05).
-- ⬜ Definir lista de nomes reservados de diagnóstico.
-- ⬜ Definir como o id local de sensor é declarado em `device_config`.
-- ⬜ Migration Flyway: `device_telemetry` particionada, com política de retenção.
-- ⬜ Mecanismo de criação/retenção de partições, comum a `sensor_readings` (D5).
-- ⬜ `IngestionService`: parser SenML JSON (Content-Format `110`), mantendo o formato JSON
-  atual durante a transição (despacho por Content-Format).
-- ⬜ `IngestionService`: identidade do SenML conforme DP2 (a partir da Fase 0).
-- ⬜ `IngestionService`: cache id local → `sensor_id` por device (D2).
-- ⬜ `IngestionService`: unidades conforme DP1.
-- ⬜ `IngestionService`: tradução id local → `sensor_id` e roteamento (D8).
-- ⬜ `IngestionService`: atualizar `devices.last_seen` a cada mensagem aceita (D10).
-- ⬜ `last_seen`: coluna `devices.last_seen` ou derivado das leituras (D10).
-- ⬜ `ReadingWriterService` (ou consumer dedicado): escrita idempotente em
-  `device_telemetry`.
+- ✅ 1a. Decisões F1–F4 e lista de nomes de diagnóstico (D2), 2026-10-05.
+- ⬜ 1b. `sensor.list_owners` traz também `unit`; o cache do `IngestionService` vira
+  `sensor_id → {device_id, unit}` (base para DP1).
+- ⬜ 1c. Parser SenML JSON como função pura em lib compartilhada, com testes unitários:
+  resolve `bn`/`bt`/`t`/`n`/`u`/`v`/`vb`/`fl_`, rejeita campo terminado em `_`
+  desconhecido, aceita qualquer número em `v`.
+- ⬜ 1d. `IngestionService`: despacho por Content-Format (`110` SenML, `50` JSON atual);
+  no SenML, prefixo do `bn` contra a PSK (`4.03`), dono do sensor, conversão de unidade
+  (DP1), `flags` (F3, migration com `sensor_readings.flags`). Diagnóstico só logado.
+- ⬜ 1e. Migration `device_telemetry` (D5, sem partição — F2); `IngestionService`
+  publica o diagnóstico numa fila `device_telemetry`, agrupado por timestamp; o
+  `ReadingWriterService` consome e grava com idempotência.
 
 ### Fase 2 — Simulador e firmware
 - ⬜ `SensorSimulatorService` gerando SenML, incluindo diagnóstico e múltiplas janelas.
@@ -335,12 +368,17 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
   (pressão em `Pa`).
 - ⬜ Firmware: coleta de `fs_used_pct`, `fs_errors` e evento `fs_reformat`, uma vez por
   transmissão (D9). O `fs_reformat` exige trocar o automount por montagem explícita.
-- ⬜ Firmware: ids locais (D2) no lugar dos `sensor_id` do Kconfig, e `device_id` no `bn`
-  (DP2) provisionado pelo shell (`rdws id set`) em vez do `CONFIG_RDWS_DEVICE_ID`.
+- ⬜ Firmware: `device_id` no `bn` (DP2) provisionado pelo shell (`rdws id set`) em vez
+  do `CONFIG_RDWS_DEVICE_ID`. Os `sensor_id` continuam globais (F1) e saem do Kconfig no
+  passo 4 (config vinda do backend).
 - ⬜ Teste ponta-a-ponta: firmware/simulador → `IngestionService` → fila → banco, sem
   duplicação em reenvio.
 
 ### Fase 3 — Observabilidade
+- ⬜ `last_seen`: coluna `devices.last_seen` ou derivado das leituras (D10, movido da
+  Fase 1 — F4).
+- ⬜ Partições e retenção de `sensor_readings` e `device_telemetry`, mecanismo único
+  (D5, F2).
 - ⬜ Regra de frota para estação silenciosa, baseada em `last_seen` (D10).
 - ⬜ Painel de atraso de ingestão (`created_at - timestamp`) por device (D10).
 - ⬜ Painéis Grafana de saúde da frota (RSSI/SNR por device, reinicializações, ocupação e
@@ -352,9 +390,6 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
 
 ## Pontos em aberto
 
-- Acesso do `IngestionService` (stateless) ao `device_config` para traduzir ids locais.
-  Proposta em D2 (cache por poll); depende da pendência já registrada em
-  `Plano_Ingestion.md` sobre validação contra `device_config`.
 - Mecanismo de partições e retenção, comum a `sensor_readings` e `device_telemetry` (D5).
 - Período de retenção de `device_telemetry`.
 - Quando desativar o formato JSON legado no `IngestionService`.

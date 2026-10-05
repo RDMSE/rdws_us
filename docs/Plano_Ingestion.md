@@ -35,7 +35,8 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 - **Contrato de payload e identidade: ver `Plano_Telemetria.md`.** Migração do JSON atual
   (Content-Format `50`) para SenML JSON (`110`, depois CBOR `112`), com despacho por
   Content-Format durante a transição; device derivado da `psk_identity` do handshake
-  (Fase 0, antes do SenML); ids locais de sensor traduzidos por cache de `device_config`;
+  (Fase 0, ✅ 2026-10-05); `sensor_id` global no `n`, conferido contra o dono por cache
+  (`sensor.list_owners`);
   diagnóstico do device roteado para `device_telemetry`; corpo da resposta CoAP com
   `config_version`/`rules_version` (D11).
 - Exposição à internet (devices reais sem Tailscale): VPS como porta de entrada pública,
@@ -107,10 +108,11 @@ Resumo do que já está no código:
   `IngestionService` — adiada nesta entrega, só validação mínima de formato
   (`Plano_Ingestion_Implementacao.md`). `IngestionService` continua stateless quanto à
   persistência; falta definir como um serviço stateless acessaria `device_config`
-  (provavelmente uma nova capability). O `Plano_Telemetria.md` (D2) propõe um cache por
-  poll, no padrão do cache de PSK, que serve também para traduzir ids locais de sensor.
-- **Identidade pelo handshake** — hoje o `device_id` vem do corpo e não é conferido
-  contra a PSK, e qualquer `sensor_id` é aceito. Fase 0 do `Plano_Telemetria.md`.
+  (provavelmente uma nova capability), no padrão do cache por poll de PSK e de
+  `sensor.list_owners`.
+- ✅ **Identidade pelo handshake** (2026-10-05) — device derivado da `psk_identity`,
+  `device_id` divergente → `4.03`, `sensor_id` de outro device descartado. Fase 0 do
+  `Plano_Telemetria.md`.
 - **Invalidação de credencial em tempo real** — `IngestionService` usa poll periódico
   (60s) em vez do bridge de `device_credential.changed` via EventBus (que exigiria
   mudança no lado do gateway, fora de escopo por ora).
