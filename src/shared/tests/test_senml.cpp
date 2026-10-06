@@ -111,6 +111,8 @@ TEST(SenmlParse, InvalidFlags_Rejected) {
   EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":"2"}])", kNow));
 }
 
+using rdws::senml::fromIso8601;
+using rdws::senml::fromSensorUnit;
 using rdws::senml::toIso8601;
 using rdws::senml::toSensorUnit;
 
@@ -134,4 +136,41 @@ TEST(SenmlConversion, Iso8601) {
   EXPECT_EQ(toIso8601(1791035100), "2026-10-03T13:45:00.000Z");
   EXPECT_EQ(toIso8601(1791035100.25), "2026-10-03T13:45:00.250Z");
   EXPECT_EQ(toIso8601(1791035100.9996), "2026-10-03T13:45:01.000Z");
+}
+
+TEST(SenmlConversion, FromSensorUnit_InverseRules) {
+  const auto pressure = fromSensorUnit(98.78, "kPa", "pressure");
+  EXPECT_EQ(pressure.unit, "Pa");
+  EXPECT_DOUBLE_EQ(pressure.value, 98780);
+  EXPECT_EQ(fromSensorUnit(21.5, "°C", "temperature").unit, "Cel");
+  EXPECT_EQ(fromSensorUnit(55, "%", "humidity").unit, "%RH");
+  const auto moisture = fromSensorUnit(31, "%", "moisture");
+  EXPECT_EQ(moisture.unit, "/");
+  EXPECT_DOUBLE_EQ(moisture.value, 0.31);
+  EXPECT_EQ(fromSensorUnit(1200, "lux", "luminosity").unit, "lx");
+  EXPECT_EQ(fromSensorUnit(6.8, "pH", "ph").unit, "pH"); // no rule: unchanged
+}
+
+TEST(SenmlConversion, FromSensorUnit_RoundTrip) {
+  struct Case {
+    double value;
+    const char* unit;
+    const char* type;
+  };
+  for (const auto& c : {Case{98.78, "kPa", "pressure"}, Case{21.5, "°C", "temperature"},
+                        Case{55, "%", "humidity"}, Case{31, "%", "moisture"},
+                        Case{1200, "lux", "luminosity"}, Case{6.8, "pH", "ph"}}) {
+    const auto senml = fromSensorUnit(c.value, c.unit, c.type);
+    const auto back = toSensorUnit(senml.value, senml.unit, c.unit);
+    ASSERT_TRUE(back) << c.unit << "/" << c.type;
+    EXPECT_NEAR(*back, c.value, 1e-9) << c.unit << "/" << c.type;
+  }
+}
+
+TEST(SenmlConversion, FromIso8601) {
+  EXPECT_DOUBLE_EQ(*fromIso8601("2026-10-03T13:45:00Z"), 1791035100);
+  EXPECT_DOUBLE_EQ(*fromIso8601("2026-10-03T13:45:00.250Z"), 1791035100.25);
+  EXPECT_FALSE(fromIso8601("2026-10-03 13:45:00"));
+  EXPECT_FALSE(fromIso8601("2026-10-03T13:45:00+02:00"));
+  EXPECT_FALSE(fromIso8601("garbage"));
 }

@@ -18,6 +18,7 @@ constexpr char kPskIdentity[] = "sim-device-1";
 constexpr char kPskKey[] = "unit-test-psk-key-32-bytes-long";
 
 std::atomic<bool> gReceivedExpectedPayload{false};
+std::atomic<int> gReceivedContentFormat{-1};
 
 void handlePost(coap_resource_t* /*resource*/, coap_session_t* /*session*/,
                const coap_pdu_t* request, const coap_string_t* /*query*/,
@@ -29,6 +30,11 @@ void handlePost(coap_resource_t* /*resource*/, coap_session_t* /*session*/,
   coap_get_data_large(request, &len, &data, &offset, &total);
   if (len == 4 && std::memcmp(data, "ping", 4) == 0) {
     gReceivedExpectedPayload = true;
+  }
+  coap_opt_iterator_t it;
+  if (const coap_opt_t* opt = coap_check_option(request, COAP_OPTION_CONTENT_FORMAT, &it)) {
+    gReceivedContentFormat =
+        static_cast<int>(coap_decode_var_bytes(coap_opt_value(opt), coap_opt_length(opt)));
   }
   coap_pdu_set_code(response, COAP_RESPONSE_CODE_CHANGED);
 }
@@ -93,16 +99,19 @@ private:
 
 TEST(CoapDtlsClientTest, SendConfirmable_CompletesDtlsHandshakeAndDeliversPayload) {
   gReceivedExpectedPayload = false;
+  gReceivedContentFormat = -1;
   TestCoapServer server;
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   rdws::coap::CoapDtlsClient client("127.0.0.1", kTestPort, 5000);
   const std::vector<uint8_t> payload = {'p', 'i', 'n', 'g'};
 
-  const bool ok = client.sendConfirmable(kPskIdentity, kPskKey, payload);
+  const bool ok =
+      client.sendConfirmable(kPskIdentity, kPskKey, payload, COAP_MEDIATYPE_APPLICATION_SENML_JSON);
 
   EXPECT_TRUE(ok);
   EXPECT_TRUE(gReceivedExpectedPayload.load());
+  EXPECT_EQ(gReceivedContentFormat.load(), COAP_MEDIATYPE_APPLICATION_SENML_JSON);
 }
 
 TEST(CoapDtlsClientTest, SendConfirmable_WrongPskFailsHandshake) {
@@ -113,7 +122,7 @@ TEST(CoapDtlsClientTest, SendConfirmable_WrongPskFailsHandshake) {
   const std::vector<uint8_t> payload = {'p', 'i', 'n', 'g'};
 
   const bool ok = client.sendConfirmable("unknown-identity", "wrong-key-not-provisioned-32byte",
-                                         payload);
+                                         payload, COAP_MEDIATYPE_APPLICATION_SENML_JSON);
 
   EXPECT_FALSE(ok);
 }

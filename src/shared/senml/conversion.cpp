@@ -41,6 +41,45 @@ std::optional<double> toSensorUnit(double value, const std::string& senmlUnit,
   return std::nullopt;
 }
 
+SenmlValue fromSensorUnit(double value, const std::string& sensorUnit,
+                          const std::string& sensorType) {
+  if (sensorUnit == "%") {
+    if (sensorType == "humidity") {
+      return {"%RH", value};
+    }
+    if (sensorType == "moisture") {
+      return {"/", value / 100.0};
+    }
+    return {sensorUnit, value};
+  }
+  for (const auto& rule : kUnitRules) {
+    if (sensorUnit == rule.sensor) {
+      return {rule.senml, value / rule.factor};
+    }
+  }
+  return {sensorUnit, value};
+}
+
+std::optional<double> fromIso8601(const std::string& iso) {
+  std::tm tm{};
+  double seconds = 0;
+  char zone = '\0';
+  if (std::sscanf(iso.c_str(), "%4d-%2d-%2dT%2d:%2d:%lf%c", &tm.tm_year, &tm.tm_mon,
+                  &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &seconds, &zone) != 7 ||
+      zone != 'Z') {
+    return std::nullopt;
+  }
+  tm.tm_year -= 1900;
+  tm.tm_mon -= 1;
+  const double whole = std::floor(seconds);
+  tm.tm_sec = static_cast<int>(whole);
+  const std::time_t t = timegm(&tm);
+  if (t == static_cast<std::time_t>(-1)) {
+    return std::nullopt;
+  }
+  return static_cast<double>(t) + (seconds - whole);
+}
+
 std::string toIso8601(double epochSeconds) {
   const double whole = std::floor(epochSeconds);
   auto seconds = static_cast<std::time_t>(whole);
