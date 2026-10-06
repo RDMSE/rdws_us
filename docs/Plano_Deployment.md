@@ -466,6 +466,14 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
 8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
    (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
    pipeline de ingestão já estável, plano próprio detalha seu desenho.
+   - QA (2026-10-06): `scripts/qa_simulators.sh`, chamado no fim do `deploy-qa.yml` (ou à
+     mão no homelab), constrói a imagem `rdws_us-sensor-simulator:qa` do checkout e recria
+     um container por device com `devices.is_simulated = true` (`rdws_sim_device_NN_qa`,
+     porta de controle 9100 + id, volume `rdws_qa_sim_data_NN` para o buffer). Remove os
+     containers de devices que deixaram de ser simulados. Os containers levam os labels
+     `rdws.env=qa`/`rdws.service=sensor_simulator`, que o promtail de QA também coleta.
+     Substitui os containers manuais `sim-device-NN` a partir de uma imagem builder
+     etiquetada à mão, que nenhum workflow atualizava.
 9. **Escalabilidade horizontal do gateway** — backlog, sem data. O `HttpGateway` hoje
    assume instância única (conexões de socket com backends, config/rotas em arquivo local
    por instância); ver `Plano_Gateway_HTTP.md` (Fase 14) para o levantamento completo e o

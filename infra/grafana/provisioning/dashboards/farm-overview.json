@@ -396,6 +396,98 @@
       "repeatDirection": "v"
     },
     {
+      "id": 30,
+      "title": "Device Health",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "title": "Device diagnostics",
+      "description": "Latest diagnostics each device reported in the selected time range (device_telemetry). Empty rows: no SenML diagnostics in the range (silent, or still on the legacy JSON payload).",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT device AS \"Device\", last_telemetry AS \"Last telemetry\", rssi AS \"RSSI (dBm)\",\n       boots AS \"Boots\",\n       NULLIF(concat_ws(', ',\n         CASE WHEN reset & 1    > 0 THEN 'PIN' END,\n         CASE WHEN reset & 2    > 0 THEN 'SOFTWARE' END,\n         CASE WHEN reset & 4    > 0 THEN 'BROWNOUT' END,\n         CASE WHEN reset & 8    > 0 THEN 'POWER-ON' END,\n         CASE WHEN reset & 16   > 0 THEN 'WATCHDOG' END,\n         CASE WHEN reset & 32   > 0 THEN 'DEBUG' END,\n         CASE WHEN reset & 128  > 0 THEN 'LOW-POWER WAKE' END,\n         CASE WHEN reset & 256  > 0 THEN 'CPU LOCKUP' END,\n         CASE WHEN reset & 4096 > 0 THEN 'HARDWARE' END,\n         CASE WHEN reset & 8192 > 0 THEN 'USER' END), '') AS \"Last reset\",\n       seq AS \"Last seq\"\nFROM (\n  -- Latest value of each diagnostic in the time range (device_telemetry, Plano_Telemetria.md D5).\n  -- LEFT JOIN keeps devices that sent nothing, so silent ones show up as empty rows.\n  SELECT d.id, d.type::text || ' #' || d.id::text AS device,\n         max(t.timestamp) AS last_telemetry,\n         (array_agg((t.data->>'rssi')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'rssi'))[1] AS rssi,\n         (array_agg((t.data->>'boot_count')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'boot_count'))[1] AS boots,\n         (array_agg((t.data->>'reset_reason')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'reset_reason'))[1] AS reset,\n         (array_agg((t.data->>'seq')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'seq'))[1] AS seq\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN device_telemetry t ON t.device_id = d.id AND $__timeFilter(t.timestamp)\n  WHERE (f.farm_id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n  GROUP BY d.id, d.type\n) diag\nORDER BY id",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RSSI (dBm)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": -80
+                    },
+                    {
+                      "color": "green",
+                      "value": -67
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last telemetry"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
       "id": 20,
       "title": "Logs (Loki)",
       "type": "logs",
@@ -403,7 +495,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 37
       },
       "datasource": {
         "type": "loki",
