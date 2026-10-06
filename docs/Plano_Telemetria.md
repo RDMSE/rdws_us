@@ -102,6 +102,7 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
   | `fs_errors`     | `v`  | contagem          | Falhas de escrita/montagem, D9            |
   | `fs_reformat`   | `vb` | evento            | FS reformatado (dado perdido), D9         |
   | `backlog_count` | `v`  | registros         | Pendentes, só com envio parcial (D9)      |
+  | `cfg_version`   | `v`  | versão            | Config que o device roda (D11)            |
 
   - Diagnóstico vai **sem `u`**: a unidade é fixa por nome (RFC 8428 permite registro
     sem unidade quando o contexto a define). Evita `dBm` (só existe como unidade
@@ -249,17 +250,25 @@ O contrato vai mudar de qualquer jeito, então definir junto o corpo do ACK, hoj
 `Plano_Firmware_WeatherNode.md` §3). É pré-requisito do passo 4 do firmware (config vinda
 do backend).
 
-Decidido (2026-10-05): **JSON curto**, Content-Format `50`:
+~~Decidido (2026-10-05): JSON curto `{"cfg":3,"rul":1}` com as versões, e `GET /config`
+quando divergirem.~~ **Revisto em 2026-10-06:** o device declara a versão que tem e a
+config viaja na própria resposta, só quando mudou:
 
-```json
-{"cfg":3,"rul":1}
-```
-
-- SenML é para medições; versões de config ficariam forçadas nele.
-- CBOR entra junto com a Fase 4. Até lá o JSON é legível no debug, e o Zephyr tem `json.h`
-  para o parse.
-- `2.04` **sem corpo** continua válido e significa "nada mudou": firmware e servidor
-  podem ser atualizados em qualquer ordem.
+- O device manda `cfg_version` como diagnóstico (D2), no primeiro pacote aceito de cada
+  ciclo (o mesmo que leva `boot_count`/`reset_reason`/`rssi`).
+- Se `cfg_version` diferir de `device_configurations.version`, o `2.04` **desse pacote**
+  traz a config completa (JSON, Content-Format `50`, Block2 se não couber num PDU).
+  Versão igual, ou pacote sem `cfg_version`: `2.04` sem corpo, como hoje.
+- O device guarda a config recebida e a aplica no fim do ciclo (ponto de sincronização,
+  `Plano_Firmware_WeatherNode.md` §5).
+- Uma ida e volta só, sem `GET /config`; a config só trafega quando muda; e o servidor
+  sabe qual versão cada device roda (vai para `device_telemetry` como qualquer
+  diagnóstico).
+- Compatível nos dois sentidos: firmware antigo, JSON legado e simulador não mandam
+  `cfg_version` e nunca recebem config.
+- Regras de edge trigger (`rul`): mesmo mecanismo quando existirem (passo 8 do firmware).
+- Sem RTC acertado o diagnóstico não vai e a config não é atualizada naquele ciclo —
+  mas sem RTC os registros também não saem.
 
 ## Decisões de contrato (DP, decididas em 2026-10-05)
 
