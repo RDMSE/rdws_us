@@ -48,6 +48,9 @@ jobs:
       - name: Build and deploy gateway + services
         run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
 
+      - name: Deploy sensor simulators (one per devices.is_simulated)
+        run: scripts/qa_simulators.sh .env.qa
+
       - name: Health check
         run: |
           for i in $(seq 1 30); do
