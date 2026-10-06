@@ -78,7 +78,7 @@ Exemplo:
 ]
 ```
 
-### D2 — Nomes (`n`)
+### D2 — Nomes (`n`) 
 
 O nome completo de um registro é `bn` + `n` (RFC 8428 §4.5.1). O servidor confere o
 prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
