@@ -17,6 +17,7 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceConfigRepository.h"
 #include "../../shared/repository/DeviceRepository.h"
+#include "../../shared/senml/conversion.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
 
@@ -200,6 +201,8 @@ private:
   rdws::device::DeviceRepository deviceRepo_;
   rdws::device_config::DeviceConfigRepository deviceConfigRepo_;
   std::vector<rdws::device::SimulatedSensor> sensors_;
+  uint64_t seq_ = 0;                       // SenML seq, one per transmission
+  std::mt19937 diagRng_{std::random_device{}()}; // synthetic RSSI
 
   std::unique_ptr<ServiceClient> credentialClient_;
   std::thread clientThread_;
@@ -353,11 +356,15 @@ private:
   void transmitNow() {
     std::scoped_lock lock(deviceFileMutex_);
 
-    rapidjson::Document payload(rapidjson::kObjectType);
-    auto& alloc = payload.GetAllocator();
-    json::JsonObj payloadObj(alloc);
-    payloadObj.set("device_id", deviceId_);
-    rapidjson::Value readingsArr(rapidjson::kArrayType);
+    // SenML pack (Plano_Telemetria.md, 2a): base record with bn/bt/seq, one record per
+    // buffered reading with the value converted from sensors.unit to its SenML unit, and a
+    // synthetic diagnostic snapshot at the current time, as the firmware sends.
+    struct PackEntry {
+      std::string sensorId;
+      double time;
+      rdws::senml::SenmlValue value;
+    };
+    std::vector<PackEntry> entries;
 
     std::vector<std::string> filesToClear;
     for (const auto& sensor : sensors_) {
@@ -374,35 +381,63 @@ private:
       }
       filesToClear.push_back(path);
       for (auto& reading : sensorReadings.GetArray()) {
+        const auto timestamp = utils::json::getString(reading, "timestamp");
+        const auto value = utils::json::getNumber(reading, "value");
+        const auto time = timestamp ? rdws::senml::fromIso8601(*timestamp) : std::nullopt;
 
-        const auto timestamp = utils::json::getString(reading,"timestamp");
-        const auto value = utils::json::getNumber(reading,"value");
-
-        if (!timestamp.has_value() || !value.has_value()) {
+        if (!time || !value) {
           logger::warn("SensorSimulatorService: skipping malformed reading entry",
-                      "device_id=" + deviceId_ + " sensor_id=" + sensor.sensorId);
+                       "device_id=" + deviceId_ + " sensor_id=" + sensor.sensorId);
           continue;
         }
-
-        json::JsonObj entry(alloc);
-        entry.set("sensor_id", sensor.sensorId)
-             .set("unit", sensor.unit)
-             .set("timestamp", timestamp.value())
-             .set("value", value.value());
-        readingsArr.PushBack(entry.take(), alloc);
+        entries.push_back({sensor.sensorId, *time,
+                           rdws::senml::fromSensorUnit(*value, sensor.unit, sensor.sensorType)});
       }
     }
-    // setValue moves readingsArr into payloadObj (leaves it null) — capture what we
-    // need before the move, not after.
-    const auto readingsCount = readingsArr.Size();
-    payloadObj.setValue("readings", std::move(readingsArr));
-    rapidjson::Value payloadValue = payloadObj.take();
-    payload.Swap(payloadValue);
 
+    const auto readingsCount = entries.size();
     if (readingsCount == 0) {
       logger::info("Nothing to transmit", "device_id=" + deviceId_);
       return;
     }
+
+    const double bt =
+        std::min_element(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+          return a.time < b.time;
+        })->time;
+    const auto now = static_cast<double>(std::time(nullptr));
+
+    rapidjson::Document payload(rapidjson::kArrayType);
+    auto& alloc = payload.GetAllocator();
+    auto record = [&](const std::string& name, double value, double time,
+                      const std::string& unit = {}) {
+      json::JsonObj rec(alloc);
+      rec.set("n", name);
+      if (!unit.empty()) {
+        rec.set("u", unit);
+      }
+      rec.set("v", value);
+      if (time != bt) {
+        rec.set("t", time - bt);
+      }
+      payload.PushBack(rec.take(), alloc);
+    };
+
+    {
+      json::JsonObj base(alloc);
+      base.set("bn", deviceId_ + "/")
+          .set("bt", static_cast<int64_t>(bt))
+          .set("n", "seq")
+          .set("v", static_cast<int64_t>(++seq_));
+      payload.PushBack(base.take(), alloc);
+    }
+    for (const auto& e : entries) {
+      record(e.sensorId, e.value.value, e.time, e.value.unit);
+    }
+    // Synthetic diagnostics: one "boot" per process, RSSI wandering in a typical Wi-Fi range
+    std::uniform_int_distribution<int> rssi(-85, -55);
+    record("boot_count", 1, now);
+    record("rssi", rssi(diagRng_), now);
 
     const auto credential = fetchActiveCredential();
     if (!credential) {
@@ -420,7 +455,7 @@ private:
     rdws::coap::CoapDtlsClient coapClient(ingestionHost_, ingestionPort_);
     const bool sent =
         coapClient.sendConfirmable(credential->pskIdentity, credential->pskKeyPlaintext,
-                                   payloadBytes);
+                                   payloadBytes, rdws::coap::kContentFormatSenmlJson);
     if (!sent) {
       logger::error("CoAP/DTLS transmission failed, keeping buffered readings",
                     "device_id=" + deviceId_);

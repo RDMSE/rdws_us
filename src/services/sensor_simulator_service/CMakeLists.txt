@@ -9,6 +9,7 @@ target_link_libraries(sensor_simulator_service PRIVATE
     rdws_shared_config
     rdws_shared_crypto
     rdws_shared_coap
+    rdws_shared_senml
     rdws_shared_logger
     httplib_wrapper
 )

@@ -33,7 +33,8 @@ coap_response_t onResponse(coap_session_t* session, const coap_pdu_t* /*sent*/,
 } // namespace
 
 bool CoapDtlsClient::sendConfirmable(const std::string& pskIdentity, const std::string& pskKey,
-                                     const std::vector<uint8_t>& payload) const {
+                                     const std::vector<uint8_t>& payload,
+                                     uint16_t contentFormat) const {
   ensureLibcoapStarted();
 
   coap_context_t* ctx = coap_new_context(nullptr);
@@ -82,6 +83,10 @@ bool CoapDtlsClient::sendConfirmable(const std::string& pskIdentity, const std::
     coap_free_context(ctx);
     return false;
   }
+
+  uint8_t cfBuf[4];
+  coap_add_option(pdu, COAP_OPTION_CONTENT_FORMAT,
+                  coap_encode_var_safe(cfBuf, sizeof(cfBuf), contentFormat), cfBuf);
 
   if (!payload.empty()) {
     coap_add_data_large_request(session, pdu, payload.size(), payload.data(), nullptr, nullptr);
