@@ -11,6 +11,9 @@ struct DeviceConfig {
   std::string id;
   std::string deviceId;
   std::string config; // JSON string (from JSONB)
+  int version = 0;    // owned by the DB, bumped on every config change (V12)
+  std::string deviceType; // devices.type, picks the config schema to validate against
+  bool isSimulated = false;
   std::string createdAt;
   std::string updatedAt; // empty if NULL
   std::string updatedBy;
