@@ -5,8 +5,9 @@
 #
 #   scripts/qa_simulators.sh [env-file]        # default: .env.qa
 #
-# - Devices come from the database, so marking/unmarking a device as simulated is enough:
-#   the next run starts/stops its container. Nothing to edit here or in the compose files.
+# - Devices come from the database: creating a device with is_simulated = true (the flag is
+#   immutable, V7) or deleting one is enough for the next run to start/stop its container.
+#   Nothing to edit here or in the compose files.
 # - Control port per device: 9100 + id (9109 for device 9), the same one the Bruno
 #   collection computes ("91" + id with 2 digits) for ids below 100.
 # - Each device keeps its unsent-readings buffer in its own volume (rdws_qa_sim_data_NN), so

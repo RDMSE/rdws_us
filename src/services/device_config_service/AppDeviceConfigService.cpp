@@ -145,6 +145,7 @@ private:
       obj.set("id", cfg->id)
           .set("deviceId", cfg->deviceId)
           .setJsonOrString("config", cfg->config)
+          .set("version", cfg->version)
           .set("createdAt", cfg->createdAt);
       if (!cfg->updatedAt.empty()) {
         obj.set("updatedAt", cfg->updatedAt);
