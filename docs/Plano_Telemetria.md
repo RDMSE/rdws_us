@@ -385,16 +385,28 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
   duplica; `boot_count` mesclado na linha existente).
 
 ### Fase 2 — Simulador e firmware
-- ⬜ `SensorSimulatorService` gerando SenML, incluindo diagnóstico e múltiplas janelas.
-- ⬜ Firmware: encoder SenML JSON com `bt`/`t`, `seq`, `fl_` e diagnóstico, unidades SenML
-  (pressão em `Pa`).
+Decidido em 2026-10-05: o simulador troca totalmente para SenML (S1), com tabela inversa de
+unidades por tipo de sensor (S2); no firmware, `seq` em RAM + `boot_count` (F-a), encoder
+legado removido (F-b), sem `device_id` provisionado o uplink não envia (F-c). Passos do
+firmware detalhados como T2b–T2d em `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`.
+
+- ✅ `SensorSimulatorService` gerando SenML (2a): `bn`/`bt`/`t`, `seq` por transmissão,
+  unidades via `rdws::senml::fromSensorUnit` (inversa de `toSensorUnit`; `%` vira `%RH` em
+  humidity e `/` em moisture), diagnóstico sintético (`boot_count`, `rssi`), Content-Format
+  110 no `CoapDtlsClient`. Validado no QA em 2026-10-06 (devices 9 e 10).
+- ✅ Firmware: encoder SenML JSON com `bt`/`t`, `seq`, `fl_` e diagnóstico (`rssi`,
+  `boot_count`, `reset_reason`), unidades SenML (pressão em `Pa`). Validado na L475 em
+  2026-10-05/06 (T2c, T2d).
 - ⬜ Firmware: coleta de `fs_used_pct`, `fs_errors` e evento `fs_reformat`, uma vez por
   transmissão (D9). O `fs_reformat` exige trocar o automount por montagem explícita.
-- ⬜ Firmware: `device_id` no `bn` (DP2) provisionado pelo shell (`rdws id set`) em vez
-  do `CONFIG_RDWS_DEVICE_ID`. Os `sensor_id` continuam globais (F1) e saem do Kconfig no
+  Adiado para depois do passo 4 do firmware (F-d).
+- ✅ Firmware: `device_id` no `bn` (DP2) provisionado pelo shell (`rdws id set`), sem o
+  `CONFIG_RDWS_DEVICE_ID` (T2b). Os `sensor_id` continuam globais (F1) e saem do Kconfig no
   passo 4 (config vinda do backend).
-- ⬜ Teste ponta-a-ponta: firmware/simulador → `IngestionService` → fila → banco, sem
-  duplicação em reenvio.
+- ✅ Teste ponta-a-ponta: firmware/simulador → `IngestionService` → fila → banco, sem
+  duplicação em reenvio (reset no meio do envio, 2026-10-06). Achado no caminho: o módulo
+  eswifi sai sempre da porta 5684, e a sessão DTLS órfã após reset prendia o device;
+  mitigado com timeout de sessão ociosa de 60 s no `IngestionService`.
 
 ### Fase 3 — Observabilidade
 - ⬜ `last_seen`: coluna `devices.last_seen` ou derivado das leituras (D10, movido da
