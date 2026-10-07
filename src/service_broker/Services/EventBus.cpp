@@ -32,8 +32,14 @@ void EventBus::start() {
 }
 
 void EventBus::stop() {
-  if (!running_.exchange(false)) {
-    return; // already stopped
+  {
+    // Flip the flag under the worker's mutex: changed outside it, the store and the notify
+    // can land between the worker's predicate check and its wait(), and that wakeup is lost
+    // — the worker sleeps forever and join() hangs (seen as a CI hang in EventBusTest).
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    if (!running_.exchange(false)) {
+      return; // already stopped
+    }
   }
   queueCv_.notify_all();
   if (workerThread_.joinable()) {
