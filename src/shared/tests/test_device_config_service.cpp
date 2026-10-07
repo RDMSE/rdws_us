@@ -120,3 +120,19 @@ TEST(DeviceConfigService, WeatherStation_ChipNameNotAccepted) {
                                  .updatedBy = "t"})
                    .isSuccess());
 }
+
+TEST(DeviceConfigService, WeatherStation_EnabledFlag) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false);
+  DeviceConfigService svc(repo);
+
+  EXPECT_TRUE(svc.update("12", {.configJson = R"({"onboard":[
+                                  {"chan":"temp","sensor_id":31,"enabled":false},
+                                  {"chan":"press","sensor_id":33}]})",
+                                .updatedBy = "t"})
+                  .isSuccess());
+  EXPECT_FALSE(svc.update("12", {.configJson = R"({"onboard":[
+                                   {"chan":"temp","sensor_id":31,"enabled":"no"}]})",
+                                 .updatedBy = "t"})
+                   .isSuccess());
+}
