@@ -11,4 +11,10 @@ bool DeviceTelemetryRepository::upsert(const std::string& deviceId, const std::s
   return db_.execCommand(command, {deviceId, timestamp, dataJson});
 }
 
+bool DeviceTelemetryRepository::deleteOlderThan(int days) {
+  return db_.execCommand(
+      "DELETE FROM device_telemetry WHERE timestamp < now() - make_interval(days => $1::int)",
+      {std::to_string(days)});
+}
+
 } // namespace rdws::device_telemetry
