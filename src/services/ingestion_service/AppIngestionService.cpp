@@ -301,7 +301,7 @@ private:
                                      coap_pdu_t* response) {
                                     auto* self = static_cast<AppIngestionService*>(
                                         coap_context_get_app_data(coap_session_get_context(session)));
-                                    self->onRequest(session, request, response);
+                                    self->onRequest(res, session, request, query, response);
                                   });
     coap_add_resource(ctx, resource);
 
@@ -327,7 +327,8 @@ private:
     return it == pskCache_.end() ? std::string{} : it->second.deviceId;
   }
 
-  void onRequest(coap_session_t* session, const coap_pdu_t* request, coap_pdu_t* response) {
+  void onRequest(coap_resource_t* resource, coap_session_t* session, const coap_pdu_t* request,
+                 const coap_string_t* query, coap_pdu_t* response) {
     const auto deviceId = authenticatedDeviceId(session);
     if (deviceId.empty()) {
       logger::warn("IngestionService: session has no known PSK identity, rejecting", "");
@@ -343,13 +344,68 @@ private:
         ? std::string(reinterpret_cast<const char*>(data), len)
         : std::string{};
 
-    const int result = isSenml(request) ? handleSenml(deviceId, body)
+    std::optional<long long> declaredCfg;
+    const int result = isSenml(request) ? handleSenml(deviceId, body, declaredCfg)
                                         : handlePayload(deviceId, body);
 
     coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
                                 : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
                                 : result == kUnavailable ? COAP_RESPONSE_CODE_SERVICE_UNAVAILABLE
                                                          : COAP_RESPONSE_CODE_CHANGED);
+
+    // Config piggyback (Plano_Telemetria.md, D11): the station declared the config version
+    // it runs; if it's behind, this 2.04 carries the current one. Block2 when it doesn't
+    // fit in one PDU — libcoap handles the follow-up block requests.
+    if (result >= 0 && declaredCfg) {
+      if (auto reply = configReply(deviceId, *declaredCfg)) {
+        auto* owned = new std::string(std::move(*reply));
+        coap_add_data_large_response(
+            resource, session, request, response, query, COAP_MEDIATYPE_APPLICATION_JSON, -1,
+            0, owned->size(), reinterpret_cast<const uint8_t*>(owned->data()),
+            [](coap_session_t*, void* app) { delete static_cast<std::string*>(app); }, owned);
+      }
+    }
+  }
+
+  // {"version": N, "config": {...}} when the device's config is newer than `declared`, else
+  // nullopt. Fetched on demand (device_config.get): it only runs once per uplink cycle per
+  // device, so no cache. A failure only logs — the station asks again next cycle.
+  std::optional<std::string> configReply(const std::string& deviceId, long long declared) {
+    rapidjson::Document req(rapidjson::kObjectType);
+    auto& alloc = req.GetAllocator();
+    rapidjson::Value pathParams(rapidjson::kObjectType);
+    pathParams.AddMember("id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    req.AddMember("pathParameters", pathParams, alloc);
+
+    const auto result = credentialClient_->invoke("device_config.get", req);
+    if (!result.success) {
+      logger::warn("IngestionService: device_config.get failed, config not sent",
+                   "device_id=" + deviceId + " " + result.errorMessage);
+      return std::nullopt;
+    }
+    rapidjson::Document envelope;
+    if (envelope.Parse(result.responsePayload.c_str()).HasParseError() || !envelope.IsObject()) {
+      return std::nullopt;
+    }
+    const auto* data = json::getObject(envelope, "data");
+    const auto version = data ? json::getInt(*data, "version") : std::nullopt;
+    const auto* config = data ? json::getObject(*data, "config") : nullptr;
+    if (!version || config == nullptr) {
+      logger::warn("IngestionService: device_config.get without version/config", deviceId);
+      return std::nullopt;
+    }
+    if (*version == declared) {
+      return std::nullopt;
+    }
+
+    rapidjson::Document reply(rapidjson::kObjectType);
+    auto& ralloc = reply.GetAllocator();
+    reply.AddMember("version", *version, ralloc);
+    reply.AddMember("config", rapidjson::Value(*config, ralloc), ralloc);
+    logger::info("IngestionService: sending config",
+                 "device_id=" + deviceId + " from=" + std::to_string(declared) +
+                     " to=" + std::to_string(*version));
+    return json::docToString(reply);
   }
 
   // Optional `location: {"lat": ..., "lon": ...}` on the payload (Plano_Ingestion.md) -
@@ -483,7 +539,8 @@ private:
   // Whole pack: unparseable -> kFormatError, any name outside the authenticated device ->
   // kForbidden. Per record (dropped with a log, the rest goes on): foreign sensor, no
   // numeric value, time_unsynced or unknown fl_ bits (DP3/F3), unit without a rule (DP1).
-  int handleSenml(const std::string& authDeviceId, const std::string& body) {
+  int handleSenml(const std::string& authDeviceId, const std::string& body,
+                  std::optional<long long>& declaredCfg) {
     const auto now = static_cast<double>(std::time(nullptr));
     const auto pack = rdws::senml::parse(body, now);
     if (!pack) {
@@ -520,6 +577,9 @@ private:
         if (local == "seq") {
           seq = rec.value ? std::to_string(static_cast<long long>(*rec.value)) : "?";
         } else {
+          if (local == "cfg_version" && rec.value) {
+            declaredCfg = static_cast<long long>(*rec.value);
+          }
           diagnostics += (diagnostics.empty() ? "" : ",") + local;
         }
         telemetry[rec.time].push_back(&rec);
