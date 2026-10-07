@@ -1,4 +1,5 @@
 add_executable(reading_writer_service AppReadingWriterService.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceActivityRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceTelemetryRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/SensorReadingRepository.cpp
 )
