@@ -1,0 +1,56 @@
+# Fleet (operations) alerts — not the producer's alarms, which are AlertingService's job
+# (Plano_Telemetria.md, D10 / Fase 3). No contact point yet (R2): firing alerts show in
+# Grafana's alert list; the notification channel for the fleet is still open.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: fleet
+    folder: RDWS Fleet
+    interval: 1m
+    rules:
+      # One alert instance per station (label `device`): fires when nothing arrived for
+      # more than 3 x its expected uplink interval (device_liveness, V14 — same rule as the
+      # online/offline panel). Devices that never sent anything are left out: that's an
+      # installation not done yet, not a station that went quiet.
+      - uid: rdws-silent-station
+        title: Silent station
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: rdws-persistence
+            model:
+              refId: A
+              format: table
+              rawQuery: true
+              rawSql: |
+                SELECT d.type::text || ' #' || l.device_id::text AS device,
+                       (extract(epoch FROM now() - l.last_seen)
+                          / l.expected_interval_s)::double precision AS silence_ratio
+                FROM device_liveness l
+                JOIN devices d ON d.id = l.device_id
+                WHERE l.last_seen IS NOT NULL
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [3]
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          scope: fleet
+          severity: warning
+        annotations:
+          summary: "{{ $labels.device }} is silent"
+          description: >-
+            Nothing arrived from {{ $labels.device }} for {{ printf "%.1f" $values.A.Value }}x
+            its expected uplink interval (more than 3x means silent; see device_liveness).

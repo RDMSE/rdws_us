@@ -51,15 +51,16 @@ jobs:
       - name: Deploy sensor simulators (one per devices.is_simulated)
         run: scripts/qa_simulators.sh .env.qa
 
-      # Grafana and promtail bind-mount files from this checkout (dashboards, promtail
-      # config). Bringing the compose up here keeps those mounts on the current runner
-      # workspace (they were stuck on an old runner's directory once). promtail mounts a
-      # single file, which the checkout replaces, so it needs a restart to see changes;
-      # Grafana rescans its dashboards folder every 30 s by itself.
-      - name: Deploy observability (Grafana dashboards, promtail config)
+      # Grafana and promtail bind-mount files from this checkout (dashboards, alert rules,
+      # promtail config). Bringing the compose up here keeps those mounts on the current
+      # runner workspace (they were stuck on an old runner's directory once). promtail mounts
+      # a single file, which the checkout replaces, so it needs a restart to see changes;
+      # Grafana rescans dashboards by itself but reads provisioned alert rules only at
+      # startup, so it's restarted too.
+      - name: Deploy observability (Grafana dashboards and alerts, promtail config)
         run: |
           docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
-          docker restart rdws_promtail_qa
+          docker restart rdws_promtail_qa rdws_grafana_qa
 
       - name: Health check
         run: |

@@ -435,10 +435,14 @@ Decidido em 2026-10-07:
 - **R5**: estação silenciosa = nada chegou há mais de 3 × o intervalo esperado (do
   `transmissions_per_day` da config; `report_interval_s` nos simulados; 3600 s sem config).
 
-- ⬜ 3a. `last_seen` (`V14`, coluna + backfill) e view `device_liveness` (intervalo
+- ✅ 3a. `last_seen` (`V14`, coluna + backfill) e view `device_liveness` (intervalo
   esperado e `silent` por device, regra única para painel e alerta); painel "Devices Online
   / Offline" passa a usá-la (antes: `max(timestamp)` das leituras com limite fixo de 10 min).
-- ⬜ 3b. Regra de frota para estação silenciosa (alerta do Grafana sobre `device_liveness`).
+- ⬜ 3b. Regra de frota para estação silenciosa (alerta do Grafana sobre `device_liveness`):
+  `infra/grafana/provisioning/alerting/fleet.yml`, pasta "RDWS Fleet", uma instância por
+  device (rótulo `device`), dispara após 5 min acima de 3× o intervalo esperado. Devices
+  que nunca enviaram nada ficam de fora (instalação pendente, não estação caída). Sem
+  contact point ainda (R2). Validada num Grafana 13 local (2026-10-07).
 - ⬜ 3c. Painel de atraso de ingestão (`created_at - timestamp`) por device (D10).
 - ⬜ 3d. Painéis de saúde da frota no tempo (RSSI, boots, FS por device), complementando a
   tabela Device diagnostics.
