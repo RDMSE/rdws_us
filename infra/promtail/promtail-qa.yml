@@ -12,14 +12,20 @@ scrape_configs:
   # Logs from the QA compose containers, via Docker service discovery — no need to
   # change anything in logger.cpp (the services already write to stdout, captured by Docker).
   # Also the simulator containers, which scripts/qa_simulators.sh runs outside the compose
-  # and tags with rdws.env / rdws.service (filter values are OR'ed).
+  # and tags with rdws.env / rdws.service. One docker_sd_config per label: the Docker API
+  # ANDs the values of a `label` filter, so listing both in one filter matches no container.
   - job_name: docker_qa
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
         filters:
           - name: label
-            values: ["com.docker.compose.project=rdws_qa", "rdws.env=qa"]
+            values: ["com.docker.compose.project=rdws_qa"]
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["rdws.env=qa"]
     relabel_configs:
       - source_labels: ["__meta_docker_container_name"]
         regex: "/(.*)"
