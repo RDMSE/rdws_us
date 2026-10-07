@@ -221,7 +221,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT\n  sum(CASE WHEN last_seen >= now() - interval '10 minutes' THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN last_seen < now() - interval '10 minutes' OR last_seen IS NULL THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\nFROM (\n  SELECT d.id, max(sr.timestamp) AS last_seen\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN sensors s ON s.device_id = d.id\n  LEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\n  WHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote}))\n  GROUP BY d.id\n) t",
+          "rawSql": "SELECT\n  sum(CASE WHEN NOT l.silent THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN l.silent THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\n-- device_liveness (V14): silent = nothing arrived for more than 3 x the device's expected\n-- uplink interval (from its config), not a fixed 10 minutes\nFROM device_liveness l\nJOIN devices d ON d.id = l.device_id\nJOIN fields f ON f.id = d.field_id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote}))",
           "rawQuery": true
         }
       ]

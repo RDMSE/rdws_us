@@ -420,14 +420,30 @@ firmware detalhados como T2b–T2d em `rdws_weather_node/docs/Plano_Firmware_Wea
   mitigado com timeout de sessão ociosa de 60 s no `IngestionService`.
 
 ### Fase 3 — Observabilidade
-- ⬜ `last_seen`: coluna `devices.last_seen` ou derivado das leituras (D10, movido da
-  Fase 1 — F4).
-- ⬜ Partições e retenção de `sensor_readings` e `device_telemetry`, mecanismo único
-  (D5, F2).
-- ⬜ Regra de frota para estação silenciosa, baseada em `last_seen` (D10).
-- ⬜ Painel de atraso de ingestão (`created_at - timestamp`) por device (D10).
-- ⬜ Painéis Grafana de saúde da frota (RSSI/SNR por device, reinicializações, ocupação e
-  erros do FS), versionados como JSON.
+Decidido em 2026-10-07:
+- **R1**: `last_seen` como coluna `devices.last_seen` (hora de **chegada**, não a da
+  leitura), atualizada pelo `ReadingWriterService` no máximo ~1×/min por device (freio em
+  memória + guarda no SQL).
+- **R2**: alerta de estação silenciosa no Grafana; canal de notificação de frota fica para
+  depois (segue nos pontos em aberto).
+- **R3**: sem partições por enquanto. O volume é pequeno (~4 mil leituras/dia por estação);
+  particionar `sensor_readings` exige trocar a PK (`id` → `(id, timestamp)`) e migrar dados.
+  Revisitar quando `sensor_readings` passar de ~50 milhões de linhas ou as consultas do
+  dashboard ficarem lentas.
+- **R4**: retenção de `device_telemetry` em 90 dias, por um timer diário no
+  `ReadingWriterService`.
+- **R5**: estação silenciosa = nada chegou há mais de 3 × o intervalo esperado (do
+  `transmissions_per_day` da config; `report_interval_s` nos simulados; 3600 s sem config).
+
+- ⬜ 3a. `last_seen` (`V14`, coluna + backfill) e view `device_liveness` (intervalo
+  esperado e `silent` por device, regra única para painel e alerta); painel "Devices Online
+  / Offline" passa a usá-la (antes: `max(timestamp)` das leituras com limite fixo de 10 min).
+- ⬜ 3b. Regra de frota para estação silenciosa (alerta do Grafana sobre `device_liveness`).
+- ⬜ 3c. Painel de atraso de ingestão (`created_at - timestamp`) por device (D10).
+- ⬜ 3d. Painéis de saúde da frota no tempo (RSSI, boots, FS por device), complementando a
+  tabela Device diagnostics.
+- ⬜ 3e. Retenção de `device_telemetry` (90 dias).
+- Partições de `sensor_readings`/`device_telemetry`: adiado (R3).
 
 ### Fase 4 — CBOR (quando necessário)
 - ⬜ Encoder SenML CBOR no firmware (`zcbor`) e parser no `IngestionService`
@@ -435,8 +451,7 @@ firmware detalhados como T2b–T2d em `rdws_weather_node/docs/Plano_Firmware_Wea
 
 ## Pontos em aberto
 
-- Mecanismo de partições e retenção, comum a `sensor_readings` e `device_telemetry` (D5).
-- Período de retenção de `device_telemetry`.
+- Partições de `sensor_readings`/`device_telemetry` (adiado na Fase 3, R3).
 - Quando desativar o formato JSON legado no `IngestionService`.
 - Se vale uma coluna `category` em `sensors` para separar sensores lógicos de saúde
   (bateria/solar) dos ambientais no dashboard do produtor.

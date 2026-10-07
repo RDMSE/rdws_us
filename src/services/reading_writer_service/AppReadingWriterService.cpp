@@ -10,12 +10,14 @@
 // redelivery instead of losing it.
 //
 // Also consumes the "device_telemetry" queue (device diagnostics from SenML packs,
-// Plano_Telemetria.md D5) and upserts into device_telemetry (V11), same ack policy.
+// Plano_Telemetria.md D5) and upserts into device_telemetry (V11), same ack policy. Every
+// accepted message also refreshes devices.last_seen (V14), at most once a minute per device.
 //
 
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
 #include "../../shared/database/postgresql_database.h"
+#include "../../shared/repository/DeviceActivityRepository.h"
 #include "../../shared/repository/DeviceTelemetryRepository.h"
 #include "../../shared/repository/SensorReadingRepository.h"
 #include "../../shared/utils/json_helper.h"
@@ -24,9 +26,11 @@
 #include <rapidjson/document.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <csignal>
 #include <string>
+#include <unordered_map>
 
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
@@ -36,7 +40,7 @@ class AppReadingWriterService {
 public:
   AppReadingWriterService(std::string mqHost, uint16_t mqPort, std::string mqUser,
                           std::string mqPassword)
-      : repo_(db_), telemetryRepo_(db_),
+      : repo_(db_), telemetryRepo_(db_), activityRepo_(db_),
         consumer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
         telemetryConsumer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
                            "device_telemetry") {}
@@ -65,9 +69,28 @@ private:
   PostgreSQLDatabase db_;
   rdws::sensor_reading::SensorReadingRepository repo_;
   rdws::device_telemetry::DeviceTelemetryRepository telemetryRepo_;
+  rdws::device::DeviceActivityRepository activityRepo_;
+  // Last time this process touched each device's last_seen: skips the UPDATE for the other
+  // readings of the same uplink cycle (the SQL has its own guard, this saves the round trip)
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastTouch_;
   rdws::amqp::AmqpConsumer consumer_;
   rdws::amqp::AmqpConsumer telemetryConsumer_;
   std::atomic<bool> running_{false};
+
+  static constexpr auto kTouchInterval = std::chrono::minutes(1);
+
+  // Best effort: a failed last_seen update only logs, it never holds back the data write.
+  void touchLastSeen(const std::string& deviceId) {
+    const auto now = std::chrono::steady_clock::now();
+    auto [it, isNew] = lastTouch_.try_emplace(deviceId, now);
+    if (!isNew && now - it->second < kTouchInterval) {
+      return;
+    }
+    it->second = now;
+    if (!activityRepo_.touchLastSeen(deviceId)) {
+      logger::warn("ReadingWriterService: last_seen update failed", "device_id=" + deviceId);
+    }
+  }
 
   // Returns true (ack) iff the write succeeded — a parse/format error also acks
   // (a malformed message can never become valid on redelivery, so retrying forever
@@ -95,6 +118,9 @@ private:
       logger::error("ReadingWriterService: DB insert failed, leaving message unacked", body);
       return false;
     }
+    if (const auto deviceId = json::getString(doc, "device_id")) {
+      touchLastSeen(*deviceId);
+    }
     return true;
   }
 
@@ -120,6 +146,7 @@ private:
                     body);
       return false;
     }
+    touchLastSeen(*deviceId);
     return true;
   }
 };
