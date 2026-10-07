@@ -131,7 +131,7 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
 
 - Evento `alarm_rule.changed` (invalidação do cache da Camada 1) — nome/payload/exchange ainda não definidos, mesmo racional do `device_credential.changed` em `Plano_DeviceCredentials.md`.
 - Transporte e consumidor do evento `reading.threshold_breach` da Camada 1 — não pode ser o `EventBus` do gateway (single-instância, por processo); definir se é fila/routing key própria no RabbitMQ e quem consome sem duplicar a avaliação já feita pela Camada 2 (ver nota na seção da Camada 1).
-- Se `sensor_readings` realmente será hypertable TimescaleDB (`create_hypertable`) ou particionamento nativo do Postgres — decisão hoje em aberto em `Plano_DB_IOT_Sensors.md`, da qual as queries janeladas deste plano dependem (ver nota na seção do `AlertingService`).
+- Se `sensor_readings` realmente será hypertable TimescaleDB (`create_hypertable`) ou particionamento nativo do Postgres — adiado em 2026-10-07 (`Plano_Telemetria.md` Fase 3, R3: tabela simples até o volume justificar); as queries janeladas deste plano devem funcionar sobre a tabela simples primeiro.
 - Qual sensor é "o principal" em `alarm_events.sensor_id` para métricas derivadas (dewpoint = temperatura + umidade) — o modelo de dados menciona a exceção mas não define o critério (sensor de temperatura? o primeiro listado na regra? outro critério?).
 - Fonte autoritativa dos limites simples da Camada 1: `device_config` (já existe, mas é por device) vs. `alarm_rules` (novo, por farm) — evitar duas fontes de verdade pro mesmo tipo de limite.
 - `window_minutes` cobre "média na janela"; tendência de subida/descida (derivada, não média) fica de fora do desenho inicial — avaliar se é necessário antes de implementar ou se entra numa v2.
@@ -139,7 +139,9 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
 - Escolha do provedor de SMS (custo, cobertura nacional, API) — decisão de implementação, não de arquitetura.
 - **Alertas de frota ficam fora deste plano** (`Plano_Telemetria.md` D10): estação
   silenciosa (sem envio além de N × intervalo) e atraso de ingestão são de
-  operação/manutenção, não do produtor, e têm canal de notificação separado. Bateria e
+  operação/manutenção, não do produtor, e têm canal de notificação separado. Implementados
+  no Grafana em 2026-10-07 (regra "Silent station", painel "Ingestion delay"); o canal de
+  notificação de frota ainda não foi escolhido. Bateria e
   painel solar continuam em `sensor_readings` (D6) justamente para serem avaliados aqui.
 - Onde o `AlertingService` roda no gateway existente: como capability registrada (`alerting.evaluate` chamado por algo) ou como worker puro sem capability HTTP, no mesmo espírito do `ReadingWriterService`? Tende a ser worker puro, já que não responde a nenhuma chamada síncrona.
 
@@ -147,7 +149,8 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
 
 Depende do `Plano_Ingestion.md` estar funcionando ponta a ponta primeiro — sem leituras reais fluindo pelo RabbitMQ, não há o que avaliar. Ordem sugerida:
 
-1. Pipeline de ingestão estável (`Plano_Ingestion.md`, já com RabbitMQ implementado — hoje adiado, ver `Plano_Deployment.md` §6 passo 5).
+1. ✅ Pipeline de ingestão estável (`Plano_Ingestion.md`): RabbitMQ, `IngestionService` e
+   `ReadingWriterService` rodando em QA, com SenML, desde 2026-10 (`Plano_Telemetria.md`).
 2. Migration Flyway para `alarm_rules` e `alarm_events`.
 3. Filtro de primeira ordem no `ReadingWriterService` (mais simples, valida o desenho de configuração por fazenda antes do serviço separado existir).
 4. `AlertingService` (consumo do RabbitMQ, queries janeladas, histerese, silenciamento por manutenção) — dockerizado no mesmo pipeline de CI/CD já estabelecido (`Plano_Gateway_HTTP.md` Fase 10b), mesmo padrão dos demais serviços.

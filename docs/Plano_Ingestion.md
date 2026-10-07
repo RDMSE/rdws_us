@@ -104,12 +104,12 @@ Resumo do que já está no código:
 
 ## Pontos em aberto
 
-- **Validação completa contra `device_config`** (schema/faixas plausíveis) no
-  `IngestionService` — adiada nesta entrega, só validação mínima de formato
-  (`Plano_Ingestion_Implementacao.md`). `IngestionService` continua stateless quanto à
-  persistência; falta definir como um serviço stateless acessaria `device_config`
-  (provavelmente uma nova capability), no padrão do cache por poll de PSK e de
-  `sensor.list_owners`.
+- **Validação contra faixas plausíveis** no `IngestionService` — ainda não feita. Desde
+  2026-10 ele já confere dono do sensor e unidade (cache de `sensor.list_owners` com
+  `unit`, Fase 0/1 do `Plano_Telemetria.md`) e a config do `weather_station` é validada no
+  `DeviceConfigService` (schema + sensores do device). Falta rejeitar valores fisicamente
+  impossíveis (ex.: umidade > 100 %) — onde definir as faixas (por tipo de sensor no
+  código, ou em `sensors`) está em aberto.
 - ✅ **Identidade pelo handshake** (2026-10-05) — device derivado da `psk_identity`,
   `device_id` divergente → `4.03`, `sensor_id` de outro device descartado. Fase 0 do
   `Plano_Telemetria.md`.
@@ -117,7 +117,9 @@ Resumo do que já está no código:
   (60s) em vez do bridge de `device_credential.changed` via EventBus (que exigiria
   mudança no lado do gateway, fora de escopo por ora).
 - Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
-- Atualizar o `ENUM` de `sensors.type` em `Plano_DB_IOT_Sensors.md` com os novos tipos (bateria, solar, agregados de vento) — ver seção "Amostragem interna vs. taxa de transmissão".
+- Novos tipos em `sensors.type` (bateria, solar, agregados de vento) — `pressure` e `co2`
+  já entraram (V9); os demais entram com o hardware (passos 5–6 do firmware). Ver seção
+  "Amostragem interna vs. taxa de transmissão".
 - Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
 
 ## Observabilidade da fila

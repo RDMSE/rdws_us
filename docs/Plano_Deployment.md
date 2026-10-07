@@ -363,8 +363,9 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    - `routes.json` persistido em volume nomeado (`gateway_data`), sobrevive a restart.
    - Validado: `docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build`
      sobe o gateway com auth JWT ativo (confirmado no log `auth=jwt`).
-3. ✅ **Containers dos serviços** — todos os 8 (`auth`, `farm`, `field`, `device`,
-   `device_config`, `sensor`, `sensor_reading`, `persistence`) em
+3. ✅ **Containers dos serviços** — os 8 de CRUD (`auth`, `farm`, `field`, `device`,
+   `device_config`, `sensor`, `sensor_reading`, `persistence`), mais `ingestion_service` e
+   `reading_writer_service` depois (passo 5), em
    `docker-compose.qa-app.yml`, reaproveitando o mesmo Dockerfile genérico
    (`--build-arg SERVICE=<nome>`) e bloco `environment` compartilhado via YAML anchor
    (`x-db-env`/`*db-env`) para as credenciais de banco.
@@ -420,14 +421,11 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    - Validado localmente: os dois sobem lado a lado sem conflito, migrations aplicadas
      (schema `flyway_schema_history` em v2, extensões `postgis`/`pgcrypto` ativas),
      `rdws_dev` acessível externamente, `rdws_qa` não.
-5. ⏸️ **RabbitMQ containerizado** — adiado. Depende do `IngestionService` e
-   `ReadingWriterService` (`Plano_Ingestion.md`), que ainda não existem no código — sem
-   nada publicando/consumindo, não dá pra validar o container de ponta a ponta como os
-   demais passos desta lista. Na prática entra junto do `SensorSimulatorService` (passo 8),
-   que é o gerador de carga que alimenta esse pipeline; RabbitMQ deve ser containerizado
-   quando o `IngestionService`/`ReadingWriterService` forem implementados, não antes.
-   Pulado por ora — seguindo pro passo 6 (observabilidade), que já tem o que observar
-   (gateway + 8 serviços rodando).
+5. ✅ **RabbitMQ containerizado** — `docker-compose.qa-mq.yml`, subido pelo `deploy-qa`
+   antes dos serviços. `IngestionService` e `ReadingWriterService` estão no
+   `docker-compose.qa-app.yml` (build local no deploy) e o pipeline roda de ponta a ponta
+   em QA com a placa de bancada e os simuladores (2026-10). (Adiado no início porque esses
+   serviços ainda não existiam.)
 6. ✅ **Prometheus + Loki + Promtail + Grafana containerizados**.
    `docker-compose.qa-observability.yml` + `docker-compose.dev-observability.yml` (ver §3
    para o detalhe da separação por ambiente). `GET /metrics/prometheus` novo no gateway

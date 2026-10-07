@@ -789,10 +789,16 @@ o processo reinicia). Não investigado ainda o gatilho original da queda de cone
 ---
 
 ## Próximo passo sugerido
-Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
-passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
-`Plano_Deployment.md`. `Plano_Ingestion.md` (RabbitMQ) entra depois, reaproveitando o
-mesmo pipeline de CI/CD e a mesma instância de Grafana. O `Plano_SensorSimulatorService.md`
-(ferramenta de apoio para o pipeline de ingestão) só é executado depois — por último na
-ordem de implementação do `Plano_Deployment.md` (§6, passo 8), após tudo dockerizado e
-rodando em QA e prod.
+Atualizado em 2026-10-07. As fases 9b, 10a, 10b (CI/CD + Docker) e 11 (Loki + Grafana) estão
+feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), o
+`SensorSimulatorService` e a telemetria SenML (`Plano_Telemetria.md`), todos rodando em QA.
+O que sobra deste plano são os backlogs acima — em ordem sugerida de valor:
+
+1. **`ServiceClient` não reconecta** (risco operacional real, visto no QA em 2026-07-22).
+2. **CRUD de `/routes` sem autenticação** (segurança).
+3. **Fase 13 — IDOR / `public_id`** (segurança; muda contrato da API).
+4. Wrappers semânticos do `ResponseHelper`, metadados livres do device, testes de carga.
+5. Fase 14 (multi-instância) e migrar `routes.json`/`GatewayConfig` para o banco — por
+   último, sem data.
+
+A lista consolidada de pendências dos planos está em `docs/Backlog.md`.

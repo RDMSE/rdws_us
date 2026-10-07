@@ -31,14 +31,20 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - installation_date : TIMESTAMPTZ
     - status : ENUM('active', 'inactive', 'maintenance') NOT NULL DEFAULT 'active'
     - location : POINT (PostGIS)
+    - is_simulated : BOOLEAN NOT NULL DEFAULT false — imutável depois de criado (V7)
+    - last_seen : TIMESTAMPTZ — hora de chegada do último dado aceito, gravada pelo
+      `ReadingWriterService` (V14, `Plano_Telemetria.md` Fase 3)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
     - updated_by : VARCHAR(255)
 
-- **device_configurations**
+- **device_configurations** *(1:1 com o device, criada por trigger junto dele — V3)*
     - id : BIGINT (PK, auto-increment)
-    - device_id : BIGINT (FK → devices.id) NOT NULL
-    - config : JSONB NOT NULL
+    - device_id : BIGINT (FK → devices.id) NOT NULL UNIQUE
+    - config : JSONB NOT NULL — para `weather_station` real, validado contra o schema em
+      `src/shared/service/DeviceConfigSchemas.h` e cruzado com `sensors`
+    - version : INTEGER NOT NULL DEFAULT 1 — controlada por trigger, sobe a cada mudança
+      real do `config` (V12); o device declara a que roda e recebe a nova (D11)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
     - updated_by : VARCHAR(255)
@@ -49,9 +55,9 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity', 'other', 'pressure', 'co2') NOT NULL
         - `pressure` e `co2` adicionados na migration V9 (RDWS-103) — ver "Decisão: tipos `pressure` e `co2`" em Observações Técnicas
     - unit : VARCHAR(32) NOT NULL (ex: '°C', '%', 'pH', 'kPa', 'ppm')
-        - Nomenclatura em revisão: o `Plano_Telemetria.md` (DP1) decide se o banco adota as
-          unidades SenML (`Cel`, `%RH`, `Pa`) ou se o `IngestionService` converte o payload
-          para a nomenclatura atual.
+        - Nomenclatura do banco mantida: o `IngestionService` converte as unidades SenML
+          do payload (`Cel`, `%RH`, `Pa`, `/`, `lx`) para estas (`Plano_Telemetria.md`,
+          DP1, decidido em 2026-10-05).
     - location : POINT (PostGIS)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
@@ -73,7 +79,23 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - sensor_id : BIGINT (FK → sensors.id) NOT NULL
     - timestamp : TIMESTAMPTZ NOT NULL
     - value : NUMERIC(12, 6) NOT NULL
+    - flags : SMALLINT NOT NULL DEFAULT 0 — bitmask `fl_` do SenML (`0x2` trigger, `0x4`
+      janela parcial; V10)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
+    - UNIQUE (sensor_id, timestamp) — idempotência da escrita (V8)
+
+- **device_telemetry** *(diagnóstico do device, V11)* — snapshot por transmissão (RSSI,
+  `boot_count`, `reset_reason`, `cfg_version`, FS…) em JSONB, sem partição; retenção de 90
+  dias (`Plano_Telemetria.md`, D5 e Fase 3)
+    - device_id : BIGINT (FK → devices.id) NOT NULL
+    - timestamp : TIMESTAMPTZ NOT NULL
+    - data : JSONB NOT NULL
+    - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
+    - UNIQUE (device_id, timestamp) — conflito mescla as chaves (`data || EXCLUDED.data`)
+
+- **device_liveness** *(view, V14)* — por device: `last_seen`, intervalo de envio esperado
+  (da config) e `silent` (nada chegou há mais de 3× esse intervalo). Usada pelo painel
+  "Devices Online / Offline" e pelo alerta "Silent station".
 
 ---
 
@@ -109,6 +131,12 @@ CREATE INDEX idx_devices_status ON devices (status);
 
 ## Particionamento de `sensor_readings`
 
+> **Adiado (2026-10-07, `Plano_Telemetria.md` Fase 3, R3).** O volume atual é pequeno
+> (~4 mil leituras/dia por estação) e particionar exige trocar a PK (`id` →
+> `(id, timestamp)`) e migrar os dados. Revisitar quando `sensor_readings` passar de ~50
+> milhões de linhas ou as consultas do dashboard ficarem lentas. O desenho abaixo vale
+> para quando chegar a hora.
+
 Leituras podem crescer milhões por dia. Estratégia: particionamento por mês via `RANGE` no PostgreSQL.
 
 ```sql
@@ -124,23 +152,14 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
 
 ---
 
-## Telemetria de diagnóstico do device (planejado)
+## Telemetria de diagnóstico do device
 
-Definida no `Plano_Telemetria.md`; ainda não implementada.
+Implementada (`device_telemetry`, V11; `devices.last_seen` e `device_liveness`, V14) — ver
+"Estrutura de Tabelas" acima e `Plano_Telemetria.md`.
 
-- **device_telemetry** *(append-only, particionada por `timestamp`)* — snapshot de
-  diagnóstico por transmissão (RSSI, SNR, `boot_count`, `reset_reason`, uso do FS…).
-    - device_id : BIGINT (FK → devices.id) NOT NULL
-    - timestamp : TIMESTAMPTZ NOT NULL
-    - data : JSONB NOT NULL
-    - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
-    - UNIQUE (device_id, timestamp)
-- **devices.last_seen** : TIMESTAMPTZ — ou derivado de `max(created_at)` das leituras
-  (D10 do `Plano_Telemetria.md`, em aberto).
 - Futuro (estação agregadora): **devices.parent_device_id** : BIGINT (FK → devices.id).
 - Bateria e painel solar continuam como sensores em `sensor_readings` (D6), por causa do
   alerting.
-- O mecanismo de criação/retenção de partições deve ser o mesmo de `sensor_readings`.
 
 ---
 
@@ -152,8 +171,10 @@ Definida no `Plano_Telemetria.md`; ainda não implementada.
 | 90 dias – 1 ano | Compressão (TimescaleDB) ou tablespace frio |
 | > 1 ano         | Arquivamento ou agregação por hora/dia     |
 
-`device_telemetry` tem retenção própria, mais curta (30–90 dias, em aberto no
-`Plano_Telemetria.md`): diagnóstico não tem valor agronômico de longo prazo.
+`device_telemetry` tem retenção própria, mais curta: 90 dias, apagados diariamente pelo
+`ReadingWriterService` (`TELEMETRY_RETENTION_DAYS`). Diagnóstico não tem valor agronômico
+de longo prazo. A retenção/compressão de `sensor_readings` da tabela acima ainda não foi
+implementada.
 
 ---
 

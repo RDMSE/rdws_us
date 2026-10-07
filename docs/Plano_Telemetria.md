@@ -462,8 +462,10 @@ Decidido em 2026-10-07:
 - Quando desativar o formato JSON legado no `IngestionService`.
 - Se vale uma coluna `category` em `sensors` para separar sensores lógicos de saúde
   (bateria/solar) dos ambientais no dashboard do produtor.
-- Se o firmware pode esvaziar o backlog parcialmente numa sessão, o que decide se
-  `backlog_count` é enviado (D9).
-- Limite para considerar uma estação silenciosa (múltiplo fixo do intervalo de
-  transmissão ou configurável por device) e onde a regra de frota roda (D10).
-- Canal de notificação dos alertas de frota, separado das notificações ao produtor.
+- ~~Se o firmware pode esvaziar o backlog parcialmente~~ — não pode hoje (o envio para no
+  primeiro erro e manda tudo no ciclo seguinte), então `backlog_count` não é enviado
+  (2026-10-07). Revisitar se o NB-IoT impuser limite de registros por sessão.
+- ~~Limite da estação silenciosa e onde a regra roda~~ — 3× o intervalo esperado do
+  device, regra no Grafana (Fase 3, R5/R2).
+- Canal de notificação dos alertas de frota, separado das notificações ao produtor
+  (hoje o alerta "Silent station" só aparece no Grafana).

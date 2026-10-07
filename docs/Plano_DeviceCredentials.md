@@ -165,12 +165,14 @@ na seção 5.
 
 - Nenhum bloqueante para o `IngestionService`/`SensorSimulatorService` avançarem — os
   pontos abaixo podem ser resolvidos em paralelo:
-- Definir se `device_credential.provision` roda automaticamente dentro do handler de
-  `device.create` ou como chamada separada explícita pelo operador.
+- ✅ `device_credential.provision` roda atomicamente dentro do handler de `device.create`
+  (não é capability standalone) — implementado em 2026-07.
 - Avaliar, quando a Fase 13 (`public_id`) do `Plano_Gateway_HTTP.md` sair do backlog, se
   faz sentido convergir `psk_identity` com `public_id` ou manter os dois separados.
 - Grace period na rotação, quando o hardware físico entrar em produção (chave antiga
-  ainda válida por N minutos/horas após a nova ser gerada).
+  ainda válida por N minutos/horas após a nova ser gerada). As rotas REST de
+  rotate/revoke existem desde 2026-10-05 (só `admin`); hoje a rotação derruba o device
+  até ele ser reprovisionado com `rdws psk set`.
 - Versionamento da KEK (seção 7) — adiado até virar necessidade real (comprometimento
   suspeito, política de rotação periódica, etc.).
 - TLS/mTLS no canal broker↔serviços (seção 5) — hoje aceito como confiável por estar
