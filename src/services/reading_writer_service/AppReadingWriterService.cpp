@@ -13,6 +13,9 @@
 // Plano_Telemetria.md D5) and upserts into device_telemetry (V11), same ack policy. Every
 // accepted message also refreshes devices.last_seen (V14), at most once a minute per device.
 //
+// Housekeeping: device_telemetry rows older than TELEMETRY_RETENTION_DAYS (default 90,
+// Plano_Telemetria.md Fase 3 R4) are deleted at startup and then once a day.
+//
 
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
@@ -25,9 +28,11 @@
 
 #include <rapidjson/document.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <optional>
 #include <csignal>
 #include <string>
 #include <unordered_map>
@@ -39,8 +44,8 @@ using namespace rdws::database;
 class AppReadingWriterService {
 public:
   AppReadingWriterService(std::string mqHost, uint16_t mqPort, std::string mqUser,
-                          std::string mqPassword)
-      : repo_(db_), telemetryRepo_(db_), activityRepo_(db_),
+                          std::string mqPassword, int retentionDays)
+      : retentionDays_(retentionDays), repo_(db_), telemetryRepo_(db_), activityRepo_(db_),
         consumer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
         telemetryConsumer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
                            "device_telemetry") {}
@@ -54,6 +59,7 @@ public:
     running_.store(true);
     logger::info("ReadingWriterService starting", "");
     while (running_.load()) {
+      runRetentionIfDue();
       // Alternate between the queues; each wait is short so neither starves the other.
       (void)consumer_.consumeOne(
           [this](const std::string& body) { return handleMessage(body); }, 500);
@@ -66,6 +72,8 @@ public:
   void shutdown() { running_.store(false); }
 
 private:
+  int retentionDays_;
+  std::optional<std::chrono::steady_clock::time_point> lastRetention_;
   PostgreSQLDatabase db_;
   rdws::sensor_reading::SensorReadingRepository repo_;
   rdws::device_telemetry::DeviceTelemetryRepository telemetryRepo_;
@@ -78,6 +86,22 @@ private:
   std::atomic<bool> running_{false};
 
   static constexpr auto kTouchInterval = std::chrono::minutes(1);
+  static constexpr auto kRetentionInterval = std::chrono::hours(24);
+
+  // At startup and then daily. A failure only logs and is retried on the next day's run.
+  void runRetentionIfDue() {
+    const auto now = std::chrono::steady_clock::now();
+    if (lastRetention_ && now - *lastRetention_ < kRetentionInterval) {
+      return;
+    }
+    lastRetention_ = now;
+    if (telemetryRepo_.deleteOlderThan(retentionDays_)) {
+      logger::info("ReadingWriterService: device_telemetry retention ran",
+                   "older_than_days=" + std::to_string(retentionDays_));
+    } else {
+      logger::error("ReadingWriterService: device_telemetry retention failed", "");
+    }
+  }
 
   // Best effort: a failed last_seen update only logs, it never holds back the data write.
   void touchLastSeen(const std::string& deviceId) {
@@ -169,7 +193,10 @@ int main(int /*argc*/, char* /*argv*/[]) {
   const std::string mqUser = rdws::Config::getEnvVarOrDefault("RABBITMQ_USER", "guest");
   const std::string mqPassword = rdws::Config::getEnvVarOrDefault("RABBITMQ_PASSWORD", "guest");
 
-  AppReadingWriterService service(mqHost, mqPort, mqUser, mqPassword);
+  const int retentionDays =
+      std::max(1, std::stoi(rdws::Config::getEnvVarOrDefault("TELEMETRY_RETENTION_DAYS", "90")));
+
+  AppReadingWriterService service(mqHost, mqPort, mqUser, mqPassword, retentionDays);
   gService = &service;
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);

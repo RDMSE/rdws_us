@@ -443,12 +443,13 @@ Decidido em 2026-10-07:
   device (rótulo `device`), dispara após 5 min acima de 3× o intervalo esperado. Devices
   que nunca enviaram nada ficam de fora (instalação pendente, não estação caída). Sem
   contact point ainda (R2). Validada num Grafana 13 local e no QA (2026-10-07).
-- ⬜ 3c. Painel de atraso de ingestão (`created_at - timestamp`) por device (D10): "Ingestion
+- ✅ 3c. Painel de atraso de ingestão (`created_at - timestamp`) por device (D10): "Ingestion
   delay", máximo por device em minutos, na linha "Fleet Health" do Farm Overview.
-- ⬜ 3d. Painéis de saúde da frota no tempo (RSSI, boots, FS por device), complementando a
+- ✅ 3d. Painéis de saúde da frota no tempo (RSSI, boots, FS por device), complementando a
   tabela Device diagnostics: "RSSI", "Boot count" (degrau = reboot) e "FS used (%)", na
   mesma linha, com os filtros de fazenda/campo/device do dashboard.
-- ⬜ 3e. Retenção de `device_telemetry` (90 dias).
+- ⬜ 3e. Retenção de `device_telemetry` (90 dias): o `ReadingWriterService` apaga as linhas
+  mais antigas que `TELEMETRY_RETENTION_DAYS` (padrão 90) ao iniciar e depois a cada 24 h.
 - Partições de `sensor_readings`/`device_telemetry`: adiado (R3).
 
 ### Fase 4 — CBOR (quando necessário)
