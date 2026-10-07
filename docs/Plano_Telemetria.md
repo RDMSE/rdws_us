@@ -407,8 +407,10 @@ firmware detalhados como T2b–T2d em `rdws_weather_node/docs/Plano_Firmware_Wea
   `boot_count`, `reset_reason`), unidades SenML (pressão em `Pa`). Validado na L475 em
   2026-10-05/06 (T2c, T2d).
 - ⬜ Firmware: coleta de `fs_used_pct`, `fs_errors` e evento `fs_reformat`, uma vez por
-  transmissão (D9). O `fs_reformat` exige trocar o automount por montagem explícita.
-  Adiado para depois do passo 4 do firmware (F-d).
+  transmissão (D9). Feito em 2026-10-07, depois do passo 4 (detalhes no plano do firmware):
+  `fs_errors` conta desde o boot, só em RAM; `fs_reformat` fica pendente em `settings` até
+  ser entregue; `backlog_count` não foi feito (não há envio parcial). Colunas "Config",
+  "FS used (%)", "FS errors" e "Last FS reformat" no painel Device diagnostics.
 - ✅ Firmware: `device_id` no `bn` (DP2) provisionado pelo shell (`rdws id set`), sem o
   `CONFIG_RDWS_DEVICE_ID` (T2b). Os `sensor_id` continuam globais (F1) e saem do Kconfig no
   passo 4 (config vinda do backend).
