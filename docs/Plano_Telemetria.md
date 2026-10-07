@@ -393,7 +393,7 @@ Independente do formato, e pré-requisito de segurança. Pode valer já para o J
   Validado no QA em 2026-10-05 (`V11`; dois instantes viram duas linhas; reenvio não
   duplica; `boot_count` mesclado na linha existente).
 
-### Fase 2 — Simulador e firmware
+### Fase 2 — Simulador e firmware ✅
 Decidido em 2026-10-05: o simulador troca totalmente para SenML (S1), com tabela inversa de
 unidades por tipo de sensor (S2); no firmware, `seq` em RAM + `boot_count` (F-a), encoder
 legado removido (F-b), sem `device_id` provisionado o uplink não envia (F-c). Passos do
@@ -406,7 +406,7 @@ firmware detalhados como T2b–T2d em `rdws_weather_node/docs/Plano_Firmware_Wea
 - ✅ Firmware: encoder SenML JSON com `bt`/`t`, `seq`, `fl_` e diagnóstico (`rssi`,
   `boot_count`, `reset_reason`), unidades SenML (pressão em `Pa`). Validado na L475 em
   2026-10-05/06 (T2c, T2d).
-- ⬜ Firmware: coleta de `fs_used_pct`, `fs_errors` e evento `fs_reformat`, uma vez por
+- ✅ Firmware: coleta de `fs_used_pct`, `fs_errors` e evento `fs_reformat`, uma vez por
   transmissão (D9). Feito em 2026-10-07, depois do passo 4 (detalhes no plano do firmware):
   `fs_errors` conta desde o boot, só em RAM; `fs_reformat` fica pendente em `settings` até
   ser entregue; `backlog_count` não foi feito (não há envio parcial). Colunas "Config",
