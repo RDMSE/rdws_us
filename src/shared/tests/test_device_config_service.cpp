@@ -45,7 +45,7 @@ TEST(DeviceConfigService, WeatherStation_ValidConfigIsStored) {
 
   const auto result = svc.update(
       "12", {.configJson = R"({"agg_window_s":600,"onboard":[
-               {"source":"hts221","chan":"temp","sensor_id":31}]})",
+               {"chan":"temp","sensor_id":31}]})",
              .updatedBy = "test"});
 
   EXPECT_TRUE(result.isSuccess()) << result.getErrorMessage();
@@ -86,8 +86,7 @@ TEST(DeviceConfigService, WeatherStation_OutOfRangeRejected) {
 
   EXPECT_FALSE(svc.update("12", {.configJson = R"({"agg_window_s":5})", .updatedBy = "t"})
                    .isSuccess());
-  EXPECT_FALSE(svc.update("12", {.configJson = R"({"onboard":[{"source":"hts221",
-                                   "chan":"temp","sensor_id":0}]})",
+  EXPECT_FALSE(svc.update("12", {.configJson = R"({"onboard":[{"chan":"temp","sensor_id":0}]})",
                                  .updatedBy = "t"})
                    .isSuccess());
 }
@@ -108,4 +107,16 @@ TEST(DeviceConfigService, OtherTypes_NotValidated) {
 
   EXPECT_TRUE(svc.update("5", {.configJson = R"({"anything":true})", .updatedBy = "t"})
                   .isSuccess());
+}
+
+TEST(DeviceConfigService, WeatherStation_ChipNameNotAccepted) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false);
+  DeviceConfigService svc(repo);
+
+  // onboard[] names the quantity only; the chip is a firmware detail
+  EXPECT_FALSE(svc.update("12", {.configJson = R"({"onboard":[{"source":"hts221",
+                                   "chan":"temp","sensor_id":31}]})",
+                                 .updatedBy = "t"})
+                   .isSuccess());
 }
