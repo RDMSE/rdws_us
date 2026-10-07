@@ -11,6 +11,7 @@
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceConfigRepository.h"
+#include "../../shared/repository/SensorRepository.h"
 #include "../../shared/service/DeviceConfigService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
@@ -47,12 +48,13 @@ private:
   // DB/repo/svc — declared in dependency order
   PostgreSQLDatabase db_;
   DeviceConfigRepository repo_;
+  rdws::sensor::SensorRepository sensorRepo_;
   rdws::device_config::DeviceConfigService svc_;
 
 public:
   AppDeviceConfigService(const std::string& serviceId, const std::string& machineName,
                          std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), sensorRepo_(db_), svc_(repo_, sensorRepo_) {
     identity.machineName = machineName;
     identity.serviceName = "device_config_service";
     identity.serviceId = serviceId;
