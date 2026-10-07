@@ -419,7 +419,7 @@ firmware detalhados como T2b–T2d em `rdws_weather_node/docs/Plano_Firmware_Wea
   eswifi sai sempre da porta 5684, e a sessão DTLS órfã após reset prendia o device;
   mitigado com timeout de sessão ociosa de 60 s no `IngestionService`.
 
-### Fase 3 — Observabilidade
+### Fase 3 — Observabilidade ✅
 Decidido em 2026-10-07:
 - **R1**: `last_seen` como coluna `devices.last_seen` (hora de **chegada**, não a da
   leitura), atualizada pelo `ReadingWriterService` no máximo ~1×/min por device (freio em
@@ -448,7 +448,7 @@ Decidido em 2026-10-07:
 - ✅ 3d. Painéis de saúde da frota no tempo (RSSI, boots, FS por device), complementando a
   tabela Device diagnostics: "RSSI", "Boot count" (degrau = reboot) e "FS used (%)", na
   mesma linha, com os filtros de fazenda/campo/device do dashboard.
-- ⬜ 3e. Retenção de `device_telemetry` (90 dias): o `ReadingWriterService` apaga as linhas
+- ✅ 3e. Retenção de `device_telemetry` (90 dias): o `ReadingWriterService` apaga as linhas
   mais antigas que `TELEMETRY_RETENTION_DAYS` (padrão 90) ao iniciar e depois a cada 24 h.
 - Partições de `sensor_readings`/`device_telemetry`: adiado (R3).
 
