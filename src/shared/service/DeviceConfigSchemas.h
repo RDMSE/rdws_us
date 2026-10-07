@@ -11,7 +11,9 @@ namespace rdws::device_config {
 // its build-time defaults for whatever is missing. Covers only what the firmware applies
 // today (Plano_Firmware_WeatherNode.md §5, step 4); pulse/modbus/sdi12 join with steps 5–7.
 // onboard[] names the quantity (`chan`), not the chip measuring it: which part provides a
-// channel is a board detail the firmware knows (decided 2026-10-07).
+// channel is a board detail the firmware knows (decided 2026-10-07). A channel absent from
+// onboard[] isn't sampled; `enabled` (optional, default true) turns a listed one off while
+// keeping its sensor_id.
 inline const std::string WEATHER_STATION_CONFIG_SCHEMA = R"({
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "weather_station config",
@@ -29,6 +31,7 @@ inline const std::string WEATHER_STATION_CONFIG_SCHEMA = R"({
         "required": ["chan", "sensor_id"],
         "properties": {
           "chan": { "enum": ["temp", "humidity", "press"] },
+          "enabled": { "type": "boolean" },
           "sensor_id": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
         }
       }
