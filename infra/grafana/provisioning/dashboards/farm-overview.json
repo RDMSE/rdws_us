@@ -543,6 +543,144 @@
       }
     },
     {
+      "id": 40,
+      "title": "Fleet Health",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "title": "Ingestion delay",
+      "description": "Max delay per device between a reading's window and its arrival at the server, in minutes (created_at - timestamp). Normally about the uplink interval; peaks mean the station stayed offline and then sent its backlog.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "-- How late readings arrive: arrival (created_at) minus the reading's own window\n-- (timestamp). Around the uplink interval normally; peaks = a station catching up on a\n-- backlog (D10).\nSELECT $__timeGroupAlias(sr.created_at, $__interval),\n       d.type::text || ' #' || d.id::text AS metric,\n       max(extract(epoch FROM sr.created_at - sr.timestamp)) / 60 AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.created_at)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nGROUP BY 1, 2\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 42,
+      "title": "RSSI",
+      "description": "Link signal reported by each station once per uplink cycle (device_telemetry).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__time(t.timestamp),\n       d.type::text || ' #' || d.id::text AS metric,\n       (t.data->>'rssi')::numeric AS value\nFROM device_telemetry t\nJOIN devices d ON d.id = t.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(t.timestamp) AND t.data ? 'rssi'\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 43,
+      "title": "Boot count",
+      "description": "Boot counter reported once per uplink cycle; each step up is a reboot.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__time(t.timestamp),\n       d.type::text || ' #' || d.id::text AS metric,\n       (t.data->>'boot_count')::bigint AS value\nFROM device_telemetry t\nJOIN devices d ON d.id = t.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(t.timestamp) AND t.data ? 'boot_count'\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 44,
+      "title": "FS used (%)",
+      "description": "Record filesystem occupation reported once per uplink cycle.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__time(t.timestamp),\n       d.type::text || ' #' || d.id::text AS metric,\n       (t.data->>'fs_used_pct')::numeric AS value\nFROM device_telemetry t\nJOIN devices d ON d.id = t.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(t.timestamp) AND t.data ? 'fs_used_pct'\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 20,
       "title": "Logs (Loki)",
       "type": "logs",
@@ -550,7 +688,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 54
       },
       "datasource": {
         "type": "loki",
