@@ -12,19 +12,19 @@ Legenda de prioridade: **P1** = risco ou bloqueio real hoje; **P2** = próximo p
 
 Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 
-| Prio | Item | Observação |
-|---|---|---|
-| P1 | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2) |
-| P2 | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
-| P2 | Retry/DLQ no `ReadingWriterService` para mensagens que falham sempre | Hoje uma falha de banco deixa a mensagem sem ack |
-| P2 | Desativar o formato JSON legado no `IngestionService` | Firmware e simulador já usam SenML; falta decidir quando |
-| P3 | Formato e tabela das regras de edge trigger (`rul`) | Junto com o passo 8 do firmware |
-| P3 | Invalidação de credencial em tempo real | Hoje o cache de PSK é por poll de 60 s |
-| P3 | Partições de `sensor_readings`/`device_telemetry` | Adiado (R3): revisitar com ~50 mi de linhas ou dashboard lento |
-| P3 | Retenção/compressão de `sensor_readings` | Tabela de retenção do `Plano_DB_IOT_Sensors.md` não implementada |
-| P3 | Coluna `category` em `sensors` (saúde vs. ambiental) | Para o dashboard do produtor |
-| P3 | Fase 4: SenML CBOR (`zcbor` + parser, Content-Format 112) | Quando o NB-IoT pedir |
-| P3 | Estação agregadora (`devices.parent_device_id`, `bn` de nós filhos) | Seção "Futuro" do `Plano_Telemetria.md` |
+| Prio  | Item | Observação |
+|-------|------|---|
+| P1    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2) |
+| P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
+| P2    | Retry/DLQ no `ReadingWriterService` para mensagens que falham sempre | Hoje uma falha de banco deixa a mensagem sem ack |
+| P2    | Desativar o formato JSON legado no `IngestionService` | Firmware e simulador já usam SenML; falta decidir quando |
+| P3    | Formato e tabela das regras de edge trigger (`rul`) | Junto com o passo 8 do firmware |
+| P3    | Invalidação de credencial em tempo real | Hoje o cache de PSK é por poll de 60 s |
+| P3    | Partições de `sensor_readings`/`device_telemetry` | Adiado (R3): revisitar com ~50 mi de linhas ou dashboard lento |
+| P3    | Retenção/compressão de `sensor_readings` | Tabela de retenção do `Plano_DB_IOT_Sensors.md` não implementada |
+| P3    | Coluna `category` em `sensors` (saúde vs. ambiental) | Para o dashboard do produtor |
+| P3    | Fase 4: SenML CBOR (`zcbor` + parser, Content-Format 112) | Quando o NB-IoT pedir |
+| P3    | Estação agregadora (`devices.parent_device_id`, `bn` de nós filhos) | Seção "Futuro" do `Plano_Telemetria.md` |
 
 ## Alarmes do produtor
 

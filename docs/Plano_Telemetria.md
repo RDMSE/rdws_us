@@ -90,6 +90,15 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
 - **Metadados de pacote**: o SenML não tem campos de cabeçalho. `seq` viaja como registro
   (`{"n":"seq","v":...}`). O `trigger` deixou de ser registro de pacote e virou flag do
   registro que disparou (DP3).
+  - **`rec_cfg`** (decidido em 2026-10-07, ainda não implementado): `{"n":"rec_cfg","v":7}`,
+    em todo pack que leva registros de sensor. É o `config_version` do header do arquivo
+    de onde os registros saíram (cada POST sai de um arquivo só). Diferente do
+    diagnóstico `cfg_version`, que diz que config o device roda **agora** (D11). O
+    `IngestionService` não grava `rec_cfg` em `device_telemetry`: faz upsert em
+    `device_config_spans` com o menor e o maior timestamp de sensor do pack. Serve para
+    saber com que config cada leitura foi produzida (janela de agregação, mapa
+    canal → `sensor_id`); contrato completo em `Plano_Indices_Derivados.md`, D1.1. Pack
+    sem `rec_cfg` (firmware antigo, simulador, JSON legado) é aceito como hoje.
 - **Diagnóstico**: qualquer outro nome. Os conhecidos (2026-10-05):
 
   | `n`             | Tipo | Unidade implícita | Significado                               |
@@ -247,7 +256,7 @@ Uma estação sem conectividade não consegue reportar que está sem conectivida
 
 O contrato vai mudar de qualquer jeito, então definir junto o corpo do ACK, hoje vazio:
 `config_version` e `rules_version` (piggyback, `Plano_Ingestion.md` e
-`Plano_Firmware_WeatherNode.md` §3). É pré-requisito do passo 4 do firmware (config vinda
+`rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §3). É pré-requisito do passo 4 do firmware (config vinda
 do backend).
 
 ~~Decidido (2026-10-05): JSON curto `{"cfg":3,"rul":1}` com as versões, e `GET /config`
@@ -260,13 +269,17 @@ config viaja na própria resposta, só quando mudou:
   traz a config completa (JSON, Content-Format `50`, Block2 se não couber num PDU).
   Versão igual, ou pacote sem `cfg_version`: `2.04` sem corpo, como hoje.
 - O device guarda a config recebida e a aplica no fim do ciclo (ponto de sincronização,
-  `Plano_Firmware_WeatherNode.md` §5).
+  `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §5).
 - Uma ida e volta só, sem `GET /config`; a config só trafega quando muda; e o servidor
   sabe qual versão cada device roda (vai para `device_telemetry` como qualquer
   diagnóstico).
 - Compatível nos dois sentidos: firmware antigo, JSON legado e simulador não mandam
   `cfg_version` e nunca recebem config.
-- Regras de edge trigger (`rul`): mesmo mecanismo quando existirem (passo 8 do firmware).
+- ~~Regras de edge trigger (`rul`): mesmo mecanismo quando existirem.~~ **Revisto em
+  2026-10-07:** as regras viajam dentro da própria config (`triggers[]`), com a mesma
+  versão; não há `rul` nem `rules_version`. Contrato em `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`
+  §4 (Edge triggers). O diagnóstico `trg` (bitmask do estado das regras) entra na tabela
+  do D2 quando ganhar uso.
 - Sem RTC acertado o diagnóstico não vai e a config não é atualizada naquele ciclo —
   mas sem RTC os registros também não saem.
 

@@ -81,6 +81,9 @@ esse `EventBus`. Duas questões ficam em aberto antes de implementar:
     - id : BIGINT (PK, auto-increment)
     - farm_id : BIGINT (FK → farms.id) NOT NULL — escopo mínimo de habilitação, conforme pedido ("habilitados ou não, dependendo de cada fazenda").
     - metric : ENUM('temperature', 'humidity', 'moisture', 'ph', 'luminosity', 'dewpoint', 'other') NOT NULL
+      - **Nota (2026-10-07):** falta `pressure` (o tipo existe em `sensors` desde a V9) e
+        faltam os índices derivados (`vpd`, `delta_t`, `pressure_tendency_3h`). Ver
+        "Alertas sobre índices derivados".
     - condition : ENUM('gt', 'gte', 'lt', 'lte') NOT NULL
     - threshold : NUMERIC(12, 6) NOT NULL
     - window_minutes : INTEGER NULL — NULL = avalia leitura instantânea; preenchido = avalia média/tendência na janela (ex: 15).
@@ -127,12 +130,109 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
 
 ---
 
+## Alertas sobre índices derivados (2026-10-07)
+
+Os índices são calculados conforme `Plano_Indices_Derivados.md` (views instantâneas,
+`daily_weather`, `wetness_periods`). Esta seção define quais viram alerta e o que isso
+muda no modelo acima.
+
+### Alertas propostos
+
+| Alerta | Base | Tipo de regra | Severidade sugerida |
+|---|---|---|---|
+| Risco de geada (preditivo) | Td no fim da tarde, taxa de resfriamento após o pôr do sol, T | composta | `warning` → `critical` |
+| Queda barométrica rápida | tendência 3 h (dados a tempo pelo gatilho `fall` do firmware) | limiar simples sobre índice | `warning` |
+| Risco de doença fúngica | período de molhamento (duração + T média) | por período | `warning` |
+| DPV fora da faixa | DPV sustentado por N horas | limiar com `window_minutes` | `warning` |
+
+- **Risco de geada.** Não é um limiar único: combina o Td no fim da tarde (o ponto de
+  orvalho é o piso aproximado do resfriamento noturno), a taxa de queda de T nas primeiras
+  horas depois do pôr do sol (calculado pela latitude e dia do ano) e a própria T. "Noite
+  limpa" não é mensurável sem sensor de radiação; a taxa de resfriamento é o substituto.
+  Os limiares precisam considerar a altura do sensor: em noite de radiação, folha e relva
+  ficam alguns graus abaixo do ar a 1,5–2 m.
+- **Dados a tempo: edge trigger em estágios.** Um alerta preditivo só funciona se os
+  dados do fim da tarde e do início da noite chegarem ao servidor nesse horário. Com
+  1 uplink/dia, quem garante isso é o edge trigger, usado como **pré-aviso** e não só como
+  detecção de geada:
+  - O firmware não avalia risco de geada (sem correlação entre sinais). Ele só usa
+    limiares de T em estágios, várias regras sobre `temp` em `triggers[]`. Exemplo:
+    `T < 5 °C` ("noite que merece atenção") e `T < 2 °C` ("geada se aproximando").
+  - Cada disparo descarrega o backlog pendente, então o servidor recebe a série da tarde
+    e da noite até aquele momento. Com ela, o `AlertingService` calcula o Td no fim da
+    tarde e a taxa de resfriamento, e decide o alerta.
+  - O segundo estágio traz dados novos mais perto do evento. Como o latch só rearma
+    quando a condição termina, sem ele o servidor ficaria sem dados entre o primeiro
+    disparo e a manhã.
+  - Custo: na estação fria, o primeiro estágio pode disparar quase toda noite. São um ou
+    dois uplinks na entrada e um na saída pela manhã, justamente no período em que o
+    alerta importa.
+  - Limite: o pré-aviso só chega quando T cruza o primeiro estágio, em geral algumas
+    horas depois do pôr do sol. Para antecipar, o backend agenda um envio extra perto do
+    pôr do sol no período de geada (política `sunset_frost` em `extra_uplinks_utc`,
+    `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §3). A noite fica: envio no pôr do sol (Td do fim da
+    tarde) → estágio de 5 °C (taxa de resfriamento) → estágio de 2 °C (geada próxima) →
+    saída da violação pela manhã (fecha o alarme).
+- **Queda barométrica: mesmo raciocínio da geada.** Com 1 uplink/dia a tendência de 3 h
+  chegaria até 24 h depois. Uma regra `{"chan":"press","op":"fall","thr":360,"win_s":10800}`
+  em `triggers[]` (`rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §4) descarrega o backlog quando a
+  queda passa do limiar, e o `AlertingService` confirma pela view de tendência.
+  O limiar do device e o da regra de alarme podem ser iguais ou o do device um pouco menor
+  (pré-aviso). Abaixo de ~3 hPa a maré barométrica diária dispara a regra todo dia.
+- **Delta T não é alarme.** É informação de janela de pulverização para o dashboard
+  (`Plano_Indices_Derivados.md` D8). Uma notificação "boa janela agora" seria outra
+  categoria (informativa, opt-in), fora deste plano.
+- **Acumulados (GDD, horas de frio) também não são alarme.** Atingir um estágio
+  fenológico ou a necessidade de frio de uma cultivar é aviso informativo. Mesmo
+  tratamento: categoria própria, depois.
+
+### Impacto no modelo de dados
+
+- `alarm_rules.metric`: incluir `pressure`, `vpd`, `delta_t` e `pressure_tendency_3h`.
+  Essas cabem no formato atual (`metric`, `condition`, `threshold`, `window_minutes`).
+- Geada e doença fúngica não cabem em `metric` + `condition` + `threshold`. Proposta: uma
+  coluna `rule_type` (`threshold` por padrão, `frost_risk`, `fungal_risk`) e uma coluna
+  `params JSONB` validada por JSON Schema por tipo, no mesmo padrão de
+  `device_configurations.config`. As colunas de limiar continuam valendo para o tipo
+  `threshold`.
+- `alarm_events.sensor_id` para métricas derivadas (proposta, resolve o ponto em aberto):
+  o sensor da grandeza dominante. Temperatura para `dewpoint`, `vpd`, `delta_t` e
+  `frost_risk`; pressão para `pressure_tendency_3h`; umidade para `fungal_risk`.
+
+### Avaliação por (device, timestamp) (decisão 2026-10-07)
+
+As três grandezas de um mesmo instante podem chegar em mensagens diferentes: um POST leva
+até 10 registros, então um lote pode separar T, UR e P do mesmo fim de janela. Por isso as
+regras sobre índices derivados não são avaliadas por leitura isolada:
+
+- Cada leitura que chega identifica um (device, timestamp). O `AlertingService` consulta
+  `weather_samples` (`Plano_Indices_Derivados.md` D1) para esse par e só avalia quando as
+  grandezas de que a regra precisa existirem. Se faltar alguma, não faz nada: a leitura
+  que completar o conjunto dispara a avaliação.
+- Uma leitura que chega depois reavalia o mesmo par. Com a histerese e o índice único de
+  `alarm_events`, reavaliar é idempotente.
+- Regras de limiar sobre uma grandeza bruta (`temperature`, `pressure`) continuam sendo
+  avaliadas por leitura.
+
+### Leituras atrasadas
+
+O `AlertingService` avalia a leitura quando ela chega, não quando foi medida. Um backlog
+de vários dias (estação offline, 1 uplink/dia) pode conter eventos que começaram e
+terminaram há muito tempo. Proposta: o `alarm_event` é registrado com `triggered_at` e
+`resolved_at` históricos (o histórico fica correto), mas só gera notificação se ainda
+estiver ativo na leitura mais recente daquele device, ou se tiver começado há menos de um
+limite configurável. "Fim do lote" não serviria: o `AlertingService` vê mensagens, não
+ciclos de uplink (decidido em 2026-10-07).
+Notificar uma geada que acabou ontem só gera ruído.
+
+---
+
 ## Pontos em aberto
 
 - Evento `alarm_rule.changed` (invalidação do cache da Camada 1) — nome/payload/exchange ainda não definidos, mesmo racional do `device_credential.changed` em `Plano_DeviceCredentials.md`.
 - Transporte e consumidor do evento `reading.threshold_breach` da Camada 1 — não pode ser o `EventBus` do gateway (single-instância, por processo); definir se é fila/routing key própria no RabbitMQ e quem consome sem duplicar a avaliação já feita pela Camada 2 (ver nota na seção da Camada 1).
 - Se `sensor_readings` realmente será hypertable TimescaleDB (`create_hypertable`) ou particionamento nativo do Postgres — adiado em 2026-10-07 (`Plano_Telemetria.md` Fase 3, R3: tabela simples até o volume justificar); as queries janeladas deste plano devem funcionar sobre a tabela simples primeiro.
-- Qual sensor é "o principal" em `alarm_events.sensor_id` para métricas derivadas (dewpoint = temperatura + umidade) — o modelo de dados menciona a exceção mas não define o critério (sensor de temperatura? o primeiro listado na regra? outro critério?).
+- ~~Qual sensor é "o principal" em `alarm_events.sensor_id` para métricas derivadas~~ — proposta em "Alertas sobre índices derivados" (2026-10-07): o sensor da grandeza dominante. Confirmar.
 - Fonte autoritativa dos limites simples da Camada 1: `device_config` (já existe, mas é por device) vs. `alarm_rules` (novo, por farm) — evitar duas fontes de verdade pro mesmo tipo de limite.
 - `window_minutes` cobre "média na janela"; tendência de subida/descida (derivada, não média) fica de fora do desenho inicial — avaliar se é necessário antes de implementar ou se entra numa v2.
 - Tempo de escalonamento (`N` minutos até virar SMS) e cadeia de contatos por fazenda: onde vive essa config — nova tabela (`farm_contacts`?) ou reaproveita `users` com algum vínculo à fazenda?
@@ -144,6 +244,14 @@ Não é "escreve no banco e esquece" — um sistema de alarme de verdade precisa
   notificação de frota ainda não foi escolhido. Bateria e
   painel solar continuam em `sensor_readings` (D6) justamente para serem avaliados aqui.
 - Onde o `AlertingService` roda no gateway existente: como capability registrada (`alerting.evaluate` chamado por algo) ou como worker puro sem capability HTTP, no mesmo espírito do `ReadingWriterService`? Tende a ser worker puro, já que não responde a nenhuma chamada síncrona.
+- `rule_type` + `params JSONB` para regras compostas (geada, doença fúngica): confirmar o
+  desenho e definir o schema de `params` de cada tipo.
+- Parâmetros iniciais do alerta de geada (Td de referência, taxa de resfriamento, T) e do
+  alerta de doença (duração mínima do período e faixa de T média), por cultura ou por
+  fazenda. Validar com agrônomo.
+- Limite de idade para notificar alarmes vindos de leituras atrasadas.
+- Limiares dos estágios de edge trigger para geada (ex.: 5 °C e 2 °C), offset do envio
+  no pôr do sol e onde vivem as datas do período de geada de cada fazenda.
 
 ## Ordem de implementação e dependências
 
@@ -154,4 +262,6 @@ Depende do `Plano_Ingestion.md` estar funcionando ponta a ponta primeiro — sem
 2. Migration Flyway para `alarm_rules` e `alarm_events`.
 3. Filtro de primeira ordem no `ReadingWriterService` (mais simples, valida o desenho de configuração por fazenda antes do serviço separado existir).
 4. `AlertingService` (consumo do RabbitMQ, queries janeladas, histerese, silenciamento por manutenção) — dockerizado no mesmo pipeline de CI/CD já estabelecido (`Plano_Gateway_HTTP.md` Fase 10b), mesmo padrão dos demais serviços.
-5. `NotificationService` (escalonamento, reconhecimento, abstração de provedor) — plano próprio com mais detalhe quando chegar a vez; o desenho de dados/fluxo já está fixado aqui.
+5. Alertas sobre índices derivados (seção própria acima), depois das views e de
+   `daily_weather`/`wetness_periods` do `Plano_Indices_Derivados.md`.
+6. `NotificationService` (escalonamento, reconhecimento, abstração de provedor) — plano próprio com mais detalhe quando chegar a vez; o desenho de dados/fluxo já está fixado aqui.
