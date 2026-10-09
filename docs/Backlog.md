@@ -18,7 +18,7 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 | P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
 | P2    | Falha de banco e retry/DLQ no `ReadingWriterService` | Hoje a exceção do `execCommand` derruba o processo (loop de restart com o banco fora); o ramo "sem ack" não tem nack. "Vazão e falhas do ReadingWriterService" no `Plano_Ingestion.md` |
 | P3    | `basic_qos` (prefetch ~100) no `AmqpConsumer` | Hoje o broker entrega a fila inteira como unacked |
-| P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Se ~50 ms por leitura não bastar |
+| P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |
 | P3    | Uma conexão AMQP com os dois consumers no `ReadingWriterService` | Tira a espera de até 500 ms da telemetria com as filas vazias |
 | P2    | Desativar o formato JSON legado no `IngestionService` | Firmware e simulador já usam SenML; falta decidir quando |
 | P2    | `rec_cfg`: `device_configuration_history` (trigger) + upsert em `device_config_spans` no `IngestionService` | `Plano_Indices_Derivados.md` D1.1, `Plano_Telemetria.md` D2. Pré-requisito da `weather_samples` |

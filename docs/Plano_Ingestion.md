@@ -133,8 +133,11 @@ levaram ~10 min para sair da fila `sensor_readings` (~0,55 s por mensagem).
   `sensor_readings` e `device_telemetry`. Com a fila de telemetria vazia, cada leitura
   custava ~500 ms de espera (teto de ~2 msg/s). Agora as duas filas são consultadas com
   timeout 0 e o loop só bloqueia 500 ms quando ambas estão vazias. O trabalho real
-  (insert + commit + ack) ficou em ~50 ms por mensagem. Falta confirmar a vazão nova no
-  próximo backlog.
+  (insert + commit + ack) ficou em ~50 ms por mensagem. Confirmado no mesmo dia: 1539
+  leituras em 10 arquivos gravadas em 24,9 s (~62 msg/s, ~16 ms por insert), o mesmo tempo
+  do upload no device (~25,5 s). O writer acompanha o envio, e o gargalo do ciclo passou a
+  ser o upload da estação (~2,5 s por arquivo). O log `ReadingWriterService: queues drained`
+  (contagem e duração por rajada) registra isso a cada uplink.
 - **Falha de banco derruba o serviço** — `PostgreSQLDatabase::execCommand` lança exceção
   em vez de retornar `false`, e `handleMessage`/`handleTelemetryMessage` não a capturam. O
   ramo "DB insert failed, leaving message unacked" nunca roda: o processo cai, o Docker
