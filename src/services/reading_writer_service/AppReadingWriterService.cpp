@@ -58,13 +58,21 @@ public:
   void run() {
     running_.store(true);
     logger::info("ReadingWriterService starting", "");
+    const auto onReading = [this](const std::string& body) { return handleMessage(body); };
+    const auto onTelemetry = [this](const std::string& body) {
+      return handleTelemetryMessage(body);
+    };
     while (running_.load()) {
       runRetentionIfDue();
-      // Alternate between the queues; each wait is short so neither starves the other.
-      (void)consumer_.consumeOne(
-          [this](const std::string& body) { return handleMessage(body); }, 500);
-      (void)telemetryConsumer_.consumeOne(
-          [this](const std::string& body) { return handleTelemetryMessage(body); }, 500);
+      // Poll both queues without waiting, so a backlog on one isn't throttled by the other
+      // being empty (a fixed wait per queue capped a 1080-reading uplink at ~2 msg/s).
+      const bool gotReading = consumer_.consumeOne(onReading, 0);
+      const bool gotTelemetry = telemetryConsumer_.consumeOne(onTelemetry, 0);
+      if (!gotReading && !gotTelemetry) {
+        // Both idle: block on the socket instead of spinning. Telemetry arriving meanwhile
+        // waits at most this long — latency only matters while idle, not for throughput.
+        (void)consumer_.consumeOne(onReading, 500);
+      }
     }
     logger::info("ReadingWriterService stopped", "");
   }
