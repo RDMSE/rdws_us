@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <optional>
 #include <csignal>
@@ -68,12 +69,18 @@ public:
       // being empty (a fixed wait per queue capped a 1080-reading uplink at ~2 msg/s).
       const bool gotReading = consumer_.consumeOne(onReading, 0);
       const bool gotTelemetry = telemetryConsumer_.consumeOne(onTelemetry, 0);
+      countBurst(gotReading, gotTelemetry);
       if (!gotReading && !gotTelemetry) {
         // Both idle: block on the socket instead of spinning. Telemetry arriving meanwhile
         // waits at most this long — latency only matters while idle, not for throughput.
-        (void)consumer_.consumeOne(onReading, 500);
+        const bool gotLate = consumer_.consumeOne(onReading, 500);
+        countBurst(gotLate, false);
+        if (!gotLate) {
+          logBurstIfAny(); // a full idle wait ends the burst
+        }
       }
     }
+    logBurstIfAny();
     logger::info("ReadingWriterService stopped", "");
   }
 
@@ -92,9 +99,38 @@ private:
   rdws::amqp::AmqpConsumer consumer_;
   rdws::amqp::AmqpConsumer telemetryConsumer_;
   std::atomic<bool> running_{false};
+  // Messages consumed since the queues were last idle — one summary line per uplink burst
+  // instead of a log line per message (counts include discarded/unacked ones).
+  std::chrono::steady_clock::time_point burstStart_;
+  unsigned int burstReadings_ = 0;
+  unsigned int burstTelemetry_ = 0;
 
   static constexpr auto kTouchInterval = std::chrono::minutes(1);
   static constexpr auto kRetentionInterval = std::chrono::hours(24);
+
+  void countBurst(bool gotReading, bool gotTelemetry) {
+    if ((gotReading || gotTelemetry) && burstReadings_ == 0 && burstTelemetry_ == 0) {
+      burstStart_ = std::chrono::steady_clock::now();
+    }
+    burstReadings_ += gotReading ? 1 : 0;
+    burstTelemetry_ += gotTelemetry ? 1 : 0;
+  }
+
+  void logBurstIfAny() {
+    if (burstReadings_ == 0 && burstTelemetry_ == 0) {
+      return;
+    }
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - burstStart_)
+                               .count();
+    char seconds[32];
+    std::snprintf(seconds, sizeof(seconds), "%.1f", static_cast<double>(elapsedMs) / 1000.0);
+    logger::info("ReadingWriterService: queues drained",
+                 "readings=" + std::to_string(burstReadings_) +
+                     " telemetry=" + std::to_string(burstTelemetry_) + " seconds=" + seconds);
+    burstReadings_ = 0;
+    burstTelemetry_ = 0;
+  }
 
   // At startup and then daily. A failure only logs and is retried on the next day's run.
   void runRetentionIfDue() {
