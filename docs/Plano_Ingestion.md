@@ -117,10 +117,40 @@ Resumo do que já está no código:
   (60s) em vez do bridge de `device_credential.changed` via EventBus (que exigiria
   mudança no lado do gateway, fora de escopo por ora).
 - Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
+  Ver "Vazão e falhas do ReadingWriterService" abaixo: hoje uma falha de banco derruba o
+  processo em vez de chegar ao caminho "sem ack".
 - Novos tipos em `sensors.type` (bateria, solar, agregados de vento) — `pressure` e `co2`
   já entraram (V9); os demais entram com o hardware (passos 5–6 do firmware). Ver seção
   "Amostragem interna vs. taxa de transmissão".
 - Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
+
+## Vazão e falhas do ReadingWriterService (2026-10-09)
+
+Visto no primeiro uplink com intervalo de 6 h da estação real: 1080 leituras em 7 arquivos
+levaram ~10 min para sair da fila `sensor_readings` (~0,55 s por mensagem).
+
+- ✅ **Espera fixa por fila** — o loop alternava `consumeOne(..., 500)` entre
+  `sensor_readings` e `device_telemetry`. Com a fila de telemetria vazia, cada leitura
+  custava ~500 ms de espera (teto de ~2 msg/s). Agora as duas filas são consultadas com
+  timeout 0 e o loop só bloqueia 500 ms quando ambas estão vazias. O trabalho real
+  (insert + commit + ack) ficou em ~50 ms por mensagem. Falta confirmar a vazão nova no
+  próximo backlog.
+- **Falha de banco derruba o serviço** — `PostgreSQLDatabase::execCommand` lança exceção
+  em vez de retornar `false`, e `handleMessage`/`handleTelemetryMessage` não a capturam. O
+  ramo "DB insert failed, leaving message unacked" nunca roda: o processo cai, o Docker
+  reinicia (`restart: unless-stopped`) e o broker devolve as mensagens não confirmadas. Não
+  perde dado, mas com o banco fora vira um loop de restart. Se o ramo passar a rodar, a
+  mensagem fica sem ack nem nack, presa como unacked até a conexão cair. Decidir junto com a
+  política de retry/DLQ: capturar a exceção, `basic_nack` com requeue e backoff, e
+  dead-letter depois de N tentativas.
+- **Sem `basic_qos`** — o consumer não limita o prefetch, então o broker entrega a fila
+  inteira como unacked de uma vez. Um prefetch de ~100 basta.
+- **Um commit por leitura** — juntar as mensagens disponíveis numa transação (ex.: até 100,
+  ack com `multiple=1`) é o próximo ganho de vazão, se ~50 ms por mensagem não bastar.
+- **Latência ociosa assimétrica** — com as filas vazias o loop bloqueia só no socket de
+  `sensor_readings`, então telemetria que chega nesse momento espera até 500 ms. A solução
+  completa é uma conexão só com os dois consumers e um único `amqp_consume_message` que
+  separa por `consumer_tag`. Muda a API do `AmqpConsumer`; só vale se a latência importar.
 
 ## Observabilidade da fila
 
