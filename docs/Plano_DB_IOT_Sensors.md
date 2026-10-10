@@ -93,9 +93,15 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - UNIQUE (device_id, timestamp) — conflito mescla as chaves (`data || EXCLUDED.data`)
 
-- **device_liveness** *(view, V14)* — por device: `last_seen`, intervalo de envio esperado
+- **device_liveness** *(view, V14; V15)* — por device: `last_seen`, intervalo de envio esperado
   (da config) e `silent` (nada chegou há mais de 3× esse intervalo). Usada pelo painel
-  "Devices Online / Offline" e pelo alerta "Silent station".
+  "Devices Online / Offline" e pelo alerta "Silent station". Desde V15, enquanto o
+  `cfg_version` declarado pelo device difere da versão atual (`config_pending`), o
+  intervalo esperado é o maior entre o da versão que ele roda e o da atual.
+
+- **device_config_history** *(V15)* — toda versão da config de cada device
+  (`device_id`, `version`, `config`, `changed_at`), gravada por trigger. Dá o intervalo
+  da versão que uma estação ainda roda depois que a config mudou.
 
 ---
 
