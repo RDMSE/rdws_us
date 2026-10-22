@@ -7,5 +7,9 @@ meta {
 get {
   url: {{baseUrl}}/routes
   body: none
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
 }

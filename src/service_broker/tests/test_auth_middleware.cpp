@@ -131,6 +131,11 @@ TEST(AuthMiddlewareNone, NoAuth_AlwaysAuthorized) {
   EXPECT_FALSE(result.identity.has_value());
 }
 
+TEST(AuthMiddlewareNone, AuthorizeAdmin_AlwaysAuthorized) {
+  AuthMiddleware auth(AuthConfig{});
+  EXPECT_TRUE(auth.authorizeAdmin(makeRequest("/routes")).authorized);
+}
+
 TEST(AuthMiddlewareNone, IsEnabled_ReturnsFalse) {
   AuthMiddleware auth(AuthConfig{});
   EXPECT_FALSE(auth.isEnabled());
@@ -147,6 +152,7 @@ protected:
     cfg.mode = AuthMode::API_KEY;
     cfg.apiKeys["sk_valid"] = "my-service";
     cfg.apiKeys["sk_unlabeled"] = ""; // label = key itself
+    cfg.apiKeys["sk_admin"] = "admin";
     auth_ = std::make_unique<AuthMiddleware>(cfg);
   }
   std::unique_ptr<AuthMiddleware> auth_;
@@ -207,7 +213,7 @@ TEST_F(ApiKeyTest, PublicPath_BypassesAuth) {
 }
 
 TEST_F(ApiKeyTest, PublicPathSubRoute_BypassesAuth) {
-  const auto req = makeRequest("/routes/abc-123");
+  const auto req = makeRequest("/requests/abc-123");
   const auto result = auth_->authenticate(req);
   EXPECT_TRUE(result.authorized);
 }
@@ -216,6 +222,35 @@ TEST_F(ApiKeyTest, NonPublicPath_RequiresKey) {
   const auto req = makeRequest("/invoke/greet"); // no header
   const auto result = auth_->authenticate(req);
   EXPECT_FALSE(result.authorized);
+}
+
+TEST_F(ApiKeyTest, RoutesPath_IsNotPublic) {
+  EXPECT_FALSE(auth_->authenticate(makeRequest("/routes")).authorized);
+  EXPECT_FALSE(auth_->authenticate(makeRequest("/routes/abc-123")).authorized);
+}
+
+TEST_F(ApiKeyTest, AuthorizeAdmin_AdminKey_Authorized) {
+  const auto result = auth_->authorizeAdmin(makeRequestWithApiKeyHeader("/routes", "sk_admin"));
+  EXPECT_TRUE(result.authorized);
+  EXPECT_EQ(result.identity->subject, "admin");
+}
+
+TEST_F(ApiKeyTest, AuthorizeAdmin_NonAdminKey_Returns403) {
+  const auto result = auth_->authorizeAdmin(makeRequestWithApiKeyHeader("/routes", "sk_valid"));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 403);
+}
+
+TEST_F(ApiKeyTest, AuthorizeAdmin_MissingKey_Returns401) {
+  const auto result = auth_->authorizeAdmin(makeRequest("/routes"));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 401);
+}
+
+TEST_F(ApiKeyTest, AuthorizeAdmin_IgnoresPublicPaths) {
+  const auto result = auth_->authorizeAdmin(makeRequest("/health"));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 401);
 }
 
 TEST_F(ApiKeyTest, IsEnabled_ReturnsTrue) {
@@ -347,6 +382,41 @@ TEST_F(JwtTest, AudienceArray_Matches) {
                    std::string(kAudience) + R"("],"exp":)" + std::to_string(futureExp()) + "}");
   const auto result = auth_->authenticate(makeRequest("/invoke/x", "Bearer " + token));
   EXPECT_TRUE(result.authorized);
+}
+
+TEST_F(JwtTest, AuthorizeAdmin_AdminRole_Authorized) {
+  const auto token = validToken("root", R"(,"role":"admin")");
+  const auto result = auth_->authorizeAdmin(makeRequest("/routes", "Bearer " + token));
+  EXPECT_TRUE(result.authorized);
+  EXPECT_EQ(result.identity->subject, "root");
+}
+
+TEST_F(JwtTest, AuthorizeAdmin_ViewerRole_Returns403) {
+  const auto token = validToken("bob", R"(,"role":"viewer")");
+  const auto result = auth_->authorizeAdmin(makeRequest("/routes", "Bearer " + token));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 403);
+}
+
+TEST_F(JwtTest, AuthorizeAdmin_NoRoleClaim_Returns403) {
+  const auto result = auth_->authorizeAdmin(makeRequest("/routes", "Bearer " + validToken()));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 403);
+}
+
+TEST_F(JwtTest, AuthorizeAdmin_MissingToken_Returns401) {
+  const auto result = auth_->authorizeAdmin(makeRequest("/routes"));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 401);
+}
+
+TEST_F(JwtTest, AuthorizeAdmin_InvalidSignature_Returns401) {
+  const std::string token =
+      makeJwt("wrong-secret", R"({"sub":"root","role":"admin","exp":)" +
+                                  std::to_string(futureExp()) + "}");
+  const auto result = auth_->authorizeAdmin(makeRequest("/routes", "Bearer " + token));
+  EXPECT_FALSE(result.authorized);
+  EXPECT_EQ(result.statusCode, 401);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

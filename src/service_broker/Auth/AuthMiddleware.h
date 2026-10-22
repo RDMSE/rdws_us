@@ -33,9 +33,11 @@ struct AuthConfig {
 
   // ── Path policy ─────────────────────────────────────────────────────────
   /// Path prefixes that bypass auth even when a mode is active.
-  std::vector<std::string> publicPaths = {
-      "/health", "/status",   "/metrics",           "/connections", "/events",
-      "/routes", "/requests", "/invoke/auth.login", "/auth/login"};
+  /// Administrative endpoints (/routes, /config) are never public: they go through
+  /// AuthMiddleware::authorizeAdmin(), which ignores this list.
+  std::vector<std::string> publicPaths = {"/health",      "/status",   "/metrics",
+                                          "/connections", "/requests", "/invoke/auth.login",
+                                          "/auth/login"};
 };
 
 // ─── Framework-agnostic request view ─────────────────────────────────────────
@@ -85,6 +87,13 @@ public:
   /// Validate the incoming request according to the configured mode.
   /// Always returns authorized=true when mode is NONE.
   [[nodiscard]] AuthResult authenticate(const AuthHttpRequest& req) const;
+
+  /// Like authenticate(), but also requires an admin identity (403 otherwise) and
+  /// ignores publicPaths.  JWT: "role" claim == "admin".  API key: key label == "admin".
+  /// Always returns authorized=true when mode is NONE.
+  [[nodiscard]] AuthResult authorizeAdmin(const AuthHttpRequest& req) const;
+
+  static constexpr const char* kAdminRole = "admin";
 
   /// Inject the resolved identity into the lambdaContext sub-object of
   /// @p payload (adds an "identity" member).  Falls back to a top-level
