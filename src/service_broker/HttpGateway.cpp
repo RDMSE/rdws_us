@@ -182,6 +182,27 @@ void HttpGateway::stop() {
   }
 }
 
+bool HttpGateway::requireAdmin(const httplib::Request& request,
+                               httplib::Response& response) const {
+  AuthHttpRequest authReq;
+  authReq.path = request.path;
+  for (const auto& [k, v] : request.headers) {
+    authReq.headers.emplace(k, v);
+  }
+
+  const auto result = auth_.authorizeAdmin(authReq);
+  if (result.authorized) {
+    return true;
+  }
+  response.status = result.statusCode;
+  if (result.statusCode == 401) {
+    response.set_header("WWW-Authenticate", R"(Bearer realm="rdws-gateway")");
+  }
+  response.set_content(ResponseHelper::returnError(result.message, result.statusCode),
+                       "application/json");
+  return false;
+}
+
 void HttpGateway::registerRoutes() {
   // POST /invoke/:capability — body is fully available in Post() handlers
   server_.Post(R"(/invoke/([^/?]+))", [this](const httplib::Request& request,
@@ -360,7 +381,10 @@ void HttpGateway::registerRoutes() {
   // ── EventRouter CRUD ─────────────────────────────────────────────────────
 
   // GET /routes — list all routing rules
-  server_.Get("/routes", [this](const httplib::Request&, httplib::Response& response) {
+  server_.Get("/routes", [this](const httplib::Request& request, httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     rdws::utils::Profiler profiler("gateway");
     auto t = profiler.scoped("GET /routes");
     const auto rules = gateway_.getEventRouter().listRules();
@@ -380,6 +404,9 @@ void HttpGateway::registerRoutes() {
 
   // POST /routes — create a new routing rule
   server_.Post("/routes", [this](const httplib::Request& request, httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     rapidjson::Document body;
     body.Parse(request.body.c_str());
     if (body.HasParseError() || !body.IsObject()) {
@@ -406,6 +433,9 @@ void HttpGateway::registerRoutes() {
   // GET /routes/:id — get a specific routing rule
   server_.Get(R"(/routes/([^/?]+))", [this](const httplib::Request& request,
                                             httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     const std::string id = request.matches[1];
     const auto rule = gateway_.getEventRouter().getRule(id);
     if (!rule) {
@@ -424,6 +454,9 @@ void HttpGateway::registerRoutes() {
   // PUT /routes/:id — replace a routing rule
   server_.Put(R"(/routes/([^/?]+))", [this](const httplib::Request& request,
                                             httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     const std::string id = request.matches[1];
     rapidjson::Document body;
     body.Parse(request.body.c_str());
@@ -448,6 +481,9 @@ void HttpGateway::registerRoutes() {
   // DELETE /routes/:id — remove a routing rule
   server_.Delete(R"(/routes/([^/?]+))", [this](const httplib::Request& request,
                                                httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     const std::string id = request.matches[1];
     if (!gateway_.getEventRouter().removeRule(id)) {
       response.status = 404;
@@ -468,6 +504,9 @@ void HttpGateway::registerRoutes() {
   // POST /events/{topic} — publish an event to the bus
   server_.Post(R"(/events/([^/?]+))",
                [this](const httplib::Request& request, httplib::Response& response) {
+                 if (!requireAdmin(request, response)) {
+                   return;
+                 }
                  const std::string topic = request.matches[1];
 
                  rapidjson::Document payload;
@@ -500,7 +539,10 @@ void HttpGateway::registerRoutes() {
   // ── GatewayConfig endpoints ───────────────────────────────────────────────────
 
   // GET /config — full config snapshot
-  server_.Get("/config", [this](const httplib::Request&, httplib::Response& response) {
+  server_.Get("/config", [this](const httplib::Request& request, httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     response.status = 200;
     response.set_content(json::docToString(gateway_.getConfig().toJson()), "application/json");
   });
@@ -508,6 +550,9 @@ void HttpGateway::registerRoutes() {
   // PATCH /config/capabilities/{cap} — update per-capability settings
   server_.Patch(R"(/config/capabilities/([^/?]+))", [this](const httplib::Request& request,
                                                            httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     const std::string cap = request.matches[1];
 
     if (request.body.empty()) {
@@ -542,6 +587,9 @@ void HttpGateway::registerRoutes() {
   // DELETE /config/capabilities/{cap} — remove override (revert to defaults)
   server_.Delete(R"(/config/capabilities/([^/?]+))", [this](const httplib::Request& request,
                                                             httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     const std::string cap = request.matches[1];
     gateway_.getConfig().removeCapabilityConfig(cap);
     response.status = 200;
@@ -549,7 +597,10 @@ void HttpGateway::registerRoutes() {
   });
 
   // GET /config/features — list all feature flags
-  server_.Get("/config/features", [this](const httplib::Request&, httplib::Response& response) {
+  server_.Get("/config/features", [this](const httplib::Request& request, httplib::Response& response) {
+    if (!requireAdmin(request, response)) {
+      return;
+    }
     const rapidjson::Document full = gateway_.getConfig().toJson();
     rapidjson::Document resp;
     resp.SetObject();
@@ -570,6 +621,9 @@ void HttpGateway::registerRoutes() {
   // Body: { "enabled": true }
   server_.Put(R"(/config/features/([^/?]+))",
               [this](const httplib::Request& request, httplib::Response& response) {
+                if (!requireAdmin(request, response)) {
+                  return;
+                }
                 const std::string name = request.matches[1];
 
                 rapidjson::Document body;

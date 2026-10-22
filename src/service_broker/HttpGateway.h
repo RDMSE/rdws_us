@@ -39,6 +39,9 @@ private:
   std::thread serverThread_;
 
   void registerRoutes();
+  /// Runs AuthMiddleware::authorizeAdmin(); on failure fills @p response (401/403)
+  /// and returns false, so the handler just returns.
+  bool requireAdmin(const httplib::Request& request, httplib::Response& response) const;
   static std::optional<std::string> extractCapability(const std::string& path);
   static std::optional<std::string> extractRequestId(const std::string& path);
   static std::string documentToString(const rapidjson::Document& document);

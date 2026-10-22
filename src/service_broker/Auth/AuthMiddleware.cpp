@@ -46,6 +46,40 @@ AuthResult AuthMiddleware::authenticate(const AuthHttpRequest& req) const {
   }
 }
 
+AuthResult AuthMiddleware::authorizeAdmin(const AuthHttpRequest& req) const {
+  AuthResult result;
+  switch (config_.mode) {
+    case AuthMode::API_KEY:
+      result = checkApiKey(req);
+      break;
+    case AuthMode::JWT:
+      result = checkJwt(req);
+      break;
+    default:
+      return {.authorized = true, .statusCode = 200, .message = "ok", .identity = std::nullopt};
+  }
+
+  if (!result.authorized) {
+    return result;
+  }
+
+  bool isAdmin = false;
+  if (config_.mode == AuthMode::JWT) {
+    const auto role = result.identity->claims.find("role");
+    isAdmin = role != result.identity->claims.end() && role->second == kAdminRole;
+  } else {
+    isAdmin = result.identity->subject == kAdminRole;
+  }
+
+  if (!isAdmin) {
+    return {.authorized = false,
+            .statusCode = 403,
+            .message = "Admin role required",
+            .identity = result.identity};
+  }
+  return result;
+}
+
 void AuthMiddleware::injectIdentity(const AuthIdentity& id, rapidjson::Document& payload) {
   auto& alloc = payload.GetAllocator();
 
