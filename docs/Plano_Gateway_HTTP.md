@@ -727,26 +727,31 @@ rodando 2x seguidas).
 
 ---
 
-### Backlog — CRUD de `/routes` sem autenticação
+### ✅ CRUD de `/routes` sem autenticação (RDWS-155, 2026-10-22)
 
-**Contexto (2026-07-22, achado ao investigar o item acima):** os handlers de
-`GET/POST/PUT/DELETE /routes` (`src/service_broker/HttpGateway.cpp:362-459`) não chamam
-`auth_.authenticate(...)` como os demais endpoints (`/invoke/:capability` e o dispatch
-REST genérico chamam, ver linhas 199 e 616) — mesmo com `RDWS_AUTH_MODE=jwt` configurado.
-Como a porta HTTP do gateway (`3001`) é exposta publicamente
-(`docker-compose.qa-app.yml`, `"3001:3001"`), qualquer um que alcance
-`fedora-server:3001/routes` hoje pode criar/editar/apagar regras de roteamento sem token.
+**Contexto (2026-07-22):** os handlers de `GET/POST/PUT/DELETE /routes` não chamavam
+`auth_.authenticate(...)` — `/routes` estava em `AuthConfig::publicPaths` — mesmo com
+`RDWS_AUTH_MODE=jwt`. Na revisão apareceu o mesmo problema em `/config`
+(`PATCH`/`DELETE /config/capabilities/{cap}`, `PUT /config/features/{name}`) e em
+`POST /events/{topic}`. Com a porta `3001` exposta, qualquer um mudava rotas, timeouts,
+feature flags ou publicava no bus sem token.
 
-**Decisão:** não corrigido ainda — registrar e priorizar depois. Corrigir exigiria
-decidir se `/routes` deve exigir o mesmo JWT de usuário comum ou uma role/escopo
-administrativo separado (provavelmente a segunda opção, já que CRUD de rotas é operação
-de infraestrutura, não de domínio).
+**Decisão:** role administrativa, não o JWT de usuário comum — são operações de
+infraestrutura, não de domínio.
 
-- ⬜ Adicionar checagem de auth aos 5 handlers de `/routes` em `HttpGateway.cpp`.
-- ⬜ Decidir se basta reusar `auth_.authenticate` (JWT de usuário) ou se merece uma role
-  `admin`/escopo próprio.
-- ⬜ Cobrir com teste de integração (`service_gateway_http_e2e_test` ou similar)
-  garantindo 401/403 sem token válido.
+- ✅ `AuthMiddleware::authorizeAdmin()`: 401 sem credencial válida, 403 se não for admin
+  (JWT: claim `role == "admin"`; API key: label `admin`); ignora `publicPaths`; modo
+  `none` continua liberado.
+- ✅ `HttpGateway::requireAdmin()` nos 11 handlers: `/routes` (5), `GET /config`,
+  `/config/capabilities/{cap}` (PATCH/DELETE), `/config/features` (GET/PUT),
+  `POST /events/{topic}`. `/routes` e `/events` saíram de `publicPaths`.
+- ✅ Testes: `service_gateway_auth_test` (authorizeAdmin) e `service_gateway_http_e2e_test`
+  (401/403/2xx nos 11 endpoints; modo `none` aberto).
+- ✅ `scripts/sync_gateway_routes.py` faz login como admin (`RDWS_ADMIN_USER`/
+  `RDWS_ADMIN_PASSWORD`, secrets do environment `qa`); `List Routes.bru` manda o Bearer.
+- ✅ Validado no QA: sync com login ok (0 criadas, 27 presentes), `/routes` e `/config`
+  → 401 sem token, `/health` → 200, List Routes no Bruno com token → 200.
+- ⬜ Fora do escopo: `/connections`, `/requests` e `GET /events` continuam públicos (só leitura).
 
 ---
 
