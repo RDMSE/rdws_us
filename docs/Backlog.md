@@ -70,7 +70,6 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | Prio | Item | Observação |
 |---|---|---|
 | P1 | `ServiceClient` não reconecta depois de perder a conexão com o gateway | Visto no QA em 2026-07-22; mitigação manual com `docker restart` |
-| P1 | CRUD de `/routes` sem autenticação | 5 handlers em `HttpGateway.cpp` |
 | P2 | Fase 13: IDOR / `public_id` nas tabelas expostas | Muda o contrato da API |
 | P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno |
 | P3 | Wrappers semânticos no `ResponseHelper` | Tirar códigos HTTP soltos dos handlers |
@@ -78,7 +77,8 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | P3 | Testes de carga leve com várias capabilities simultâneas | Fase 5 |
 | P3 | Link painel → logs do request no Grafana | Fase 11 |
 | P3 | Sync de `routes.json` também no `deploy-prod.yml` | Já existe no QA |
-| P3 | Fase 14: multi-instância; `routes.json`/`GatewayConfig` no banco | Por último, sem data |
+| P3 | Rotas (`EventRouter`) e `GatewayConfig` no banco | "Exceção já decidida" da Fase 14, sem esperar a multi-instância. Rotas do repo entram por migration Flyway (remover uma rota = migration com `DELETE`); coluna `source` (`repo`/`runtime`) separa as criadas via `POST /routes`. Substitui o `sync_gateway_routes.py` e a semeadura do `docker-entrypoint.sh`. Até lá, o QA mantém `POST`/`PUT`/`DELETE /devices/{id}/config` (removidas no RDWS-16) — apagar à mão com token admin |
+| P3 | Fase 14: multi-instância (discovery compartilhado, métricas agregadas) | Por último, sem data. A parte de config no banco está no item acima |
 | P3 | Auditoria mais ampla (tabela de audit log) | Avaliação |
 
 ## Infra e deploy
