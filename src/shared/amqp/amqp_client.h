@@ -41,7 +41,12 @@ private:
 
 class AmqpConsumer {
 public:
-  using MessageHandler = std::function<bool(const std::string& body)>; // true = ack
+  // What to do with a delivery once the handler is done with it.
+  enum class Outcome {
+    Ack,     // processed (or discarded on purpose) — remove it from the queue
+    Requeue, // not processed — basic_nack with requeue, the broker delivers it again
+  };
+  using MessageHandler = std::function<Outcome(const std::string& body)>;
 
   AmqpConsumer(std::string host, uint16_t port, std::string user, std::string password,
               std::string queueName);
@@ -53,7 +58,7 @@ public:
   [[nodiscard]] bool connect();
 
   // Blocks waiting for a single message (up to timeoutMs); if one arrives, calls
-  // `handler` and acks iff it returns true. Returns false on timeout or connection
+  // `handler` and acks or nacks (with requeue) according to its Outcome. Returns false on timeout or connection
   // error (caller decides whether/how to reconnect) — never throws.
   [[nodiscard]] bool consumeOne(const MessageHandler& handler, unsigned int timeoutMs);
 

@@ -2,10 +2,26 @@
 
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace rdws::database {
+
+// Thrown by execQuery()/execCommand()/connect(). sqlstate() is the server's SQLSTATE code
+// (e.g. "23503" foreign key violation) when the server rejected the statement, and empty
+// when there was no server answer (connection lost/refused) — lets a caller tell a bad
+// statement or bad data from an unavailable database.
+class DatabaseError : public std::runtime_error {
+public:
+  DatabaseError(const std::string& message, std::string sqlstate)
+      : std::runtime_error(message), sqlstate_(std::move(sqlstate)) {}
+
+  [[nodiscard]] const std::string& sqlstate() const { return sqlstate_; }
+
+private:
+  std::string sqlstate_;
+};
 
 class IResultSet {
 public:

@@ -157,9 +157,10 @@ bool AmqpConsumer::consumeOne(const MessageHandler& handler, unsigned int timeou
 
   const std::string body(static_cast<const char*>(envelope.message.body.bytes),
                          envelope.message.body.len);
-  const bool ack = handler(body);
-  if (ack) {
+  if (handler(body) == Outcome::Ack) {
     amqp_basic_ack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0);
+  } else {
+    amqp_basic_nack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0, /*requeue=*/1);
   }
   amqp_destroy_envelope(&envelope);
   return true;

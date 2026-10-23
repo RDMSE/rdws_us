@@ -147,9 +147,12 @@ PostgreSQLDatabase::execQuery(const std::string& query,
     txn.commit();
     return std::make_unique<PostgreSQLResultSet>(std::move(result));
 
+  } catch (const pqxx::sql_error& e) {
+    lastError = e.what();
+    throw DatabaseError("Query execution failed: " + std::string(e.what()), e.sqlstate());
   } catch (const std::exception& e) {
     lastError = e.what();
-    throw std::runtime_error("Query execution failed: " + std::string(e.what()));
+    throw DatabaseError("Query execution failed: " + std::string(e.what()), "");
   }
 }
 
@@ -172,9 +175,12 @@ bool PostgreSQLDatabase::execCommand(const std::string& command,
       txn.commit();
     }
     return true;
+  } catch (const pqxx::sql_error& e) {
+    lastError = e.what();
+    throw DatabaseError("Command execution failed: " + std::string(e.what()), e.sqlstate());
   } catch (const std::exception& e) {
     lastError = e.what();
-    throw std::runtime_error("Command execution failed: " + std::string(e.what()));
+    throw DatabaseError("Command execution failed: " + std::string(e.what()), "");
   }
 }
 
@@ -251,7 +257,7 @@ void PostgreSQLDatabase::connect() {
     lastError.clear();
   } catch (const std::exception& e) {
     lastError = e.what();
-    throw std::runtime_error("Failed to connect to database: " + std::string(e.what()));
+    throw DatabaseError("Failed to connect to database: " + std::string(e.what()), "");
   }
 }
 
