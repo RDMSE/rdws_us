@@ -22,11 +22,21 @@ public:
   AmqpProducer(const AmqpProducer&) = delete;
   AmqpProducer& operator=(const AmqpProducer&) = delete;
 
-  // Connects and declares the durable queue. Returns false on any failure.
+  // Connects, declares the durable queue and puts the channel in confirm mode. Returns false
+  // on any failure.
   [[nodiscard]] bool connect();
 
-  // Publishes to the default exchange with the queue name as routing key.
+  // Publishes to the default exchange with the queue name as routing key and waits for the
+  // broker's confirm (basic.ack), so true means the broker has the message. A plain publish
+  // only writes to the socket: after a broker restart the first one still "succeeds" into
+  // the kernel buffer and is lost. On failure the connection is dropped, reconnected and the
+  // publish retried once — a message the broker did get before the failure may then arrive
+  // twice (the consumer's writes are idempotent). Connects lazily if not connected.
   [[nodiscard]] bool publish(const std::string& body);
+
+  [[nodiscard]] bool isConnected() const { return conn_ != nullptr; }
+  // Why the last publish() failed, for logging.
+  [[nodiscard]] const std::string& lastError() const { return lastError_; }
 
   void disconnect();
 
@@ -37,11 +47,20 @@ private:
   std::string password_;
   std::string queueName_;
   void* conn_ = nullptr; // amqp_connection_state_t, opaque to avoid leaking amqp.h here
+  std::string lastError_;
+
+  [[nodiscard]] bool publishConfirmed(const std::string& body);
+  void dropConnection(std::string reason);
 };
 
 class AmqpConsumer {
 public:
-  using MessageHandler = std::function<bool(const std::string& body)>; // true = ack
+  // What to do with a delivery once the handler is done with it.
+  enum class Outcome {
+    Ack,     // processed (or discarded on purpose) — remove it from the queue
+    Requeue, // not processed — basic_nack with requeue, the broker delivers it again
+  };
+  using MessageHandler = std::function<Outcome(const std::string& body)>;
 
   AmqpConsumer(std::string host, uint16_t port, std::string user, std::string password,
               std::string queueName);
@@ -53,9 +72,16 @@ public:
   [[nodiscard]] bool connect();
 
   // Blocks waiting for a single message (up to timeoutMs); if one arrives, calls
-  // `handler` and acks iff it returns true. Returns false on timeout or connection
-  // error (caller decides whether/how to reconnect) — never throws.
+  // `handler` and acks or nacks (with requeue) according to its Outcome. Returns false on
+  // timeout or connection error — never throws. Anything other than a timeout (socket
+  // error, broker closing the connection or channel, consumer cancelled) drops the
+  // connection: isConnected() turns false and the caller reconnects with connect().
   [[nodiscard]] bool consumeOne(const MessageHandler& handler, unsigned int timeoutMs);
+
+  [[nodiscard]] bool isConnected() const { return conn_ != nullptr; }
+  [[nodiscard]] const std::string& queueName() const { return queueName_; }
+  // Why the connection was last dropped by consumeOne(), for logging.
+  [[nodiscard]] const std::string& lastError() const { return lastError_; }
 
   void disconnect();
 
@@ -67,6 +93,11 @@ private:
   std::string queueName_;
   void* conn_ = nullptr;
   bool consuming_ = false;
+  std::string lastError_;
+
+  // Tears down a connection already known to be dead: no close handshake, which would
+  // wait on a socket that won't answer.
+  void dropConnection(std::string reason);
 };
 
 } // namespace rdws::amqp
