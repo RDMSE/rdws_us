@@ -5,6 +5,7 @@
 #include <netdb.h>
 
 #include <chrono>
+#include <cstdio>
 #include <mutex>
 
 namespace rdws::coap {
@@ -18,14 +19,16 @@ void ensureLibcoapStarted() {
 
 struct ResponseState {
   bool received = false;
+  coap_pdu_code_t code = COAP_EMPTY_CODE;
 };
 
 coap_response_t onResponse(coap_session_t* session, const coap_pdu_t* /*sent*/,
-                          const coap_pdu_t* /*received*/, const coap_mid_t /*mid*/) {
+                          const coap_pdu_t* received, const coap_mid_t /*mid*/) {
   auto* state = static_cast<ResponseState*>(
       coap_context_get_app_data(coap_session_get_context(session)));
   if (state) {
     state->received = true;
+    state->code = coap_pdu_get_code(received);
   }
   return COAP_RESPONSE_OK;
 }
@@ -36,6 +39,7 @@ bool CoapDtlsClient::sendConfirmable(const std::string& pskIdentity, const std::
                                      const std::vector<uint8_t>& payload,
                                      uint16_t contentFormat) const {
   ensureLibcoapStarted();
+  lastResponseCode_ = "none";
 
   coap_context_t* ctx = coap_new_context(nullptr);
   if (!ctx) {
@@ -105,7 +109,16 @@ bool CoapDtlsClient::sendConfirmable(const std::string& pskIdentity, const std::
 
   coap_session_release(session);
   coap_free_context(ctx);
-  return state.received;
+
+  if (!state.received) {
+    lastResponseCode_ = "none";
+    return false;
+  }
+  const auto code = static_cast<unsigned>(state.code);
+  char text[8];
+  std::snprintf(text, sizeof(text), "%u.%02u", COAP_RESPONSE_CLASS(code), code & 0x1F);
+  lastResponseCode_ = text;
+  return COAP_RESPONSE_CLASS(code) == 2;
 }
 
 } // namespace rdws::coap

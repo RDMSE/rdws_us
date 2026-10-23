@@ -23,16 +23,23 @@ public:
 
   // Opens a DTLS session authenticated with the given PSK identity/key, sends a
   // confirmable POST with `payload` as the body (Content-Format `contentFormat`, e.g. 110 =
-  // application/senml+json), and waits for the ACK/response. Returns true iff a response
-  // was received before the connection closes/timeout.
+  // application/senml+json), and waits for the ACK/response. Returns true iff a 2.xx
+  // response arrived before the timeout — a 4.xx/5.xx (e.g. 5.03 when IngestionService
+  // couldn't hand the readings to RabbitMQ) means the server did NOT take the data, so the
+  // caller must keep it. Before, any response counted as delivered.
   [[nodiscard]] bool sendConfirmable(const std::string& pskIdentity, const std::string& pskKey,
                                      const std::vector<uint8_t>& payload,
                                      uint16_t contentFormat) const;
+
+  // Response code of the last sendConfirmable() as "C.DD" (e.g. "2.04", "5.03"), or "none"
+  // when no response arrived — for logging.
+  [[nodiscard]] const std::string& lastResponseCode() const { return lastResponseCode_; }
 
 private:
   std::string host_;
   uint16_t port_;
   unsigned int timeoutMs_;
+  mutable std::string lastResponseCode_ = "none";
 };
 
 } // namespace rdws::coap

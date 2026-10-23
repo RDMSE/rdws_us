@@ -12,6 +12,9 @@ constexpr amqp_channel_t kChannel = 1;
 constexpr int kFrameMax = 131072;
 // How long publish() waits for the broker's confirm before giving up on the connection.
 constexpr int kConfirmTimeoutSec = 5;
+// Deliveries in flight per consumer. Without a limit the broker pushes the whole queue as
+// unacked at once (thousands after an outage).
+constexpr uint16_t kPrefetch = 100;
 // Bounds on connect(): the producer runs on IngestionService's single CoAP thread, so an
 // unreachable broker host must not block it for the kernel's TCP timeout (minutes).
 constexpr int kConnectTimeoutSec = 2;
@@ -178,6 +181,12 @@ bool AmqpConsumer::connect() {
 
   amqp_channel_open(conn, kChannel);
   if (!rpcOk(conn) || !declareQueue(conn, queueName_)) {
+    amqp_destroy_connection(conn);
+    return false;
+  }
+
+  amqp_basic_qos(conn, kChannel, /*prefetch_size=*/0, kPrefetch, /*global=*/0);
+  if (!rpcOk(conn)) {
     amqp_destroy_connection(conn);
     return false;
   }

@@ -458,7 +458,7 @@ private:
                                    payloadBytes, rdws::coap::kContentFormatSenmlJson);
     if (!sent) {
       logger::error("CoAP/DTLS transmission failed, keeping buffered readings",
-                    "device_id=" + deviceId_);
+                    "device_id=" + deviceId_ + " response=" + coapClient.lastResponseCode());
       return;
     }
 
