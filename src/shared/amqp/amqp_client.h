@@ -22,11 +22,21 @@ public:
   AmqpProducer(const AmqpProducer&) = delete;
   AmqpProducer& operator=(const AmqpProducer&) = delete;
 
-  // Connects and declares the durable queue. Returns false on any failure.
+  // Connects, declares the durable queue and puts the channel in confirm mode. Returns false
+  // on any failure.
   [[nodiscard]] bool connect();
 
-  // Publishes to the default exchange with the queue name as routing key.
+  // Publishes to the default exchange with the queue name as routing key and waits for the
+  // broker's confirm (basic.ack), so true means the broker has the message. A plain publish
+  // only writes to the socket: after a broker restart the first one still "succeeds" into
+  // the kernel buffer and is lost. On failure the connection is dropped, reconnected and the
+  // publish retried once — a message the broker did get before the failure may then arrive
+  // twice (the consumer's writes are idempotent). Connects lazily if not connected.
   [[nodiscard]] bool publish(const std::string& body);
+
+  [[nodiscard]] bool isConnected() const { return conn_ != nullptr; }
+  // Why the last publish() failed, for logging.
+  [[nodiscard]] const std::string& lastError() const { return lastError_; }
 
   void disconnect();
 
@@ -37,6 +47,10 @@ private:
   std::string password_;
   std::string queueName_;
   void* conn_ = nullptr; // amqp_connection_state_t, opaque to avoid leaking amqp.h here
+  std::string lastError_;
+
+  [[nodiscard]] bool publishConfirmed(const std::string& body);
+  void dropConnection(std::string reason);
 };
 
 class AmqpConsumer {

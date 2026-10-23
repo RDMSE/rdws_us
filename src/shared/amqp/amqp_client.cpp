@@ -10,6 +10,12 @@ namespace {
 
 constexpr amqp_channel_t kChannel = 1;
 constexpr int kFrameMax = 131072;
+// How long publish() waits for the broker's confirm before giving up on the connection.
+constexpr int kConfirmTimeoutSec = 5;
+// Bounds on connect(): the producer runs on IngestionService's single CoAP thread, so an
+// unreachable broker host must not block it for the kernel's TCP timeout (minutes).
+constexpr int kConnectTimeoutSec = 2;
+constexpr int kRpcTimeoutSec = 5;
 
 amqp_connection_state_t asConn(void* conn) {
   return static_cast<amqp_connection_state_t>(conn);
@@ -18,6 +24,19 @@ amqp_connection_state_t asConn(void* conn) {
 bool rpcOk(amqp_connection_state_t conn) {
   const amqp_rpc_reply_t reply = amqp_get_rpc_reply(conn);
   return reply.reply_type == AMQP_RESPONSE_NORMAL;
+}
+
+// TCP connect plus the AMQP handshake and later synchronous RPCs, all with timeouts.
+bool openSocket(amqp_connection_state_t conn, const std::string& host, uint16_t port) {
+  amqp_socket_t* socket = amqp_tcp_socket_new(conn);
+  if (socket == nullptr) {
+    return false;
+  }
+  struct timeval connectTimeout {kConnectTimeoutSec, 0};
+  struct timeval rpcTimeout {kRpcTimeoutSec, 0};
+  return amqp_socket_open_noblock(socket, host.c_str(), port, &connectTimeout) == AMQP_STATUS_OK &&
+         amqp_set_handshake_timeout(conn, &connectTimeout) == AMQP_STATUS_OK &&
+         amqp_set_rpc_timeout(conn, &rpcTimeout) == AMQP_STATUS_OK;
 }
 
 bool declareQueue(amqp_connection_state_t conn, const std::string& queueName) {
@@ -40,8 +59,7 @@ AmqpProducer::~AmqpProducer() { disconnect(); }
 
 bool AmqpProducer::connect() {
   amqp_connection_state_t conn = amqp_new_connection();
-  amqp_socket_t* socket = amqp_tcp_socket_new(conn);
-  if (socket == nullptr || amqp_socket_open(socket, host_.c_str(), port_) != 0) {
+  if (!openSocket(conn, host_, port_)) {
     amqp_destroy_connection(conn);
     return false;
   }
@@ -55,7 +73,12 @@ bool AmqpProducer::connect() {
   }
 
   amqp_channel_open(conn, kChannel);
-  if (!rpcOk(conn) || !declareQueue(conn, queueName_)) {
+  bool ok = rpcOk(conn) && declareQueue(conn, queueName_);
+  if (ok) {
+    amqp_confirm_select(conn, kChannel);
+    ok = rpcOk(conn);
+  }
+  if (!ok) {
     amqp_channel_close(conn, kChannel, AMQP_REPLY_SUCCESS);
     amqp_connection_close(conn, AMQP_REPLY_SUCCESS);
     amqp_destroy_connection(conn);
@@ -67,9 +90,18 @@ bool AmqpProducer::connect() {
 }
 
 bool AmqpProducer::publish(const std::string& body) {
-  if (conn_ == nullptr) {
+  if (conn_ != nullptr && publishConfirmed(body)) {
+    return true;
+  }
+  // Not connected, or the publish failed (and dropped the connection): one fresh attempt.
+  if (!connect()) {
+    lastError_ = "connect to RabbitMQ failed";
     return false;
   }
+  return publishConfirmed(body);
+}
+
+bool AmqpProducer::publishConfirmed(const std::string& body) {
   amqp_connection_state_t conn = asConn(conn_);
   amqp_basic_properties_t props;
   props._flags = AMQP_BASIC_DELIVERY_MODE_FLAG;
@@ -79,7 +111,34 @@ bool AmqpProducer::publish(const std::string& body) {
                                         amqp_cstring_bytes(queueName_.c_str()),
                                         /*mandatory=*/0, /*immediate=*/0, &props,
                                         amqp_cstring_bytes(body.c_str()));
-  return status == 0;
+  if (status != AMQP_STATUS_OK) {
+    dropConnection(std::string("publish failed: ") + amqp_error_string2(status));
+    return false;
+  }
+
+  // One message in flight at a time, so the next method frame on the channel is its confirm.
+  struct timeval timeout {kConfirmTimeoutSec, 0};
+  amqp_frame_t frame;
+  const int waited = amqp_simple_wait_frame_noblock(conn, &frame, &timeout);
+  if (waited != AMQP_STATUS_OK) {
+    dropConnection(std::string("waiting for confirm: ") + amqp_error_string2(waited));
+    return false;
+  }
+  if (frame.frame_type == AMQP_FRAME_METHOD && frame.payload.method.id == AMQP_BASIC_ACK_METHOD) {
+    return true;
+  }
+  // basic.nack, or connection.close/channel.close from a broker going down.
+  dropConnection(frame.frame_type == AMQP_FRAME_METHOD &&
+                         frame.payload.method.id == AMQP_BASIC_NACK_METHOD
+                     ? "broker nacked the message"
+                     : "unexpected frame from broker");
+  return false;
+}
+
+void AmqpProducer::dropConnection(std::string reason) {
+  lastError_ = std::move(reason);
+  amqp_destroy_connection(asConn(conn_));
+  conn_ = nullptr;
 }
 
 void AmqpProducer::disconnect() {
@@ -104,8 +163,7 @@ AmqpConsumer::~AmqpConsumer() { disconnect(); }
 
 bool AmqpConsumer::connect() {
   amqp_connection_state_t conn = amqp_new_connection();
-  amqp_socket_t* socket = amqp_tcp_socket_new(conn);
-  if (socket == nullptr || amqp_socket_open(socket, host_.c_str(), port_) != 0) {
+  if (!openSocket(conn, host_, port_)) {
     amqp_destroy_connection(conn);
     return false;
   }

@@ -8,7 +8,10 @@
 // dele é rejeitado com 4.03, e leituras de sensor de outro device (ou desconhecido) são
 // descartadas com log (Plano_Telemetria.md, Fase 0). O mapa sensor -> device vem de
 // sensor.list_owners, no mesmo refresh periódico das PSKs; enquanto ele nunca carregou,
-// a resposta é 5.03 para o device reenviar depois em vez de perder dados.
+// a resposta é 5.03 para o device reenviar depois em vez de perder dados. Também é 5.03
+// quando alguma leitura do pack não chegou ao RabbitMQ (publish com confirm falhou): o
+// device reenvia o pack inteiro, e as leituras repetidas são absorvidas pelo
+// UNIQUE(sensor_id, timestamp) do ReadingWriterService.
 //
 // Formatos (despacho pelo Content-Format da requisição): 110 = SenML JSON
 // (Plano_Telemetria.md, D1–D3/DP1–DP3); 50 ou ausente = JSON legado {device_id, readings}.
@@ -71,9 +74,11 @@ public:
                            "device_telemetry") {}
 
   bool initialize() {
+    // Not fatal: publish() connects lazily, and until RabbitMQ is up packs get 5.03 (the
+    // device keeps the data and resends) instead of the process exiting into a restart loop.
     if (!producer_.connect() || !telemetryProducer_.connect()) {
-      logger::error("IngestionService: failed to connect to RabbitMQ", "");
-      return false;
+      logger::warn("IngestionService: RabbitMQ unavailable at startup, will connect on demand",
+                   "");
     }
 
     ServiceIdentity identity;
@@ -487,7 +492,8 @@ private:
     msg.Accept(writer);
 
     if (!producer_.publish(buffer.GetString())) {
-      logger::error("IngestionService: failed to publish reading to RabbitMQ", "");
+      logger::error("IngestionService: failed to publish reading to RabbitMQ",
+                    "sensor_id=" + sensorId + " error=" + producer_.lastError());
       return false;
     }
     return true;
@@ -529,7 +535,8 @@ private:
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     msg.Accept(writer);
     if (!telemetryProducer_.publish(buffer.GetString())) {
-      logger::error("IngestionService: failed to publish device telemetry to RabbitMQ", "");
+      logger::error("IngestionService: failed to publish device telemetry to RabbitMQ",
+                    "device_id=" + deviceId + " error=" + telemetryProducer_.lastError());
     }
   }
 
@@ -537,8 +544,9 @@ private:
   // a numeric remainder is a global sensor_id (F1); anything else ("seq" included) is device
   // diagnostics (D2), grouped by instant into device_telemetry rows (D5).
   // Whole pack: unparseable -> kFormatError, any name outside the authenticated device ->
-  // kForbidden. Per record (dropped with a log, the rest goes on): foreign sensor, no
-  // numeric value, time_unsynced or unknown fl_ bits (DP3/F3), unit without a rule (DP1).
+  // kForbidden, any reading RabbitMQ didn't take -> kUnavailable. Per record (dropped with a
+  // log, the rest goes on): foreign sensor, no numeric value, time_unsynced or unknown fl_
+  // bits (DP3/F3), unit without a rule (DP1).
   int handleSenml(const std::string& authDeviceId, const std::string& body,
                   std::optional<long long>& declaredCfg) {
     const auto now = static_cast<double>(std::time(nullptr));
@@ -563,6 +571,7 @@ private:
     }
 
     int published = 0;
+    int unpublished = 0; // RabbitMQ failures: any → 5.03 so the device resends the whole pack
     int sensorRecords = 0;
     std::string seq = "-";
     std::string diagnostics;
@@ -609,13 +618,21 @@ private:
         continue;
       }
 
-      if (publishReading(authDeviceId, local, rdws::senml::toIso8601(rec.time), *value,
-                         sensorUnit, rec.flags)) {
+      // After one failure the pack gets 5.03 anyway: don't retry RabbitMQ per remaining record.
+      if (unpublished == 0 && publishReading(authDeviceId, local,
+                                             rdws::senml::toIso8601(rec.time), *value, sensorUnit,
+                                             rec.flags)) {
         ++published;
+      } else {
+        ++unpublished;
       }
     }
 
+    // With readings unpublished the device resends the whole pack, telemetry included.
     for (const auto& [time, records] : telemetry) {
+      if (unpublished > 0) {
+        break;
+      }
       publishTelemetry(authDeviceId, time, records);
     }
 
@@ -623,13 +640,15 @@ private:
                  "device_id=" + authDeviceId + " seq=" + seq + " records=" +
                      std::to_string(pack->size()) + " sensor_records=" +
                      std::to_string(sensorRecords) + " published=" + std::to_string(published) +
+                     " unpublished=" + std::to_string(unpublished) +
                      " diagnostics=" + (diagnostics.empty() ? "-" : diagnostics));
-    return published;
+    return unpublished > 0 ? kUnavailable : published;
   }
 
   // Returns the number of readings published, kFormatError on a malformed payload (missing
   // device_id/readings), kForbidden when the body's device_id isn't the authenticated one, or
-  // kUnavailable while the sensor owner cache has never loaded.
+  // kUnavailable while the sensor owner cache has never loaded or when a reading couldn't be
+  // published.
   int handlePayload(const std::string& authDeviceId, const std::string& body) {
     rapidjson::Document doc;
     if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
@@ -658,6 +677,7 @@ private:
     }
 
     int published = 0;
+    int unpublished = 0;
     for (const auto& reading : readings->GetArray()) {
       const auto sensorId = json::getString(reading, "sensor_id");
       const auto timestamp = json::getString(reading, "timestamp");
@@ -670,11 +690,14 @@ private:
       if (!ownedBy(*owners, *sensorId, authDeviceId)) {
         continue;
       }
-      if (publishReading(*deviceId, *sensorId, *timestamp, *value, unit.value_or(""), 0)) {
+      if (unpublished == 0 &&
+          publishReading(*deviceId, *sensorId, *timestamp, *value, unit.value_or(""), 0)) {
         ++published;
+      } else {
+        ++unpublished;
       }
     }
-    return published;
+    return unpublished > 0 ? kUnavailable : published;
   }
 };
 
