@@ -18,14 +18,23 @@
 //
 // Database failures (Plano_Ingestion.md, "Vazão e falhas do ReadingWriterService"): a failed
 // write is classified by SQLSTATE. Class 22 (data exception) or 23 (integrity constraint,
-// e.g. an unknown sensor_id) → the message itself is the problem (poison): it is logged and
-// discarded. Anything else — connection lost, server shutting down, schema mismatch
+// e.g. an unknown sensor_id) → the message itself is the problem (poison): it goes to the
+// dead-letter queue (below). Anything else — connection lost, server shutting down, schema mismatch
 // (column/table missing after a deploy ahead of its migration), unknown — is treated as the
 // database being unavailable: the message is nacked with requeue and consumption pauses,
 // probing with SELECT 1 and backoff (1 s → 30 s, no limit) until the database answers. A
 // "the database answers, so the message is bad" probe would discard messages in both of
 // those cases. The service also starts without a database and waits for it the same way,
 // instead of exiting into a restart loop.
+//
+// Poison messages — malformed JSON, a missing required field, or a write rejected with
+// SQLSTATE 22/23 — are published to "<queue>.dead" (sensor_readings.dead,
+// device_telemetry.dead) wrapped as {"reason", "sqlstate", "error", "failed_at", "body"},
+// with the original message as a string in "body", then acked. Kept for inspection and manual
+// re-drive instead of only a log line. If that publish fails the original is requeued, never
+// dropped. The writer publishes them itself instead of an x-dead-letter-exchange argument on
+// the queues, which would change the arguments of existing durable queues (queue_declare
+// fails with PRECONDITION_FAILED until they are recreated).
 //
 // RabbitMQ failures: a consumer whose connection drops (broker restart, socket error) is
 // reconnected with the same kind of backoff, also at startup. Unacked deliveries go back to
@@ -48,6 +57,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <memory>
 #include <optional>
 #include <csignal>
@@ -66,8 +76,10 @@ public:
                           std::string mqPassword, int retentionDays)
       : retentionDays_(retentionDays),
         consumer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
-        telemetryConsumer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
-                           "device_telemetry") {}
+        telemetryConsumer_(mqHost, mqPort, mqUser, mqPassword, "device_telemetry"),
+        deadReadings_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings.dead"),
+        deadTelemetry_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
+                       "device_telemetry.dead") {}
 
   void run() {
     running_.store(true);
@@ -130,6 +142,9 @@ private:
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastTouch_;
   rdws::amqp::AmqpConsumer consumer_;
   rdws::amqp::AmqpConsumer telemetryConsumer_;
+  // Connect lazily on the first poison message.
+  rdws::amqp::AmqpProducer deadReadings_;
+  rdws::amqp::AmqpProducer deadTelemetry_;
   std::atomic<bool> running_{false};
   // Messages consumed since the queues were last idle — one summary line per uplink burst
   // instead of a log line per message (counts include discarded/unacked ones).
@@ -235,12 +250,40 @@ private:
     return state.starts_with("22") || state.starts_with("23");
   }
 
-  // A write threw. Poison → discard it; anything else → requeue and pause consuming.
-  Outcome onWriteFailure(const char* what, const std::string& body, const DatabaseError& e) {
+  // Publishes a poison message to its .dead queue (see the header) and acks the original;
+  // requeues it instead if the dead-letter publish fails.
+  static Outcome deadLetter(rdws::amqp::AmqpProducer& dead, const std::string& body,
+                            const std::string& reason, const std::string& sqlstate,
+                            const std::string& error) {
+    char failedAt[32];
+    const std::time_t now = std::time(nullptr);
+    std::tm utc{};
+    gmtime_r(&now, &utc);
+    std::strftime(failedAt, sizeof(failedAt), "%Y-%m-%dT%H:%M:%SZ", &utc);
+
+    rapidjson::Document envelope(rapidjson::kObjectType);
+    auto& alloc = envelope.GetAllocator();
+    envelope.AddMember("reason", rapidjson::Value(reason.c_str(), alloc), alloc);
+    envelope.AddMember("sqlstate", rapidjson::Value(sqlstate.c_str(), alloc), alloc);
+    envelope.AddMember("error", rapidjson::Value(error.c_str(), alloc), alloc);
+    envelope.AddMember("failed_at", rapidjson::Value(failedAt, alloc), alloc);
+    envelope.AddMember("body", rapidjson::Value(body.c_str(), alloc), alloc);
+
+    if (!dead.publish(json::docToString(envelope))) {
+      logger::error("ReadingWriterService: dead-letter publish failed, requeueing",
+                    "reason=" + reason + " error=" + dead.lastError());
+      return Outcome::Requeue;
+    }
+    logger::error("ReadingWriterService: poison message dead-lettered",
+                  "reason=" + reason + " sqlstate=" + sqlstate + " error=" + error + " body=" + body);
+    return Outcome::Ack;
+  }
+
+  // A write threw. Poison → dead-letter it; anything else → requeue and pause consuming.
+  Outcome onWriteFailure(const char* what, rdws::amqp::AmqpProducer& dead, const std::string& body,
+                         const DatabaseError& e) {
     if (isPoison(e)) {
-      logger::error(std::string("ReadingWriterService: ") + what + " rejected, discarding message",
-                    body + " sqlstate=" + e.sqlstate() + " error=" + e.what());
-      return Outcome::Ack;
+      return deadLetter(dead, body, std::string(what) + "_rejected", e.sqlstate(), e.what());
     }
     logger::error(std::string("ReadingWriterService: ") + what +
                       " failed, database unavailable — requeueing and pausing",
@@ -315,22 +358,21 @@ private:
     }
   }
 
-  // Acks once the write succeeded — a parse/format error also acks (a malformed message
+  // Acks once the write succeeded. A parse/format error dead-letters it (a malformed message
   // can never become valid on redelivery, so retrying forever would just wedge the queue);
   // only a database outage requeues it (onWriteFailure).
   Outcome handleMessage(const std::string& body) {
     rapidjson::Document doc;
     if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
-      logger::error("ReadingWriterService: malformed message, discarding", body);
-      return Outcome::Ack;
+      return deadLetter(deadReadings_, body, "malformed", "", "not a JSON object");
     }
 
     const auto sensorId = json::getString(doc, "sensor_id");
     const auto timestamp = json::getString(doc, "timestamp");
     const auto value = json::getDouble(doc, "value");
     if (!sensorId || !timestamp || !value) {
-      logger::error("ReadingWriterService: message missing required field, discarding", body);
-      return Outcome::Ack;
+      return deadLetter(deadReadings_, body, "missing_field", "",
+                        "sensor_id, timestamp and value are required");
     }
 
     // Optional: only SenML payloads carry fl_ (Plano_Telemetria.md, DP3); legacy JSON doesn't.
@@ -339,7 +381,7 @@ private:
     try {
       (void)repo_->insert(*sensorId, *timestamp, std::to_string(*value), flags);
     } catch (const DatabaseError& e) {
-      return onWriteFailure("insert", body, e);
+      return onWriteFailure("insert", deadReadings_, body, e);
     }
     writeSucceeded();
     if (const auto deviceId = json::getString(doc, "device_id")) {
@@ -352,23 +394,21 @@ private:
   Outcome handleTelemetryMessage(const std::string& body) {
     rapidjson::Document doc;
     if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
-      logger::error("ReadingWriterService: malformed telemetry message, discarding", body);
-      return Outcome::Ack;
+      return deadLetter(deadTelemetry_, body, "malformed", "", "not a JSON object");
     }
 
     const auto deviceId = json::getString(doc, "device_id");
     const auto timestamp = json::getString(doc, "timestamp");
     const auto* data = json::getObject(doc, "data");
     if (!deviceId || !timestamp || data == nullptr) {
-      logger::error("ReadingWriterService: telemetry message missing required field, discarding",
-                    body);
-      return Outcome::Ack;
+      return deadLetter(deadTelemetry_, body, "missing_field", "",
+                        "device_id, timestamp and data are required");
     }
 
     try {
       (void)telemetryRepo_->upsert(*deviceId, *timestamp, json::docToString(*data));
     } catch (const DatabaseError& e) {
-      return onWriteFailure("telemetry upsert", body, e);
+      return onWriteFailure("telemetry_upsert", deadTelemetry_, body, e);
     }
     writeSucceeded();
     touchLastSeen(*deviceId);
