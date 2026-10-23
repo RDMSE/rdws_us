@@ -755,41 +755,31 @@ infraestrutura, não de domínio.
 
 ---
 
-### Backlog — `ServiceClient` não reconecta após perder a conexão com o gateway
+### ✅ `ServiceClient` não reconecta após perder a conexão com o gateway (RDWS-92, 2026-07-23)
 
 **Contexto (2026-07-22, achado em produção no QA):** duas instâncias do
-`sensor_simulator_service` desconectaram do gateway (log `"Connection lost to broker"`,
-`ServiceClient.cpp:337`) e ficaram "zumbis" — container de pé, processo vivo, mas sem
-nenhuma atividade por 26 minutos até uma chamada `device_credential.get_active` falhar
-com `"Failed to send invoke request"`.
+`sensor_simulator_service` desconectaram do gateway (log `"Connection lost to broker"`)
+e ficaram "zumbis" — container de pé, processo vivo, sem atividade por 26 minutos até
+uma chamada `device_credential.get_active` falhar com `"Failed to send invoke request"`.
+Causa: `messageLoop()` saía do laço quando `recv()` falhava sem resetar `connected`, então
+`pingLoop()` girava pra sempre num socket morto e `run()` ficava bloqueado no `join()`.
+Afetava todo `App*Service` que usa `ServiceClient`.
 
-Causa raiz em `src/service_broker/Services/ServiceClient.cpp`:
-`messageLoop()` (linhas 329-354) sai do laço com `break` quando `recv()` falha, mas
-**nunca** reseta a flag `connected` nem `socketFd`. Como `pingLoop()` (linha 356) só para
-quando `connected.load()` vira `false`, ele continua rodando pra sempre, tentando mandar
-PING a cada 30s num socket morto (falha silenciosa via `sendMessage()`). `run()`
-(linha 211) fica bloqueado indefinidamente em `pingThread.join()` — o processo nunca sai
-nem tenta reconectar sozinho. Afeta **todo** `App*Service` que usa `ServiceClient`, não
-só o simulador — é só mais fácil de notar nele porque ninguém está olhando os outros
-serviços o tempo todo.
-
-**Decisão:** não corrigido ainda. Mitigação atual é manual: `docker restart <container>`
-força reconexão do zero (o `run()` de cada serviço reconecta normalmente do zero quando
-o processo reinicia). Não investigado ainda o gatilho original da queda de conexão em si
-(rede, timeout, restart do gateway) — só o sintoma (zumbi permanente após a queda).
-
-- ⬜ Adicionar reconexão automática com backoff em `ServiceClient`: ao detectar
-  `recv() <= 0` em `messageLoop()`, resetar `connected`/`socketFd`, fechar o fd antigo, e
-  tentar `connect()` + `registerService()` de novo em vez de só sair da thread.
-- ⬜ `pingLoop()` deve parar (ou pausar) quando a conexão cai, em vez de girar em loop
-  tentando enviar num socket morto.
-- ⬜ Decidir política de backoff (fixo vs. exponencial) e limite de tentativas (ou
-  infinito, já que hoje `restart: unless-stopped` do Docker já reinicia o container
-  inteiro se o processo morrer — mas o processo *não* morre, só fica zumbi, então o
-  Docker nem percebe que precisa reiniciar).
-- ⬜ Investigar o gatilho da queda original (2026-07-22, ~09:18) — checar logs do
-  `rdws_gateway_qa` no mesmo horário pra saber se foi o gateway que reiniciou/bounced ou
-  algo do lado da rede.
+- ✅ `run()` virou um laço de reconexão: `connect()` + `registerService()`, backoff
+  exponencial de 1 s a 30 s, tentativas sem limite até `stop()` (`01855e3`).
+- ✅ `messageLoop()` chama `disconnect()` quando `recv() <= 0`, o que também encerra o
+  `pingLoop()`; `run()` volta ao laço e reconecta.
+- ✅ Teste de regressão `ClientReconnectsAutomatically_AfterGatewayRestart` em
+  `test_gateway_integration.cpp` (`5660109`).
+- ✅ RDWS-96 endureceu `disconnect()`/`sendMessage()` (`shutdown()` antes do `close()`,
+  `socketFd` atômico, `invoke()` só depois de registrado).
+- ✅ Sem novos zumbis no QA de 2026-07-23 a 2026-10-23.
+- ⬜ Não investigado: o gatilho da queda original (2026-07-22, ~09:18).
+- ⬜ Conexão meio-aberta (o gateway some sem FIN): `recv()` fica bloqueado e o `send()`
+  do PING continua aceito pelo kernel enquanto o TCP retransmite, então nada derruba a
+  conexão. Proposta: timeout de PONG no cliente — sem PONG por ~2 intervalos de ping,
+  `shutdown()` no socket e o laço de reconexão assume. Preferido a `SO_KEEPALIVE`, que não
+  pega um gateway travado com o socket aberto. No `Backlog.md` (P2).
 
 ---
 

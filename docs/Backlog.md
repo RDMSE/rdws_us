@@ -69,8 +69,8 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 
 | Prio | Item | Observação |
 |---|---|---|
-| P1 | `ServiceClient` não reconecta depois de perder a conexão com o gateway | Visto no QA em 2026-07-22; mitigação manual com `docker restart` |
 | P2 | Fase 13: IDOR / `public_id` nas tabelas expostas | Muda o contrato da API |
+| P2 | Timeout de PONG no `ServiceClient` (conexão meio-aberta) | A reconexão do RDWS-92 só age quando o `recv()` falha; se o gateway some sem FIN, o cliente fica preso. Mais provável quando os serviços saírem do mesmo host |
 | P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno |
 | P3 | Wrappers semânticos no `ResponseHelper` | Tirar códigos HTTP soltos dos handlers |
 | P3 | Metadados livres do device (`devices.metadata JSONB`) | Fabricante, série, modelo |
