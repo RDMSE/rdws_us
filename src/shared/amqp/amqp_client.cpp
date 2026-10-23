@@ -152,18 +152,40 @@ bool AmqpConsumer::consumeOne(const MessageHandler& handler, unsigned int timeou
   amqp_envelope_t envelope;
   const amqp_rpc_reply_t reply = amqp_consume_message(conn, &envelope, &timeout, 0);
   if (reply.reply_type != AMQP_RESPONSE_NORMAL) {
-    return false; // timeout, or a non-deliver frame — caller just retries
+    if (reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION &&
+        reply.library_error == AMQP_STATUS_TIMEOUT) {
+      return false;
+    }
+    // A socket error, or a frame other than a delivery (connection.close/channel.close from a
+    // broker shutting down, basic.cancel for a deleted queue): this connection won't deliver
+    // again. Before this, the caller kept calling into the dead socket, which fails at once —
+    // a busy loop at 100 % CPU that never reconnected.
+    dropConnection(reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION
+                       ? amqp_error_string2(reply.library_error)
+                       : "unexpected frame from broker");
+    return false;
   }
 
   const std::string body(static_cast<const char*>(envelope.message.body.bytes),
                          envelope.message.body.len);
-  if (handler(body) == Outcome::Ack) {
-    amqp_basic_ack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0);
-  } else {
-    amqp_basic_nack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0, /*requeue=*/1);
-  }
+  const int status =
+      handler(body) == Outcome::Ack
+          ? amqp_basic_ack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0)
+          : amqp_basic_nack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0, /*requeue=*/1);
   amqp_destroy_envelope(&envelope);
+  if (status != AMQP_STATUS_OK) {
+    // The broker returns the unacked delivery to the queue when the connection closes, and the
+    // writes are idempotent, so the redelivery is harmless.
+    dropConnection(std::string("ack/nack failed: ") + amqp_error_string2(status));
+  }
   return true;
+}
+
+void AmqpConsumer::dropConnection(std::string reason) {
+  lastError_ = std::move(reason);
+  amqp_destroy_connection(asConn(conn_));
+  conn_ = nullptr;
+  consuming_ = false;
 }
 
 void AmqpConsumer::disconnect() {

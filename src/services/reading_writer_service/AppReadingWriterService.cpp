@@ -27,6 +27,10 @@
 // those cases. The service also starts without a database and waits for it the same way,
 // instead of exiting into a restart loop.
 //
+// RabbitMQ failures: a consumer whose connection drops (broker restart, socket error) is
+// reconnected with the same kind of backoff, also at startup. Unacked deliveries go back to
+// the queue when the connection closes, and the writes are idempotent.
+//
 
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
@@ -65,10 +69,6 @@ public:
         telemetryConsumer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
                            "device_telemetry") {}
 
-  bool initialize() {
-    return consumer_.connect() && telemetryConsumer_.connect();
-  }
-
   void run() {
     running_.store(true);
     logger::info("ReadingWriterService starting", "");
@@ -77,6 +77,11 @@ public:
       return handleTelemetryMessage(body);
     };
     while (running_.load()) {
+      if (!consumersConnected()) {
+        logBurstIfAny();
+        waitForBroker();
+        continue;
+      }
       if (dbDown_) {
         logBurstIfAny();
         waitForDatabase();
@@ -85,13 +90,13 @@ public:
       runRetentionIfDue();
       // Poll both queues without waiting, so a backlog on one isn't throttled by the other
       // being empty (a fixed wait per queue capped a 1080-reading uplink at ~2 msg/s).
-      const bool gotReading = consumer_.consumeOne(onReading, 0);
-      const bool gotTelemetry = !dbDown_ && telemetryConsumer_.consumeOne(onTelemetry, 0);
+      const bool gotReading = consume(consumer_, onReading, 0);
+      const bool gotTelemetry = !dbDown_ && consume(telemetryConsumer_, onTelemetry, 0);
       countBurst(gotReading, gotTelemetry);
-      if (!gotReading && !gotTelemetry && !dbDown_) {
+      if (!gotReading && !gotTelemetry && !dbDown_ && consumersConnected()) {
         // Both idle: block on the socket instead of spinning. Telemetry arriving meanwhile
         // waits at most this long — latency only matters while idle, not for throughput.
-        const bool gotLate = consumer_.consumeOne(onReading, 500);
+        const bool gotLate = consume(consumer_, onReading, 500);
         countBurst(gotLate, false);
         if (!gotLate) {
           logBurstIfAny(); // a full idle wait ends the burst
@@ -116,8 +121,10 @@ private:
   std::unique_ptr<rdws::device::DeviceActivityRepository> activityRepo_;
   // Starts true: the first loop iteration connects (or waits) before consuming anything.
   bool dbDown_ = true;
-  std::chrono::milliseconds dbBackoff_ = kInitialDbBackoff;
+  std::chrono::milliseconds dbBackoff_ = kInitialBackoff;
   std::chrono::steady_clock::time_point retryAt_; // epoch: the first probe runs right away
+  std::chrono::milliseconds mqBackoff_ = kInitialBackoff;
+  std::chrono::steady_clock::time_point mqRetryAt_;
   // Last time this process touched each device's last_seen: skips the UPDATE for the other
   // readings of the same uplink cycle (the SQL has its own guard, this saves the round trip)
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastTouch_;
@@ -132,8 +139,53 @@ private:
 
   static constexpr auto kTouchInterval = std::chrono::minutes(1);
   static constexpr auto kRetentionInterval = std::chrono::hours(24);
-  static constexpr auto kInitialDbBackoff = std::chrono::milliseconds(1000);
-  static constexpr auto kMaxDbBackoff = std::chrono::milliseconds(30000);
+  static constexpr auto kInitialBackoff = std::chrono::milliseconds(1000);
+  static constexpr auto kMaxBackoff = std::chrono::milliseconds(30000);
+
+  // Sleeps until `until` in short steps, so shutdown() is prompt. False if shutting down.
+  bool sleepUntil(std::chrono::steady_clock::time_point until) const {
+    while (running_.load() && std::chrono::steady_clock::now() < until) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return running_.load();
+  }
+
+  bool consumersConnected() const {
+    return consumer_.isConnected() && telemetryConsumer_.isConnected();
+  }
+
+  // consumeOne() on a connected consumer, logging the moment its connection drops.
+  bool consume(rdws::amqp::AmqpConsumer& consumer,
+               const rdws::amqp::AmqpConsumer::MessageHandler& handler, unsigned int timeoutMs) {
+    if (!consumer.isConnected()) {
+      return false;
+    }
+    const bool got = consumer.consumeOne(handler, timeoutMs);
+    if (!consumer.isConnected()) {
+      logger::error("ReadingWriterService: RabbitMQ connection lost",
+                    "queue=" + consumer.queueName() + " error=" + consumer.lastError());
+    }
+    return got;
+  }
+
+  // Called while a consumer is disconnected: sleeps until mqRetryAt_, then reconnects
+  // whichever consumer is down; on failure doubles the backoff (capped).
+  void waitForBroker() {
+    if (!sleepUntil(mqRetryAt_)) {
+      return;
+    }
+    const bool ok = (consumer_.isConnected() || consumer_.connect()) &&
+                    (telemetryConsumer_.isConnected() || telemetryConsumer_.connect());
+    if (ok) {
+      logger::info("ReadingWriterService: RabbitMQ connected", "");
+      mqBackoff_ = kInitialBackoff;
+      return;
+    }
+    logger::warn("ReadingWriterService: RabbitMQ unavailable, retrying",
+                 "retry_in_ms=" + std::to_string(mqBackoff_.count()));
+    mqRetryAt_ = std::chrono::steady_clock::now() + mqBackoff_;
+    mqBackoff_ = std::min(mqBackoff_ * 2, kMaxBackoff);
+  }
 
   // True iff the database answers a SELECT 1 (connecting first if needed).
   bool probeDatabase() {
@@ -157,16 +209,13 @@ private:
   // keeps backing off instead of retrying once a second.
   void scheduleRetry() {
     retryAt_ = std::chrono::steady_clock::now() + dbBackoff_;
-    dbBackoff_ = std::min(dbBackoff_ * 2, kMaxDbBackoff);
+    dbBackoff_ = std::min(dbBackoff_ * 2, kMaxBackoff);
   }
 
-  // Called while dbDown_: sleeps until retryAt_ (in short steps, so shutdown() is prompt),
-  // then probes; resumes consuming if the database answers, otherwise schedules another try.
+  // Called while dbDown_: sleeps until retryAt_, then probes; resumes consuming if the
+  // database answers, otherwise schedules another try.
   void waitForDatabase() {
-    while (running_.load() && std::chrono::steady_clock::now() < retryAt_) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (!running_.load()) {
+    if (!sleepUntil(retryAt_)) {
       return;
     }
     if (probeDatabase()) {
@@ -201,7 +250,7 @@ private:
     return Outcome::Requeue;
   }
 
-  void writeSucceeded() { dbBackoff_ = kInitialDbBackoff; }
+  void writeSucceeded() { dbBackoff_ = kInitialBackoff; }
 
   std::string lastDbError_;
 
@@ -353,10 +402,6 @@ int main(int /*argc*/, char* /*argv*/[]) {
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);
 
-  if (!service.initialize()) {
-    logger::error("Failed to initialize ReadingWriterService", "");
-    return 1;
-  }
   service.run();
   return 0;
 }
