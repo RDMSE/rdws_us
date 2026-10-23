@@ -14,7 +14,7 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 
 | Prio  | Item | Observação |
 |-------|------|---|
-| P1    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2) |
+| P2    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2). Adiado em 2026-10-23: fazer quando a primeira estação sair da bancada (escolher Telegram, ntfy ou e-mail) |
 | P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
 | P2    | Falha de banco e retry/DLQ no `ReadingWriterService` | Hoje a exceção do `execCommand` derruba o processo (loop de restart com o banco fora); o ramo "sem ack" não tem nack. "Vazão e falhas do ReadingWriterService" no `Plano_Ingestion.md` |
 | P3    | `basic_qos` (prefetch ~100) no `AmqpConsumer` | Hoje o broker entrega a fila inteira como unacked |
