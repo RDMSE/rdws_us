@@ -350,24 +350,35 @@ private:
     }
   }
 
-  // Pauses generation (holds deviceFileMutex_), fetches a fresh credential, sends via
-  // CoAP/DTLS, and only clears the on-disk buffers once the send is acknowledged —
-  // avoids needing separate offset/ack tracking (Plano_SensorSimulatorService.md step 4).
+  // Readings per SenML pack. The firmware sends 10 per POST (1 KiB buffer); the simulator
+  // goes through libcoap's Block1, but each pack still opens its own DTLS session, so a
+  // normal cycle (~180 readings at 30 min / 10 s sampling) should stay one pack. The bound is
+  // what matters: before, the whole buffer went in a single POST, and when the server got
+  // slow it kept failing and growing (RDWS-157: 24 000-reading packs, minutes each).
+  static constexpr size_t kMaxReadingsPerPack = 200;
+
+  // Pauses generation (holds deviceFileMutex_), fetches a fresh credential and sends the
+  // buffered readings oldest first, in packs of at most kMaxReadingsPerPack, like the
+  // firmware's uplink cycle. Stops at the first pack that doesn't get a 2.xx; only what was
+  // delivered leaves the buffer files, the rest waits for the next cycle.
   void transmitNow() {
     std::scoped_lock lock(deviceFileMutex_);
 
     // SenML pack (Plano_Telemetria.md, 2a): base record with bn/bt/seq, one record per
-    // buffered reading with the value converted from sensors.unit to its SenML unit, and a
-    // synthetic diagnostic snapshot at the current time, as the firmware sends.
+    // buffered reading with the value converted from sensors.unit to its SenML unit, and —
+    // in the first pack of the cycle — a synthetic diagnostic snapshot at the current time,
+    // as the firmware sends.
     struct PackEntry {
-      std::string sensorId;
+      size_t sensorIndex;
+      std::string timestamp; // as buffered, to write back what isn't sent
+      double rawValue;
       double time;
       rdws::senml::SenmlValue value;
     };
     std::vector<PackEntry> entries;
 
-    std::vector<std::string> filesToClear;
-    for (const auto& sensor : sensors_) {
+    for (size_t i = 0; i < sensors_.size(); ++i) {
+      const auto& sensor = sensors_[i];
       const std::string path = dataFilePath(dataDir_, deviceId_, sensor.sensorId);
       rapidjson::Document sensorReadings(rapidjson::kArrayType);
       loadJsonArray(path, sensorReadings);
@@ -379,7 +390,6 @@ private:
       if (!sensorReadings.IsArray() || sensorReadings.Empty()) {
         continue;
       }
-      filesToClear.push_back(path);
       for (auto& reading : sensorReadings.GetArray()) {
         const auto timestamp = utils::json::getString(reading, "timestamp");
         const auto value = utils::json::getNumber(reading, "value");
@@ -390,7 +400,7 @@ private:
                        "device_id=" + deviceId_ + " sensor_id=" + sensor.sensorId);
           continue;
         }
-        entries.push_back({sensor.sensorId, *time,
+        entries.push_back({i, *timestamp, *value, *time,
                            rdws::senml::fromSensorUnit(*value, sensor.unit, sensor.sensorType)});
       }
     }
@@ -400,11 +410,64 @@ private:
       logger::info("Nothing to transmit", "device_id=" + deviceId_);
       return;
     }
+    std::stable_sort(entries.begin(), entries.end(),
+                     [](const auto& a, const auto& b) { return a.time < b.time; });
 
-    const double bt =
-        std::min_element(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-          return a.time < b.time;
-        })->time;
+    const auto credential = fetchActiveCredential();
+    if (!credential) {
+      logger::error("Skipping transmission: could not fetch active credential",
+                    "device_id=" + deviceId_);
+      return;
+    }
+
+    size_t sent = 0;
+    int packs = 0;
+    std::string failure;
+    while (sent < readingsCount) {
+      const size_t end = std::min(sent + kMaxReadingsPerPack, readingsCount);
+      const auto payload = buildPack(entries, sent, end, /*withDiagnostics=*/packs == 0);
+      const std::vector<uint8_t> payloadBytes(payload.begin(), payload.end());
+
+      rdws::coap::CoapDtlsClient coapClient(ingestionHost_, ingestionPort_);
+      if (!coapClient.sendConfirmable(credential->pskIdentity, credential->pskKeyPlaintext,
+                                      payloadBytes, rdws::coap::kContentFormatSenmlJson)) {
+        failure = coapClient.lastResponseCode();
+        break;
+      }
+      sent = end;
+      ++packs;
+    }
+
+    // Rewrite every sensor's buffer with what wasn't delivered (empty when all of it was).
+    std::vector<rapidjson::Document> remaining(sensors_.size());
+    for (auto& doc : remaining) {
+      doc.SetArray();
+    }
+    for (size_t i = sent; i < readingsCount; ++i) {
+      auto& doc = remaining[entries[i].sensorIndex];
+      json::JsonObj reading(doc.GetAllocator());
+      reading.set("timestamp", entries[i].timestamp).set("value", entries[i].rawValue);
+      doc.PushBack(reading.take(), doc.GetAllocator());
+    }
+    for (size_t i = 0; i < sensors_.size(); ++i) {
+      writeJsonArray(dataFilePath(dataDir_, deviceId_, sensors_[i].sensorId), remaining[i]);
+    }
+
+    const std::string ctx = "device_id=" + deviceId_ + " readings=" + std::to_string(sent) +
+                            " packs=" + std::to_string(packs);
+    if (sent < readingsCount) {
+      logger::error("CoAP/DTLS transmission failed, keeping buffered readings",
+                    ctx + " kept=" + std::to_string(readingsCount - sent) +
+                        " response=" + failure);
+      return;
+    }
+    logger::info("Transmission successful", ctx);
+  }
+
+  // One SenML pack with entries [begin, end) (sorted by time), compact JSON.
+  template <typename Entries>
+  std::string buildPack(const Entries& entries, size_t begin, size_t end, bool withDiagnostics) {
+    const double bt = entries[begin].time; // entries are sorted: the oldest in the pack
     const auto now = static_cast<double>(std::time(nullptr));
 
     rapidjson::Document payload(rapidjson::kArrayType);
@@ -431,42 +494,21 @@ private:
           .set("v", static_cast<int64_t>(++seq_));
       payload.PushBack(base.take(), alloc);
     }
-    for (const auto& e : entries) {
-      record(e.sensorId, e.value.value, e.time, e.value.unit);
+    for (size_t i = begin; i < end; ++i) {
+      record(sensors_[entries[i].sensorIndex].sensorId, entries[i].value.value, entries[i].time,
+             entries[i].value.unit);
     }
-    // Synthetic diagnostics: one "boot" per process, RSSI wandering in a typical Wi-Fi range
-    std::uniform_int_distribution<int> rssi(-85, -55);
-    record("boot_count", 1, now);
-    record("rssi", rssi(diagRng_), now);
-
-    const auto credential = fetchActiveCredential();
-    if (!credential) {
-      logger::error("Skipping transmission: could not fetch active credential",
-                    "device_id=" + deviceId_);
-      return;
+    if (withDiagnostics) {
+      // Synthetic diagnostics: one "boot" per process, RSSI wandering in a typical Wi-Fi range
+      std::uniform_int_distribution<int> rssi(-85, -55);
+      record("boot_count", 1, now);
+      record("rssi", rssi(diagRng_), now);
     }
 
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     payload.Accept(writer);
-    const std::string payloadStr = buffer.GetString();
-    const std::vector<uint8_t> payloadBytes(payloadStr.begin(), payloadStr.end());
-
-    rdws::coap::CoapDtlsClient coapClient(ingestionHost_, ingestionPort_);
-    const bool sent =
-        coapClient.sendConfirmable(credential->pskIdentity, credential->pskKeyPlaintext,
-                                   payloadBytes, rdws::coap::kContentFormatSenmlJson);
-    if (!sent) {
-      logger::error("CoAP/DTLS transmission failed, keeping buffered readings",
-                    "device_id=" + deviceId_ + " response=" + coapClient.lastResponseCode());
-      return;
-    }
-
-    for (const auto& path : filesToClear) {
-      std::ofstream(path, std::ios::trunc);
-    }
-    logger::info("Transmission successful", "device_id=" + deviceId_ +
-                                               " readings=" + std::to_string(readingsCount));
+    return buffer.GetString();
   }
 
   struct FetchedCredential {
