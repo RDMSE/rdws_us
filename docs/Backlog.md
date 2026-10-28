@@ -1,6 +1,7 @@
 # Backlog — rdws_us (backend)
 
-Pendências consolidadas dos planos deste repositório, em 2026-10-07 (revisado em 2026-10-09). Cada item aponta o
+Pendências consolidadas dos planos deste repositório, em 2026-10-07 (revisado em 2026-10-09 e
+2026-10-28). Cada item aponta o
 plano de origem, onde estão o contexto e as decisões. Ao concluir um item, marque-o no plano
 de origem e remova-o daqui. O backlog do firmware fica em
 `rdws_weather_node/docs/Backlog.md`.
@@ -16,8 +17,9 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 |-------|------|---|
 | P2    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2). Adiado em 2026-10-23: fazer quando a primeira estação sair da bancada (escolher Telegram, ntfy ou e-mail) |
 | P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
-| P2    | Falha de banco e retry/DLQ no `ReadingWriterService` | Hoje a exceção do `execCommand` derruba o processo (loop de restart com o banco fora); o ramo "sem ack" não tem nack. "Vazão e falhas do ReadingWriterService" no `Plano_Ingestion.md` |
-| P3    | `basic_qos` (prefetch ~100) no `AmqpConsumer` | Hoje o broker entrega a fila inteira como unacked |
+| P2    | Simulador mandando em lotes limitados, como o firmware | Hoje o buffer inteiro vai num único POST — foi o que permitiu a bola de neve da regressão do RDWS-157. "Vazão e falhas do ReadingWriterService" no `Plano_Ingestion.md` |
+| P2    | Teste de ponta a ponta do 5.03 no QA | RabbitMQ parado durante um envio de simulador; só o producer isolado foi testado (RDWS-157) |
+| P3    | Contar duplicatas descartadas pelo `ON CONFLICT` no `ReadingWriterService` | Somem sem log nem métrica; teriam mostrado a regressão do RDWS-157 no mesmo dia |
 | P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |
 | P3    | Uma conexão AMQP com os dois consumers no `ReadingWriterService` | Tira a espera de até 500 ms da telemetria com as filas vazias |
 | P2    | Desativar o formato JSON legado no `IngestionService` | Firmware e simulador já usam SenML; falta decidir quando |
