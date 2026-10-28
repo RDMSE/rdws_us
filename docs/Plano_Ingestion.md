@@ -188,12 +188,19 @@ levaram ~10 min para sair da fila `sensor_readings` (~0,55 s por mensagem).
 - ✅ **Client CoAP do simulador tratava qualquer resposta como entregue** (RDWS-157) —
   `CoapDtlsClient::sendConfirmable` só devolve `true` para 2.xx; 4.xx/5.xx mantêm o buffer
   do simulador (`lastResponseCode()` no log). O firmware já só apaga o arquivo com 2.04.
-- ⬜ **Simulador manda tudo num pack só** — o buffer inteiro vai num único POST; foi o que
-  permitiu a bola de neve. Mandar em lotes limitados, como o firmware, apagando só o que
-  recebeu 2.04.
-- ⬜ **Teste de ponta a ponta do 5.03** — validado só com o producer isolado. Falta no QA:
-  RabbitMQ parado durante um envio de simulador, conferir `unpublished=` no ingestion,
-  `keeping buffered ... response=5.03` no simulador e nenhum buraco depois.
+- ✅ **Simulador manda tudo num pack só** (RDWS-161, 2026-10-28) — o buffer inteiro ia num
+  único POST; foi o que permitiu a bola de neve. Agora, como o firmware: leituras ordenadas
+  da mais antiga para a mais nova, packs de até 200 (`kMaxReadingsPerPack`; um ciclo normal
+  de ~180 continua sendo um pack, e cada pack abre sua própria sessão DTLS), diagnósticos só
+  no primeiro, parada no primeiro pack sem 2.xx e reescrita dos buffers só com o que não foi
+  entregue. Validado no QA: com o RabbitMQ parado o primeiro pack recebeu 5.03 e o simulador
+  parou ali (`kept=933`); na volta, `readings=1311 packs=7` (~130 ms por pack de 200).
+- ✅ **Teste de ponta a ponta do 5.03** (RDWS-161, 2026-10-28) — RabbitMQ parado durante
+  envios do simulador: `unpublished=` e `failed to publish ... connect to RabbitMQ failed` no
+  ingestion, `keeping buffered ... response=5.03` no simulador, e as leituras guardadas
+  chegaram no reenvio, sem buraco no banco. Com o broker fora cada pack custa ~4 s do thread
+  CoAP (duas tentativas de conexão de 2 s); o client CoAP às vezes retransmite nesse
+  intervalo e o pack é processado duas vezes — inofensivo (5.03 e escrita idempotente).
 - ⬜ **Descarte silencioso no `ON CONFLICT`** — duplicatas somem sem log nem métrica; teria
   mostrado a bola de neve e o atraso da estação no mesmo dia. Contar por rajada no log
   `queues drained`.

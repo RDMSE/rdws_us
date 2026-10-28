@@ -17,8 +17,6 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 |-------|------|---|
 | P2    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2). Adiado em 2026-10-23: fazer quando a primeira estação sair da bancada (escolher Telegram, ntfy ou e-mail) |
 | P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
-| P2    | Simulador mandando em lotes limitados, como o firmware | Hoje o buffer inteiro vai num único POST — foi o que permitiu a bola de neve da regressão do RDWS-157. "Vazão e falhas do ReadingWriterService" no `Plano_Ingestion.md` |
-| P2    | Teste de ponta a ponta do 5.03 no QA | RabbitMQ parado durante um envio de simulador; só o producer isolado foi testado (RDWS-157) |
 | P3    | Contar duplicatas descartadas pelo `ON CONFLICT` no `ReadingWriterService` | Somem sem log nem métrica; teriam mostrado a regressão do RDWS-157 no mesmo dia |
 | P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |
 | P3    | Uma conexão AMQP com os dois consumers no `ReadingWriterService` | Tira a espera de até 500 ms da telemetria com as filas vazias |
