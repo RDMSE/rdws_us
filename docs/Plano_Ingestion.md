@@ -116,9 +116,8 @@ Resumo do que já está no código:
 - **Invalidação de credencial em tempo real** — `IngestionService` usa poll periódico
   (60s) em vez do bridge de `device_credential.changed` via EventBus (que exigiria
   mudança no lado do gateway, fora de escopo por ora).
-- Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
-  Ver "Vazão e falhas do ReadingWriterService" abaixo: hoje uma falha de banco derruba o
-  processo em vez de chegar ao caminho "sem ack".
+- ✅ **Política de retry/DLQ no ReadingWriterService** (RDWS-157, 2026-10-28) — ver
+  "Vazão e falhas do ReadingWriterService" abaixo.
 - Novos tipos em `sensors.type` (bateria, solar, agregados de vento) — `pressure` e `co2`
   já entraram (V9); os demais entram com o hardware (passos 5–6 do firmware). Ver seção
   "Amostragem interna vs. taxa de transmissão".
@@ -138,16 +137,66 @@ levaram ~10 min para sair da fila `sensor_readings` (~0,55 s por mensagem).
   do upload no device (~25,5 s). O writer acompanha o envio, e o gargalo do ciclo passou a
   ser o upload da estação (~2,5 s por arquivo). O log `ReadingWriterService: queues drained`
   (contagem e duração por rajada) registra isso a cada uplink.
-- **Falha de banco derruba o serviço** — `PostgreSQLDatabase::execCommand` lança exceção
-  em vez de retornar `false`, e `handleMessage`/`handleTelemetryMessage` não a capturam. O
-  ramo "DB insert failed, leaving message unacked" nunca roda: o processo cai, o Docker
-  reinicia (`restart: unless-stopped`) e o broker devolve as mensagens não confirmadas. Não
-  perde dado, mas com o banco fora vira um loop de restart. Se o ramo passar a rodar, a
-  mensagem fica sem ack nem nack, presa como unacked até a conexão cair. Decidir junto com a
-  política de retry/DLQ: capturar a exceção, `basic_nack` com requeue e backoff, e
-  dead-letter depois de N tentativas.
-- **Sem `basic_qos`** — o consumer não limita o prefetch, então o broker entrega a fila
-  inteira como unacked de uma vez. Um prefetch de ~100 basta.
+- ✅ **Falha de banco derruba o serviço** (RDWS-157) — `execCommand` lançava exceção sem
+  `catch`: o processo caía e, com o banco fora, entrava em loop de restart (o construtor do
+  `PostgreSQLDatabase` já conecta e lança). Agora a escrita que falha é classificada pelo
+  **SQLSTATE** (`DatabaseError::sqlstate()`, novo em `idatabase.h`): classes 22 (dado
+  inválido) e 23 (constraint, ex. `sensor_id` inexistente) são *poison* e vão para a
+  dead-letter; todo o resto — conexão perdida, servidor desligando, schema divergente (42),
+  desconhecido — faz `basic_nack` com requeue e **pausa o consumo**, testando o banco com
+  `SELECT 1` e backoff de 1 s a 30 s, sem limite. O backoff só zera depois de uma escrita bem
+  sucedida, para um erro que o `SELECT 1` não vê (coluna faltando) não virar retry a cada
+  segundo. O serviço também sobe sem banco e espera.
+  - **Decisão descartada:** classificar pelo `SELECT 1` depois da falha ("banco responde →
+    a mensagem é ruim"). Perdeu mensagens nos testes em dois casos: no shutdown do Postgres
+    o `SELECT 1` reconectou antes da porta fechar (1 de 3000 descartada), e com schema
+    divergente o banco responde a tudo, então *toda* mensagem seria descartada. Na dúvida,
+    esperar em vez de descartar.
+- ✅ **Dead-letter** (RDWS-157) — mensagens poison (JSON inválido, campo obrigatório
+  faltando, SQLSTATE 22/23) vão para `sensor_readings.dead` / `device_telemetry.dead`,
+  publicadas pelo próprio writer num envelope `{reason, sqlstate, error, failed_at, body}`, e
+  a original recebe ack. Se essa publicação falhar, a original volta para a fila. Sem
+  `x-dead-letter-exchange` nas filas: mudar os argumentos de uma fila durável existente faz
+  o `queue_declare` falhar com `PRECONDITION_FAILED` até recriá-la. As `.dead` não têm limite
+  nem TTL (volume esperado ~zero; uma policy do RabbitMQ resolve sem código).
+- ✅ **Sem `basic_qos`** (RDWS-157) — prefetch de 100 no `AmqpConsumer`. Com o writer parado e
+  3000 mensagens na fila: `unacked 100`, `ready 2900`; vazão inalterada.
+- ✅ **RabbitMQ fora deixava o writer zumbi** (RDWS-157) — o `consumeOne` devolvia `false`
+  tanto em timeout quanto em conexão morta; depois de um restart do broker o loop girava a
+  100 % de CPU, sem consumer e sem log. Agora qualquer retorno que não seja timeout derruba
+  a conexão (também ack/nack que falha) e o writer reconecta com backoff, inclusive na
+  partida. Validado no QA: restart do RabbitMQ sem buraco nas leituras.
+- ✅ **Publish sem confirmação no `IngestionService`** (RDWS-157) — o `AmqpProducer` só
+  escrevia no socket e nunca reconectava; depois de um restart do broker o primeiro publish
+  "dava certo" no buffer do kernel e se perdia, os seguintes falhavam, e o device recebia
+  2.04 mesmo assim e apagava o arquivo. Agora: **publisher confirms**, reconexão com uma nova
+  tentativa, timeouts de 2 s no connect/handshake e 5 s nas RPCs (o producer roda no único
+  thread CoAP), e **5.03** quando alguma leitura do pack não foi confirmada — o device
+  reenvia o pack e as duplicatas caem no `UNIQUE(sensor_id, timestamp)`.
+- ✅ **Regressão: um confirm por mensagem** (RDWS-157, 2026-10-23 a 2026-10-28) — a primeira
+  versão esperava o confirm de cada leitura, ~30 ms por fsync no disco do QA (~2 ms no
+  notebook). Um pack grande prendia o thread CoAP por minutos (um de 23 820 leituras levou
+  ~12 min); o client CoAP do simulador desiste em 10 s e, com a correção do 2.xx abaixo,
+  passou a guardar o buffer e reenviar tudo, cada vez maior (bola de neve, quase tudo
+  duplicata descartada pelo `ON CONFLICT`); e os lotes da estação real que chegavam nessas
+  janelas estouravam o timeout do firmware (5 s × 3), parando o ciclo depois de ~45 lotes —
+  ela ficou ~1 dia atrasada, sem perder dado. Corrigido com
+  `AmqpProducer::publishBatch()`: o pack inteiro é publicado em blocos de 500 e os confirms
+  esperados uma vez por bloco (o broker agrupa os fsyncs). 24 000 mensagens confirmadas em
+  0,62 s no notebook; no QA tudo chegou, inclusive o atraso da estação. **Lição:** confirm
+  síncrono por mensagem custa um fsync por mensagem — sempre em lote.
+- ✅ **Client CoAP do simulador tratava qualquer resposta como entregue** (RDWS-157) —
+  `CoapDtlsClient::sendConfirmable` só devolve `true` para 2.xx; 4.xx/5.xx mantêm o buffer
+  do simulador (`lastResponseCode()` no log). O firmware já só apaga o arquivo com 2.04.
+- ⬜ **Simulador manda tudo num pack só** — o buffer inteiro vai num único POST; foi o que
+  permitiu a bola de neve. Mandar em lotes limitados, como o firmware, apagando só o que
+  recebeu 2.04.
+- ⬜ **Teste de ponta a ponta do 5.03** — validado só com o producer isolado. Falta no QA:
+  RabbitMQ parado durante um envio de simulador, conferir `unpublished=` no ingestion,
+  `keeping buffered ... response=5.03` no simulador e nenhum buraco depois.
+- ⬜ **Descarte silencioso no `ON CONFLICT`** — duplicatas somem sem log nem métrica; teria
+  mostrado a bola de neve e o atraso da estação no mesmo dia. Contar por rajada no log
+  `queues drained`.
 - **Um commit por leitura** — juntar as mensagens disponíveis numa transação (ex.: até 100,
   ack com `multiple=1`) é o próximo ganho de vazão, se ~50 ms por mensagem não bastar.
 - **Latência ociosa assimétrica** — com as filas vazias o loop bloqueia só no socket de
