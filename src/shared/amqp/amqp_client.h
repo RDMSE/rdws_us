@@ -34,6 +34,14 @@ public:
   // twice (the consumer's writes are idempotent). Connects lazily if not connected.
   [[nodiscard]] bool publish(const std::string& body);
 
+  // Same guarantee for many messages at once: true iff the broker confirmed all of them.
+  // Publishes in chunks without waiting per message, then waits for the chunk's confirms —
+  // the broker batches its disk syncs, so this costs about one sync per chunk instead of one
+  // per message (~30 ms each on the QA host: a 24 000-reading pack took 12 minutes one by
+  // one, blocking IngestionService's only CoAP thread). On failure the whole batch is
+  // retried once on a fresh connection.
+  [[nodiscard]] bool publishBatch(const std::vector<std::string>& bodies);
+
   [[nodiscard]] bool isConnected() const { return conn_ != nullptr; }
   // Why the last publish() failed, for logging.
   [[nodiscard]] const std::string& lastError() const { return lastError_; }
@@ -49,7 +57,11 @@ private:
   void* conn_ = nullptr; // amqp_connection_state_t, opaque to avoid leaking amqp.h here
   std::string lastError_;
 
-  [[nodiscard]] bool publishConfirmed(const std::string& body);
+  uint64_t nextDeliveryTag_ = 1; // confirm-mode tags count from 1 on each new channel
+
+  [[nodiscard]] bool publishAll(const std::vector<std::string>& bodies);
+  [[nodiscard]] bool publishChunk(const std::vector<std::string>& bodies, size_t begin,
+                                  size_t end);
   void dropConnection(std::string reason);
 };
 
