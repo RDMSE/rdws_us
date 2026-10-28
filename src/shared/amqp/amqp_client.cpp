@@ -4,14 +4,20 @@
 #include <rabbitmq-c/tcp_socket.h>
 #include <rabbitmq-c/framing.h>
 
+#include <algorithm>
+#include <set>
+
 namespace rdws::amqp {
 
 namespace {
 
 constexpr amqp_channel_t kChannel = 1;
 constexpr int kFrameMax = 131072;
-// How long publish() waits for the broker's confirm before giving up on the connection.
+// How long publish() waits for the next confirm frame before giving up on the connection.
 constexpr int kConfirmTimeoutSec = 5;
+// Messages published before waiting for their confirms (bounds the acks the broker queues
+// up for us while we're still writing).
+constexpr size_t kConfirmChunk = 500;
 // Deliveries in flight per consumer. Without a limit the broker pushes the whole queue as
 // unacked at once (thousands after an outage).
 constexpr uint16_t kPrefetch = 100;
@@ -89,53 +95,92 @@ bool AmqpProducer::connect() {
   }
 
   conn_ = conn;
+  nextDeliveryTag_ = 1;
   return true;
 }
 
 bool AmqpProducer::publish(const std::string& body) {
-  if (conn_ != nullptr && publishConfirmed(body)) {
+  return publishBatch({body});
+}
+
+bool AmqpProducer::publishBatch(const std::vector<std::string>& bodies) {
+  if (bodies.empty()) {
     return true;
   }
-  // Not connected, or the publish failed (and dropped the connection): one fresh attempt.
+  if (conn_ != nullptr && publishAll(bodies)) {
+    return true;
+  }
+  // Not connected, or a publish failed (and dropped the connection): one fresh attempt.
   if (!connect()) {
     lastError_ = "connect to RabbitMQ failed";
     return false;
   }
-  return publishConfirmed(body);
+  return publishAll(bodies);
 }
 
-bool AmqpProducer::publishConfirmed(const std::string& body) {
+bool AmqpProducer::publishAll(const std::vector<std::string>& bodies) {
+  for (size_t begin = 0; begin < bodies.size(); begin += kConfirmChunk) {
+    if (!publishChunk(bodies, begin, std::min(begin + kConfirmChunk, bodies.size()))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool AmqpProducer::publishChunk(const std::vector<std::string>& bodies, size_t begin,
+                                size_t end) {
   amqp_connection_state_t conn = asConn(conn_);
   amqp_basic_properties_t props;
   props._flags = AMQP_BASIC_DELIVERY_MODE_FLAG;
   props.delivery_mode = 2; // persistent
 
-  const int status = amqp_basic_publish(conn, kChannel, amqp_empty_bytes,
-                                        amqp_cstring_bytes(queueName_.c_str()),
-                                        /*mandatory=*/0, /*immediate=*/0, &props,
-                                        amqp_cstring_bytes(body.c_str()));
-  if (status != AMQP_STATUS_OK) {
-    dropConnection(std::string("publish failed: ") + amqp_error_string2(status));
-    return false;
+  const uint64_t firstTag = nextDeliveryTag_;
+  for (size_t i = begin; i < end; ++i) {
+    const int status = amqp_basic_publish(conn, kChannel, amqp_empty_bytes,
+                                          amqp_cstring_bytes(queueName_.c_str()),
+                                          /*mandatory=*/0, /*immediate=*/0, &props,
+                                          amqp_cstring_bytes(bodies[i].c_str()));
+    if (status != AMQP_STATUS_OK) {
+      dropConnection(std::string("publish failed: ") + amqp_error_string2(status));
+      return false;
+    }
+    ++nextDeliveryTag_;
   }
+  const uint64_t lastTag = nextDeliveryTag_ - 1;
 
-  // One message in flight at a time, so the next method frame on the channel is its confirm.
-  struct timeval timeout {kConfirmTimeoutSec, 0};
-  amqp_frame_t frame;
-  const int waited = amqp_simple_wait_frame_noblock(conn, &frame, &timeout);
-  if (waited != AMQP_STATUS_OK) {
-    dropConnection(std::string("waiting for confirm: ") + amqp_error_string2(waited));
+  // Wait until every tag in [firstTag, lastTag] is acked. The broker may ack several at once
+  // (multiple=1 covers every tag up to delivery_tag) and, in principle, out of order.
+  std::set<uint64_t> pending;
+  for (uint64_t tag = firstTag; tag <= lastTag; ++tag) {
+    pending.insert(tag);
+  }
+  while (!pending.empty()) {
+    struct timeval timeout {kConfirmTimeoutSec, 0};
+    amqp_frame_t frame;
+    const int waited = amqp_simple_wait_frame_noblock(conn, &frame, &timeout);
+    if (waited != AMQP_STATUS_OK) {
+      dropConnection(std::string("waiting for confirm: ") + amqp_error_string2(waited));
+      return false;
+    }
+    if (frame.frame_type != AMQP_FRAME_METHOD) {
+      continue;
+    }
+    if (frame.payload.method.id == AMQP_BASIC_ACK_METHOD) {
+      const auto* ack = static_cast<const amqp_basic_ack_t*>(frame.payload.method.decoded);
+      if (ack->multiple) {
+        pending.erase(pending.begin(), pending.upper_bound(ack->delivery_tag));
+      } else {
+        pending.erase(ack->delivery_tag);
+      }
+      continue;
+    }
+    // basic.nack, or connection.close/channel.close from a broker going down.
+    dropConnection(frame.payload.method.id == AMQP_BASIC_NACK_METHOD
+                       ? "broker nacked a message"
+                       : "unexpected frame from broker");
     return false;
   }
-  if (frame.frame_type == AMQP_FRAME_METHOD && frame.payload.method.id == AMQP_BASIC_ACK_METHOD) {
-    return true;
-  }
-  // basic.nack, or connection.close/channel.close from a broker going down.
-  dropConnection(frame.frame_type == AMQP_FRAME_METHOD &&
-                         frame.payload.method.id == AMQP_BASIC_NACK_METHOD
-                     ? "broker nacked the message"
-                     : "unexpected frame from broker");
-  return false;
+  return true;
 }
 
 void AmqpProducer::dropConnection(std::string reason) {

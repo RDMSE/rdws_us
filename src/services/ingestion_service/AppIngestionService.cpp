@@ -475,9 +475,9 @@ private:
     return false;
   }
 
-  bool publishReading(const std::string& deviceId, const std::string& sensorId,
-                      const std::string& timestamp, double value, const std::string& unit,
-                      int flags) {
+  static std::string readingMessage(const std::string& deviceId, const std::string& sensorId,
+                                    const std::string& timestamp, double value,
+                                    const std::string& unit, int flags) {
     rapidjson::Document msg(rapidjson::kObjectType);
     auto& alloc = msg.GetAllocator();
     msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
@@ -490,13 +490,20 @@ private:
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     msg.Accept(writer);
+    return buffer.GetString();
+  }
 
-    if (!producer_.publish(buffer.GetString())) {
-      logger::error("IngestionService: failed to publish reading to RabbitMQ",
-                    "sensor_id=" + sensorId + " error=" + producer_.lastError());
-      return false;
+  // All of a pack's readings in one publishBatch(): one wait for the broker's confirms instead
+  // of one per reading (per-reading confirms held the CoAP thread ~30 ms per reading on QA).
+  // False → nothing can be assumed stored: the caller answers 5.03 and the device resends.
+  bool publishReadings(const std::string& deviceId, const std::vector<std::string>& messages) {
+    if (producer_.publishBatch(messages)) {
+      return true;
     }
-    return true;
+    logger::error("IngestionService: failed to publish readings to RabbitMQ",
+                  "device_id=" + deviceId + " readings=" + std::to_string(messages.size()) +
+                      " error=" + producer_.lastError());
+    return false;
   }
 
   // One device_telemetry row per instant: {"device_id", "timestamp", "data": {name: value}}.
@@ -570,8 +577,7 @@ private:
       return kUnavailable;
     }
 
-    int published = 0;
-    int unpublished = 0; // RabbitMQ failures: any → 5.03 so the device resends the whole pack
+    std::vector<std::string> messages;
     int sensorRecords = 0;
     std::string seq = "-";
     std::string diagnostics;
@@ -618,22 +624,18 @@ private:
         continue;
       }
 
-      // After one failure the pack gets 5.03 anyway: don't retry RabbitMQ per remaining record.
-      if (unpublished == 0 && publishReading(authDeviceId, local,
-                                             rdws::senml::toIso8601(rec.time), *value, sensorUnit,
-                                             rec.flags)) {
-        ++published;
-      } else {
-        ++unpublished;
-      }
+      messages.push_back(readingMessage(authDeviceId, local, rdws::senml::toIso8601(rec.time),
+                                        *value, sensorUnit, rec.flags));
     }
 
-    // With readings unpublished the device resends the whole pack, telemetry included.
-    for (const auto& [time, records] : telemetry) {
-      if (unpublished > 0) {
-        break;
+    // RabbitMQ failure → 5.03 so the device resends the whole pack, telemetry included.
+    const bool stored = publishReadings(authDeviceId, messages);
+    const int published = stored ? static_cast<int>(messages.size()) : 0;
+    const int unpublished = stored ? 0 : static_cast<int>(messages.size());
+    if (stored) {
+      for (const auto& [time, records] : telemetry) {
+        publishTelemetry(authDeviceId, time, records);
       }
-      publishTelemetry(authDeviceId, time, records);
     }
 
     logger::info("IngestionService: SenML pack",
@@ -676,8 +678,7 @@ private:
       reportLocation(*deviceId, *location);
     }
 
-    int published = 0;
-    int unpublished = 0;
+    std::vector<std::string> messages;
     for (const auto& reading : readings->GetArray()) {
       const auto sensorId = json::getString(reading, "sensor_id");
       const auto timestamp = json::getString(reading, "timestamp");
@@ -690,14 +691,11 @@ private:
       if (!ownedBy(*owners, *sensorId, authDeviceId)) {
         continue;
       }
-      if (unpublished == 0 &&
-          publishReading(*deviceId, *sensorId, *timestamp, *value, unit.value_or(""), 0)) {
-        ++published;
-      } else {
-        ++unpublished;
-      }
+      messages.push_back(
+          readingMessage(*deviceId, *sensorId, *timestamp, *value, unit.value_or(""), 0));
     }
-    return unpublished > 0 ? kUnavailable : published;
+    return publishReadings(*deviceId, messages) ? static_cast<int>(messages.size())
+                                                : kUnavailable;
   }
 };
 
