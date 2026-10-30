@@ -104,6 +104,29 @@ int readIntConfig(const std::string& configJson, const char* field, int defaultV
   return json::getInt(doc, field).value_or(defaultValue);
 }
 
+// Optional `position: {"lat": ..., "lon": ...}` in the device config: the simulator then sends
+// it as SenML `lat`/`lon` records every cycle, so a simulated device exercises the position
+// path (devices.location, RDWS-165) that no real station uses yet. nullopt when absent.
+std::optional<std::pair<double, double>> readPosition(const std::string& configJson) {
+  if (configJson.empty()) {
+    return std::nullopt;
+  }
+  rapidjson::Document doc;
+  if (doc.Parse(configJson.c_str()).HasParseError() || !doc.IsObject()) {
+    return std::nullopt;
+  }
+  const auto* position = json::getObject(doc, "position");
+  if (position == nullptr) {
+    return std::nullopt;
+  }
+  const auto lat = json::getNumber(*position, "lat");
+  const auto lon = json::getNumber(*position, "lon");
+  if (!lat || !lon) {
+    return std::nullopt;
+  }
+  return std::make_pair(*lat, *lon);
+}
+
 // Builds a one-off JSON object body for HTTP responses via JsonObj (so field values
 // get proper JSON escaping, unlike hand-built "{\"key\":\"" + value + "\"}" strings).
 template <typename Build> std::string toJson(Build&& build) {
@@ -423,12 +446,23 @@ private:
       return;
     }
 
+    std::optional<std::pair<double, double>> position;
+    try {
+      std::scoped_lock dbLock(dbMutex_);
+      const auto config = deviceConfigRepo_.findByDeviceId(deviceId_);
+      position = readPosition(config ? config->config : std::string{});
+    } catch (const std::exception& e) {
+      logger::warn("SensorSimulatorService: reading position from config failed, sending none",
+                   "device_id=" + deviceId_ + " error=" + e.what());
+    }
+
     size_t sent = 0;
     int packs = 0;
     std::string failure;
     while (sent < readingsCount) {
       const size_t end = std::min(sent + kMaxReadingsPerPack, readingsCount);
-      const auto payload = buildPack(entries, sent, end, /*withDiagnostics=*/packs == 0);
+      const auto payload =
+          buildPack(entries, sent, end, /*withDiagnostics=*/packs == 0, position);
       const std::vector<uint8_t> payloadBytes(payload.begin(), payload.end());
 
       rdws::coap::CoapDtlsClient coapClient(ingestionHost_, ingestionPort_);
@@ -467,9 +501,11 @@ private:
     logger::info("Transmission successful", ctx);
   }
 
-  // One SenML pack with entries [begin, end) (sorted by time), compact JSON.
+  // One SenML pack with entries [begin, end) (sorted by time), compact JSON. The diagnostics
+  // and the position (lat/lon, RFC 8428 units) go only in the first pack of a cycle.
   template <typename Entries>
-  std::string buildPack(const Entries& entries, size_t begin, size_t end, bool withDiagnostics) {
+  std::string buildPack(const Entries& entries, size_t begin, size_t end, bool withDiagnostics,
+                        const std::optional<std::pair<double, double>>& position) {
     const double bt = entries[begin].time; // entries are sorted: the oldest in the pack
     const auto now = static_cast<double>(std::time(nullptr));
 
@@ -506,6 +542,10 @@ private:
       std::uniform_int_distribution<int> rssi(-85, -55);
       record("boot_count", 1, now);
       record("rssi", rssi(diagRng_), now);
+      if (position) {
+        record("lat", position->first, now, "lat");
+        record("lon", position->second, now, "lon");
+      }
     }
 
     rapidjson::StringBuffer buffer;

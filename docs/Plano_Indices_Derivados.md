@@ -104,7 +104,7 @@ device_config_spans              -- quando cada versão valeu no device
   (`Plano_Telemetria.md` D2), com `LEAST`/`GREATEST` nos timestamps de sensor do pack.
 - `weather_samples` ganha `cfg_version` e `window_s`: o span que contém o timestamp dá a
   versão, e o histórico dá o `agg_window_s` dela. Amostra fora de qualquer span (dados
-  anteriores ao `rec_cfg`, simulador, JSON legado) usa a config atual, e na falta dela o
+  anteriores ao `rec_cfg` — inclusive os que chegaram pelo antigo JSON legado —, simulador) usa a config atual, e na falta dela o
   default de 600 s.
 - Todas as durações deste plano usam `window_s` da amostra, não 600 s fixos: `coverage`
   é a soma de `window_s` sobre a duração do dia, horas = soma de `window_s` das amostras

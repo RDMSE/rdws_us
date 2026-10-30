@@ -18,6 +18,10 @@ Restrições do parser atual (`json_helper.cpp`), que já pegaram o firmware:
 
 A resposta é só o código (`2.04`/`4.00`), sem corpo.
 
+> **2026-10-30 (RDWS-165):** esse formato foi desativado. O `IngestionService` só aceita
+> SenML JSON (Content-Format `110`); qualquer outro Content-Format, ou nenhum, recebe `4.15`.
+> O campo `location` dele virou os registros `lat`/`lon` do pack (tabela de nomes abaixo).
+
 Esse formato atende o `SensorSimulatorService` e o firmware atual (`rdws_weather_node`,
 passo 3), mas não cobre alguns pontos que o firmware real da estação precisa:
 
@@ -98,7 +102,7 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
     `device_config_spans` com o menor e o maior timestamp de sensor do pack. Serve para
     saber com que config cada leitura foi produzida (janela de agregação, mapa
     canal → `sensor_id`); contrato completo em `Plano_Indices_Derivados.md`, D1.1. Pack
-    sem `rec_cfg` (firmware antigo, simulador, JSON legado) é aceito como hoje.
+    sem `rec_cfg` (firmware antigo, simulador) é aceito como hoje.
 - **Diagnóstico**: qualquer outro nome. Os conhecidos (2026-10-05):
 
   | `n`             | Tipo | Unidade implícita | Significado                               |
@@ -112,9 +116,13 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
   | `fs_reformat`   | `vb` | evento            | FS reformatado (dado perdido), D9         |
   | `backlog_count` | `v`  | registros         | Pendentes, só com envio parcial (D9)      |
   | `cfg_version`   | `v`  | versão            | Config que o device roda (D11)            |
+  | `lat` / `lon`   | `v`  | graus (WGS84)     | Posição; o par mais recente do pack vira `devices.location` (RDWS-165) |
 
   - Diagnóstico vai **sem `u`**: a unidade é fixa por nome (RFC 8428 permite registro
-    sem unidade quando o contexto a define). Evita `dBm` (só existe como unidade
+    sem unidade quando o contexto a define). `lat`/`lon` são exceção tolerada: o RFC 8428
+    registra as unidades `lat` e `lon`, e o servidor aceita com ou sem `u`. Fora de ±90/±180
+    o par é ignorado com aviso. Nenhuma estação manda posição ainda (virá com o hardware); o
+    simulador manda quando o config do device tem `"position": {"lat": ..., "lon": ...}`. Evita `dBm` (só existe como unidade
     secundária, RFC 8798) e `%` (não recomendado no registro SenML).
   - Nome fora da tabela não é erro: vai para `device_telemetry` mesmo assim (o JSONB do D5
     existe para o firmware poder adicionar métricas sem mudar o servidor), e a tabela
@@ -273,8 +281,8 @@ config viaja na própria resposta, só quando mudou:
 - Uma ida e volta só, sem `GET /config`; a config só trafega quando muda; e o servidor
   sabe qual versão cada device roda (vai para `device_telemetry` como qualquer
   diagnóstico).
-- Compatível nos dois sentidos: firmware antigo, JSON legado e simulador não mandam
-  `cfg_version` e nunca recebem config.
+- Compatível nos dois sentidos: firmware antigo e simulador não mandam `cfg_version` e
+  nunca recebem config.
 - ~~Regras de edge trigger (`rul`): mesmo mecanismo quando existirem.~~ **Revisto em
   2026-10-07:** as regras viajam dentro da própria config (`triggers[]`), com a mesma
   versão; não há `rul` nem `rules_version`. Contrato em `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`
@@ -472,7 +480,9 @@ Decidido em 2026-10-07:
 ## Pontos em aberto
 
 - Partições de `sensor_readings`/`device_telemetry` (adiado na Fase 3, R3).
-- Quando desativar o formato JSON legado no `IngestionService`.
+- ~~Quando desativar o formato JSON legado no `IngestionService`.~~ Desativado em
+  2026-10-30 (RDWS-165): firmware e simulador já mandavam só SenML; pack sem Content-Format
+  `110` recebe `4.15`, e `location` virou os registros `lat`/`lon`.
 - Se vale uma coluna `category` em `sensors` para separar sensores lógicos de saúde
   (bateria/solar) dos ambientais no dashboard do produtor.
 - ~~Se o firmware pode esvaziar o backlog parcialmente~~ — não pode hoje (o envio para no
