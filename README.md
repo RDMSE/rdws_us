@@ -316,3 +316,23 @@ Result:
 - `src/auth/main.cpp`
 - `src/auth/tests/CMakeLists.txt`
 - `src/auth/tests/auth_test.cpp`
+
+## Licença
+
+O projeto usa duas licenças, indicadas em cada arquivo-fonte pelo cabeçalho SPDX
+(`SPDX-License-Identifier`):
+
+| O quê | Licença | Texto |
+|---|---|---|
+| Bibliotecas compartilhadas (`src/shared/`) e o client do service broker (`src/service_broker/Services/ServiceClient.*` e `ServiceIdentity.*`) | Apache-2.0 | [`src/shared/LICENSE`](src/shared/LICENSE) |
+| Todo o resto: serviços, service broker, scripts, migrations, infra e documentação | AGPL-3.0-only | [`LICENSE`](LICENSE) |
+
+Na prática: quem roda uma versão modificada dos serviços ou do broker e a oferece pela rede
+precisa disponibilizar o código-fonte dela (AGPL). As bibliotecas compartilhadas e o client
+do broker são permissivas (Apache-2.0), para que serviços próprios possam usá-las e
+conversar com o gateway sem herdar a AGPL.
+
+O código em `src/third_party/` mantém a licença original de cada projeto (arquivos `LICENSE`
+de cada pasta).
+
+Copyright © 2026 Rafael Dias.
