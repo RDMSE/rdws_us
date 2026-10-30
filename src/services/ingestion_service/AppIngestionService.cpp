@@ -16,8 +16,13 @@
 // device reenvia o pack inteiro, e as leituras repetidas são absorvidas pelo
 // UNIQUE(sensor_id, timestamp) do ReadingWriterService.
 //
-// Formatos (despacho pelo Content-Format da requisição): 110 = SenML JSON
-// (Plano_Telemetria.md, D1–D3/DP1–DP3); 50 ou ausente = JSON legado {device_id, readings}.
+// Formato: só SenML JSON, Content-Format 110 (Plano_Telemetria.md, D1–D3/DP1–DP3). Qualquer
+// outro Content-Format, ou nenhum, recebe 4.15 — o JSON legado {device_id, readings} foi
+// desativado em 2026-10-30 (RDWS-165); firmware e simulador já mandavam só SenML.
+//
+// Posição: registros SenML `lat`/`lon` (unidades RFC 8428 "lat"/"lon", graus) atualizam
+// devices.location pelo device.update_location — o par mais recente do pack. Substituem o
+// campo `location` do formato legado; nenhum device manda posição ainda (virá do firmware).
 //
 // Validação: só formato mínimo (campos obrigatórios presentes/tipos corretos) —
 // validação completa contra device_config fica para uma iteração futura
@@ -352,9 +357,15 @@ private:
         ? std::string(reinterpret_cast<const char*>(data), len)
         : std::string{};
 
+    if (!isSenml(request)) {
+      logger::warn("IngestionService: unsupported Content-Format (only SenML JSON, 110)",
+                   "device_id=" + deviceId);
+      coap_pdu_set_code(response, COAP_RESPONSE_CODE_UNSUPPORTED_CONTENT_FORMAT);
+      return;
+    }
+
     std::optional<long long> declaredCfg;
-    const int result = isSenml(request) ? handleSenml(deviceId, body, declaredCfg)
-                                        : handlePayload(deviceId, body);
+    const int result = handleSenml(deviceId, body, declaredCfg);
 
     coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
                                 : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
@@ -416,19 +427,19 @@ private:
     return json::docToString(reply);
   }
 
-  // Optional `location: {"lat": ..., "lon": ...}` on the payload (Plano_Ingestion.md) -
-  // gateways without a fixed installation point (e.g. a mobile/roaming device) report
-  // their position on every send cycle. Fire-and-forget over the same broker connection
-  // already used for credential refresh; a failure here shouldn't block reading ingestion.
-  void reportLocation(const std::string& deviceId, const rapidjson::Value& location) {
-    const auto lat = json::getDouble(location, "lat");
-    const auto lon = json::getDouble(location, "lon");
-    if (!lat || !lon) {
-      logger::warn("IngestionService: location present but missing lat/lon", "");
+  // Position from the pack's `lat`/`lon` records (devices without a fixed installation point,
+  // e.g. a mobile/roaming device, report it every send cycle). Fire-and-forget over the same
+  // broker connection already used for credential refresh; a failure here shouldn't block
+  // reading ingestion.
+  void reportLocation(const std::string& deviceId, double lat, double lon) {
+    if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) {
+      logger::warn("IngestionService: position out of range, ignoring",
+                   "device_id=" + deviceId + " lat=" + std::to_string(lat) +
+                       " lon=" + std::to_string(lon));
       return;
     }
 
-    const std::string wkt = "POINT(" + std::to_string(*lon) + " " + std::to_string(*lat) + ")";
+    const std::string wkt = "POINT(" + std::to_string(lon) + " " + std::to_string(lat) + ")";
 
     rapidjson::Document req(rapidjson::kObjectType);
     auto& alloc = req.GetAllocator();
@@ -585,6 +596,8 @@ private:
     std::string seq = "-";
     std::string diagnostics;
     std::map<double, std::vector<const rdws::senml::Record*>> telemetry;
+    // lat/lon by instant: the most recent instant carrying both becomes devices.location.
+    std::map<double, std::pair<std::optional<double>, std::optional<double>>> positions;
     for (const auto& rec : *pack) {
       const std::string local = rec.name.substr(prefix.size());
       const bool numeric = !local.empty() && std::all_of(local.begin(), local.end(), [](char c) {
@@ -597,6 +610,12 @@ private:
         } else {
           if (local == "cfg_version" && rec.value) {
             declaredCfg = static_cast<long long>(*rec.value);
+          }
+          // Also kept in device_telemetry below: a free position history for mobile devices.
+          if (local == "lat" && rec.value) {
+            positions[rec.time].first = *rec.value;
+          } else if (local == "lon" && rec.value) {
+            positions[rec.time].second = *rec.value;
           }
           diagnostics += (diagnostics.empty() ? "" : ",") + local;
         }
@@ -639,6 +658,12 @@ private:
       for (const auto& [time, records] : telemetry) {
         publishTelemetry(authDeviceId, time, records);
       }
+      for (auto it = positions.rbegin(); it != positions.rend(); ++it) {
+        if (const auto& [lat, lon] = it->second; lat && lon) {
+          reportLocation(authDeviceId, *lat, *lon);
+          break;
+        }
+      }
     }
 
     logger::info("IngestionService: SenML pack",
@@ -648,57 +673,6 @@ private:
                      " unpublished=" + std::to_string(unpublished) +
                      " diagnostics=" + (diagnostics.empty() ? "-" : diagnostics));
     return unpublished > 0 ? kUnavailable : published;
-  }
-
-  // Returns the number of readings published, kFormatError on a malformed payload (missing
-  // device_id/readings), kForbidden when the body's device_id isn't the authenticated one, or
-  // kUnavailable while the sensor owner cache has never loaded or when a reading couldn't be
-  // published.
-  int handlePayload(const std::string& authDeviceId, const std::string& body) {
-    rapidjson::Document doc;
-    if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
-      logger::warn("IngestionService: malformed JSON payload", "");
-      return kFormatError;
-    }
-    const auto deviceId = json::getString(doc, "device_id");
-    const auto* readings = json::getArray(doc, "readings");
-    if (!deviceId || readings == nullptr) {
-      logger::warn("IngestionService: payload missing device_id/readings", "");
-      return kFormatError;
-    }
-    if (*deviceId != authDeviceId) {
-      logger::warn("IngestionService: payload device_id doesn't match the PSK, rejecting",
-                   "authenticated=" + authDeviceId + " payload=" + *deviceId);
-      return kForbidden;
-    }
-
-    const auto owners = snapshotOwners();
-    if (!owners) {
-      return kUnavailable;
-    }
-
-    if (const auto* location = json::getObject(doc, "location")) {
-      reportLocation(*deviceId, *location);
-    }
-
-    std::vector<std::string> messages;
-    for (const auto& reading : readings->GetArray()) {
-      const auto sensorId = json::getString(reading, "sensor_id");
-      const auto timestamp = json::getString(reading, "timestamp");
-      const auto value = json::getDouble(reading, "value");
-      const auto unit = json::getString(reading, "unit");
-      if (!sensorId || !timestamp || !value) {
-        logger::warn("IngestionService: reading missing required field, skipping", "");
-        continue;
-      }
-      if (!ownedBy(*owners, *sensorId, authDeviceId)) {
-        continue;
-      }
-      messages.push_back(
-          readingMessage(*deviceId, *sensorId, *timestamp, *value, unit.value_or(""), 0));
-    }
-    return publishReadings(*deviceId, messages) ? static_cast<int>(messages.size())
-                                                : kUnavailable;
   }
 };
 

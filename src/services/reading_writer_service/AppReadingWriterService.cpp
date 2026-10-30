@@ -378,7 +378,8 @@ private:
                         "sensor_id, timestamp and value are required");
     }
 
-    // Optional: only SenML payloads carry fl_ (Plano_Telemetria.md, DP3); legacy JSON doesn't.
+    // Optional: fl_ (Plano_Telemetria.md, DP3) — always sent since the legacy JSON format was
+    // dropped (RDWS-165), but messages queued before that may lack it.
     const int flags = json::getInt(doc, "flags").value_or(0);
 
     try {
