@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // SensorReadingService — capabilities: sensor_reading.list, sensor_reading.get
 // Append-only (read-only via REST — writes come from devices via PersistenceService).

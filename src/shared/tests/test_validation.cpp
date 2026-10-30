@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #include "utils/validation.h"
 
 #include <gtest/gtest.h>

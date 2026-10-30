@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // DeviceConfigService — capabilities: device_config.get, device_config.update
 // Path parameter {id} refers to device_id.

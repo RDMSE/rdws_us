@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "EventBus.h"
 
 #include "../../shared/utils/json_helper.h"

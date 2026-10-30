@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // rdws-specific glue between parsed SenML records and the sensor_readings model

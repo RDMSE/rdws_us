@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // IngestionService — CoAP/DTLS server receiving sensor readings from devices/
 // SensorSimulatorService (Plano_Ingestion.md). Stateless quanto à persistência: não
