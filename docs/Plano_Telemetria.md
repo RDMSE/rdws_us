@@ -121,7 +121,8 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
   - Diagnóstico vai **sem `u`**: a unidade é fixa por nome (RFC 8428 permite registro
     sem unidade quando o contexto a define). `lat`/`lon` são exceção tolerada: o RFC 8428
     registra as unidades `lat` e `lon`, e o servidor aceita com ou sem `u`. Fora de ±90/±180
-    o par é ignorado com aviso; nenhum device manda posição ainda (virá com o hardware). Evita `dBm` (só existe como unidade
+    o par é ignorado com aviso. Nenhuma estação manda posição ainda (virá com o hardware); o
+    simulador manda quando o config do device tem `"position": {"lat": ..., "lon": ...}`. Evita `dBm` (só existe como unidade
     secundária, RFC 8798) e `%` (não recomendado no registro SenML).
   - Nome fora da tabela não é erro: vai para `device_telemetry` mesmo assim (o JSONB do D5
     existe para o firmware poder adicionar métricas sem mudar o servidor), e a tabela
