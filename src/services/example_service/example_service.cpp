@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // Example Service - ServiceGateway Architecture v2.0
 // Demonstrates service creation using ServiceClient library

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #include "coap_dtls_client.h"
 
 #include <coap3/coap.h>

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 // SenML JSON (RFC 8428) pack parser for IngestionService (Plano_Telemetria.md, D1/D2/DP3).

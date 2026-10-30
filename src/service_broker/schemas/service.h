@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #ifndef RDWS_US_SERVICE_SCHEMA_H
 #define RDWS_US_SERVICE_SCHEMA_H
 

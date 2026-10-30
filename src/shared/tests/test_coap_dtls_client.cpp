@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 // Local, self-contained verification that CoapDtlsClient completes a real DTLS-PSK
 // handshake and delivers a payload — spins up a minimal libcoap PSK server in-process
 // (no IngestionService exists yet; see Plano_SensorSimulatorService_Implementacao.md).

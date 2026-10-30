@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update,
 // sensor.delete, plus internal-only sensor.list_owners (not in routes.json; IngestionService's

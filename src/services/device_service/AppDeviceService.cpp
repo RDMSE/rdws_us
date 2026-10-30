@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // DeviceService — capabilities: device.list, device.get, device.create, device.update,
 // device.delete, device_credential.rotate/revoke (admin only, POST

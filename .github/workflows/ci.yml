@@ -18,6 +18,10 @@ jobs:
         with:
           submodules: recursive
 
+      # Before the build: seconds, and a wrong/missing license header fails the PR (README, "Licença")
+      - name: Check SPDX license headers
+        run: scripts/check_spdx.sh
+
       - name: Build builder stage (build and prepare tests)
         run: |
           docker build --target builder -t rdws_us-builder:${{ github.sha }} .

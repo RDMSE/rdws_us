@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "Auth/AuthMiddleware.h"
 #include "Config/GatewayConfig.h"
 #include "HttpGateway.h"

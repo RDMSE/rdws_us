@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // AuthService — capability: auth.login
 // Validates credentials against the users table and returns a JWT HS256 token.

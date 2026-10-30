@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #include "json_helper.h"
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
