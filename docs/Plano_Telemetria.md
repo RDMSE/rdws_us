@@ -94,7 +94,7 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
 - **Metadados de pacote**: o SenML não tem campos de cabeçalho. `seq` viaja como registro
   (`{"n":"seq","v":...}`). O `trigger` deixou de ser registro de pacote e virou flag do
   registro que disparou (DP3).
-  - **`rec_cfg`** (decidido em 2026-10-07, ainda não implementado): `{"n":"rec_cfg","v":7}`,
+  - **`rec_cfg`** (decidido em 2026-10-07; backend e simulador no RDWS-169, firmware pendente): `{"n":"rec_cfg","v":7}`,
     em todo pack que leva registros de sensor. É o `config_version` do header do arquivo
     de onde os registros saíram (cada POST sai de um arquivo só). Diferente do
     diagnóstico `cfg_version`, que diz que config o device roda **agora** (D11). O
@@ -103,7 +103,8 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
     `device_config_spans`. Serve para
     saber com que config cada leitura foi produzida (janela de agregação, mapa
     canal → `sensor_id`); contrato completo em `Plano_Indices_Derivados.md`, D1.1. Pack
-    sem `rec_cfg` (firmware antigo, simulador) é aceito como hoje.
+    sem `rec_cfg` (firmware antigo) é aceito como hoje. O simulador manda a versão da config
+    no momento do envio, não a de cada leitura.
 - **Diagnóstico**: qualquer outro nome. Os conhecidos (2026-10-05):
 
   | `n`             | Tipo | Unidade implícita | Significado                               |
