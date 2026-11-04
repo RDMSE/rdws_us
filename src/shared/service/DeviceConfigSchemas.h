@@ -17,6 +17,10 @@ namespace rdws::device_config {
 // channel is a board detail the firmware knows (decided 2026-10-07). A channel absent from
 // onboard[] isn't sampled; `enabled` (optional, default true) turns a listed one off while
 // keeping its sensor_id.
+// triggers[] are the station's edge triggers (Plano_Firmware_WeatherNode.md §4). `thr` and `hys`
+// are written in the unit of the channel's sensor (sensors.unit), so 5 °C is 5.0; the firmware's
+// fixed point is produced when the config is delivered. Rules depending on the rest of the
+// config (chan in onboard[], win_s against agg_window_s) are in DeviceConfigService.
 inline const std::string WEATHER_STATION_CONFIG_SCHEMA = R"({
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "weather_station config",
@@ -37,6 +41,28 @@ inline const std::string WEATHER_STATION_CONFIG_SCHEMA = R"({
           "enabled": { "type": "boolean" },
           "sensor_id": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
         }
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chan", "op", "thr"],
+        "properties": {
+          "chan": { "enum": ["temp", "humidity", "press"] },
+          "op": { "enum": ["lt", "lte", "gt", "gte", "fall", "rise"] },
+          "thr": { "type": "number" },
+          "hys": { "type": "number", "minimum": 0 },
+          "win_s": { "type": "integer", "minimum": 1 }
+        },
+        "if": { "properties": { "op": { "enum": ["fall", "rise"] } } },
+        "then": {
+          "required": ["win_s"],
+          "properties": { "thr": { "exclusiveMinimum": 0 } }
+        },
+        "else": { "not": { "required": ["win_s"] } }
       }
     }
   }

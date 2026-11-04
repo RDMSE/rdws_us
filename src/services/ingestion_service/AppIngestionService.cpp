@@ -40,6 +40,7 @@
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"
 #include "../../shared/senml/conversion.h"
+#include "../../shared/senml/trigger_config.h"
 #include "../../shared/senml/senml.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
@@ -423,10 +424,28 @@ private:
       return std::nullopt;
     }
 
+    // Triggers are stored in sensors.unit; the firmware wants its fixed point
+    // (Plano_Firmware_WeatherNode.md §4). Without a conversion nothing goes: the station keeps
+    // its config and declares the old version again on the next cycle.
+    std::unordered_map<std::string, std::string> unitBySensor;
+    if (const auto owners = snapshotOwners()) {
+      for (const auto& [sensorId, info] : *owners) {
+        unitBySensor.emplace(sensorId, info.unit);
+      }
+    }
+    const auto delivered = rdws::senml::configForFirmware(json::docToString(*config), unitBySensor);
+    if (!delivered) {
+      logger::error("IngestionService: config triggers can't be converted, config not sent",
+                    "device_id=" + deviceId + " version=" + std::to_string(*version));
+      return std::nullopt;
+    }
+    rapidjson::Document deliveredDoc;
+    deliveredDoc.Parse(delivered->c_str());
+
     rapidjson::Document reply(rapidjson::kObjectType);
     auto& ralloc = reply.GetAllocator();
     reply.AddMember("version", *version, ralloc);
-    reply.AddMember("config", rapidjson::Value(*config, ralloc), ralloc);
+    reply.AddMember("config", rapidjson::Value(deliveredDoc, ralloc), ralloc);
     logger::info("IngestionService: sending config",
                  "device_id=" + deviceId + " from=" + std::to_string(declared) +
                      " to=" + std::to_string(*version));

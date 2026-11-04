@@ -3,6 +3,7 @@
 
 #include "DeviceConfigService.h"
 
+#include "../utils/json_helper.h"
 #include "../utils/json_merge.h"
 #include "../validator/schema_validator.h"
 #include "DeviceConfigSchemas.h"
@@ -10,6 +11,7 @@
 #include <rapidjson/document.h>
 
 #include <unordered_map>
+#include <unordered_set>
 
 namespace rdws::device_config {
 
@@ -36,6 +38,8 @@ std::string validateConfig(const DeviceConfig& device, const std::string& merged
 }
 
 // sensors.type each onboard channel feeds
+constexpr int kDefaultAggWindowS = 600;
+
 const std::unordered_map<std::string, std::string> kChannelSensorType = {
     {"temp", "temperature"},
     {"humidity", "humidity"},
@@ -43,6 +47,51 @@ const std::unordered_map<std::string, std::string> kChannelSensorType = {
 };
 
 } // namespace
+
+// "" when every trigger fits the rest of the config. The firmware rejects a config with a
+// rule outside these limits as a whole and keeps the previous one, with nothing telling the
+// operator, so they're refused here first (Plano_Firmware_WeatherNode.md §4, "Validação").
+// Runs on the merged config: changing agg_window_s can invalidate a win_s stored earlier.
+std::string DeviceConfigService::checkTriggers(const std::string& mergedJson) {
+  rapidjson::Document doc;
+  doc.Parse(mergedJson.c_str());
+  const auto triggers = doc.FindMember("triggers");
+  if (triggers == doc.MemberEnd() || !triggers->value.IsArray()) {
+    return {};
+  }
+
+  // Channels the station samples. Unit conversion also goes through onboard[] (chan →
+  // sensor_id → sensors.unit), so a rule on the build's default channels can't be delivered.
+  std::unordered_set<std::string> sampled;
+  if (const auto onboard = doc.FindMember("onboard");
+      onboard != doc.MemberEnd() && onboard->value.IsArray()) {
+    for (const auto& entry : onboard->value.GetArray()) {
+      if (json::getBool(entry, "enabled").value_or(true)) {
+        sampled.insert(entry["chan"].GetString());
+      }
+    }
+  }
+
+  // Without the key the window is the firmware's build default: 600 s in production, 60 s in
+  // bench.conf. A multiple of 600 fits both.
+  const int window = json::getInt(doc, "agg_window_s").value_or(kDefaultAggWindowS);
+
+  std::string errors;
+  rapidjson::SizeType i = 0;
+  for (const auto& rule : triggers->value.GetArray()) {
+    const std::string chan = rule["chan"].GetString();
+    const std::string where = "triggers[" + std::to_string(i++) + "]: ";
+    if (!sampled.contains(chan)) {
+      errors += (errors.empty() ? "" : "; ") + where + "chan " + chan +
+                " is not an enabled channel in onboard[]";
+    }
+    if (const auto winS = json::getInt(rule, "win_s"); winS && *winS % window != 0) {
+      errors += (errors.empty() ? "" : "; ") + where + "win_s " + std::to_string(*winS) +
+                " is not a multiple of agg_window_s (" + std::to_string(window) + ")";
+    }
+  }
+  return errors;
+}
 
 // "" when every onboard[].sensor_id is a sensor of this device of the channel's type.
 // Without it, a swapped id is accepted and the station's readings are then dropped by the
@@ -97,6 +146,9 @@ OperationResult DeviceConfigService::update(const std::string& deviceId,
   }
   if (existing->deviceType == "weather_station" && !existing->isSimulated) {
     if (const auto errors = checkSensors(deviceId, mergedJson); !errors.empty()) {
+      return OperationResult::error("Invalid weather_station config: " + errors, 400);
+    }
+    if (const auto errors = checkTriggers(mergedJson); !errors.empty()) {
       return OperationResult::error("Invalid weather_station config: " + errors, 400);
     }
   }

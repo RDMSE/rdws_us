@@ -68,6 +68,7 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | Prio | Item | Observação |
 |---|---|---|
 | P2 | Fase 13: IDOR / `public_id` nas tabelas expostas | Muda o contrato da API |
+| P3 | Posição (`reportLocation`) fora do thread CoAP | Hoje é um `invoke` síncrono de até 5 s por pack com `lat`/`lon`, no único thread do ingestion: a mesma classe de risco da regressão do RDWS-157. Mover para mensagem na fila com o writer gravando em `devices.location`, como o `config_span`. Só importa quando uma estação mandar posição |
 | P2 | Timeout de PONG no `ServiceClient` (conexão meio-aberta) | A reconexão do RDWS-92 só age quando o `recv()` falha; se o gateway some sem FIN, o cliente fica preso. Mais provável quando os serviços saírem do mesmo host |
 | P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno |
 | P3 | Wrappers semânticos no `ResponseHelper` | Tirar códigos HTTP soltos dos handlers |
@@ -78,6 +79,7 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | P3 | Rotas (`EventRouter`) e `GatewayConfig` no banco | "Exceção já decidida" da Fase 14, sem esperar a multi-instância. Rotas do repo entram por migration Flyway (remover uma rota = migration com `DELETE`); coluna `source` (`repo`/`runtime`) separa as criadas via `POST /routes`. Substitui o `sync_gateway_routes.py` e a semeadura do `docker-entrypoint.sh`. Até lá, o QA mantém `POST`/`PUT`/`DELETE /devices/{id}/config` (removidas no RDWS-16) — apagar à mão com token admin |
 | P3 | Fase 14: multi-instância (discovery compartilhado, métricas agregadas) | Por último, sem data. A parte de config no banco está no item acima |
 | P3 | Auditoria mais ampla (tabela de audit log) | Avaliação |
+| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL` |
 
 ## Infra e deploy
 

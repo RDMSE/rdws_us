@@ -3,8 +3,13 @@
 
 #include "senml/conversion.h"
 #include "senml/senml.h"
+#include "senml/trigger_config.h"
 
 #include <gtest/gtest.h>
+#include <rapidjson/document.h>
+
+#include <string>
+#include <unordered_map>
 
 using rdws::senml::parse;
 
@@ -176,4 +181,85 @@ TEST(SenmlConversion, FromIso8601) {
   EXPECT_FALSE(fromIso8601("2026-10-03 13:45:00"));
   EXPECT_FALSE(fromIso8601("2026-10-03T13:45:00+02:00"));
   EXPECT_FALSE(fromIso8601("garbage"));
+}
+
+// ─── Edge trigger rules for the firmware (Plano_Firmware_WeatherNode.md §4) ───
+
+namespace {
+
+const std::unordered_map<std::string, std::string> kUnits = {
+    {"31", "°C"}, {"32", "%"}, {"33", "kPa"}};
+
+constexpr char kOnboard[] =
+    R"("onboard":[{"chan":"temp","sensor_id":31},{"chan":"humidity","sensor_id":32},)"
+    R"({"chan":"press","sensor_id":33}])";
+
+std::string withTriggers(const std::string& triggers) {
+  return std::string("{") + kOnboard + R"(,"triggers":)" + triggers + "}";
+}
+
+} // namespace
+
+TEST(FirmwareFixedPoint, PlanExamples) {
+  using rdws::senml::toFirmwareFixedPoint;
+  EXPECT_EQ(toFirmwareFixedPoint(5.0, "temp", "°C"), 500);
+  EXPECT_EQ(toFirmwareFixedPoint(2.0, "temp", "°C"), 200);
+  EXPECT_EQ(toFirmwareFixedPoint(-2.5, "temp", "°C"), -250);
+  EXPECT_EQ(toFirmwareFixedPoint(85.5, "humidity", "%"), 8550);
+  EXPECT_EQ(toFirmwareFixedPoint(0.36, "press", "kPa"), 360); // 3.6 hPa
+}
+
+TEST(FirmwareFixedPoint, UnconvertibleUnitOrChannel) {
+  using rdws::senml::toFirmwareFixedPoint;
+  EXPECT_EQ(toFirmwareFixedPoint(5.0, "temp", "kPa"), std::nullopt);
+  EXPECT_EQ(toFirmwareFixedPoint(5.0, "wind", "°C"), std::nullopt);
+}
+
+TEST(ConfigForFirmware, WithoutTriggersComesBackAsIs) {
+  const std::string config = R"({"agg_window_s":600})";
+  EXPECT_EQ(rdws::senml::configForFirmware(config, kUnits), config);
+}
+
+TEST(ConfigForFirmware, ConvertsThrAndHysKeepingTheRest) {
+  const auto out = rdws::senml::configForFirmware(
+      withTriggers(R"([{"chan":"temp","op":"lt","thr":2.0,"hys":1.0},)"
+                   R"({"chan":"press","op":"fall","thr":0.36,"win_s":10800,"hys":0.1}])"),
+      kUnits);
+  ASSERT_TRUE(out.has_value());
+  rapidjson::Document doc;
+  doc.Parse(out->c_str());
+  ASSERT_TRUE(doc.IsObject());
+  EXPECT_TRUE(doc.HasMember("onboard"));
+  const auto& rules = doc["triggers"];
+  EXPECT_EQ(rules[0]["thr"].GetInt64(), 200);
+  EXPECT_EQ(rules[0]["hys"].GetInt64(), 100);
+  EXPECT_STREQ(rules[0]["op"].GetString(), "lt");
+  EXPECT_EQ(rules[1]["thr"].GetInt64(), 360);
+  EXPECT_EQ(rules[1]["hys"].GetInt64(), 100);
+  EXPECT_EQ(rules[1]["win_s"].GetInt64(), 10800);
+}
+
+TEST(ConfigForFirmware, AbsentHysStaysAbsent) {
+  const auto out = rdws::senml::configForFirmware(
+      withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), kUnits);
+  ASSERT_TRUE(out.has_value());
+  rapidjson::Document doc;
+  doc.Parse(out->c_str());
+  EXPECT_FALSE(doc["triggers"][0].HasMember("hys"));
+  EXPECT_EQ(doc["triggers"][0]["thr"].GetInt64(), 500);
+}
+
+// A raw value must never reach the station: 5.0 read as fixed point would be 0.05 °C.
+TEST(ConfigForFirmware, UnknownSensorKeepsTheConfigUndelivered) {
+  const std::unordered_map<std::string, std::string> noTemp = {{"33", "kPa"}};
+  EXPECT_EQ(rdws::senml::configForFirmware(
+                withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), noTemp),
+            std::nullopt);
+}
+
+TEST(ConfigForFirmware, UnconvertibleUnitKeepsTheConfigUndelivered) {
+  const std::unordered_map<std::string, std::string> wrong = {{"31", "kPa"}};
+  EXPECT_EQ(rdws::senml::configForFirmware(
+                withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), wrong),
+            std::nullopt);
 }

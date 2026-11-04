@@ -23,6 +23,7 @@ private:
   IDeviceConfigRepository& repo_;
   rdws::sensor::ISensorRepository& sensors_;
 
+  [[nodiscard]] static std::string checkTriggers(const std::string& mergedJson);
   [[nodiscard]] std::string checkSensors(const std::string& deviceId,
                                          const std::string& mergedJson);
 };

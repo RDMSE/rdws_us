@@ -130,6 +130,8 @@ target_link_libraries(rdws_shared_coap PUBLIC
 add_library(rdws_shared_senml
     senml/conversion.cpp
     senml/conversion.h
+    senml/trigger_config.cpp
+    senml/trigger_config.h
     senml/senml.cpp
     senml/senml.h
 )
@@ -142,6 +144,7 @@ target_include_directories(rdws_shared_senml PUBLIC
 target_link_libraries(rdws_shared_senml PUBLIC
     rapidjson_wrapper
     expected_wrapper
+    rdws_shared_json_utils
 )
 
 add_library(rdws_shared_amqp
