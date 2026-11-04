@@ -94,7 +94,7 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
 - **Metadados de pacote**: o SenML não tem campos de cabeçalho. `seq` viaja como registro
   (`{"n":"seq","v":...}`). O `trigger` deixou de ser registro de pacote e virou flag do
   registro que disparou (DP3).
-  - **`rec_cfg`** (decidido em 2026-10-07; backend e simulador no RDWS-169, firmware pendente): `{"n":"rec_cfg","v":7}`,
+  - ✅ **`rec_cfg`** (decidido em 2026-10-07; implementado em 2026-11-04, RDWS-169 e firmware): `{"n":"rec_cfg","v":7}`,
     em todo pack que leva registros de sensor. É o `config_version` do header do arquivo
     de onde os registros saíram (cada POST sai de um arquivo só). Diferente do
     diagnóstico `cfg_version`, que diz que config o device roda **agora** (D11). O
