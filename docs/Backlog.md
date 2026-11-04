@@ -20,7 +20,6 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 | P3    | Contar duplicatas descartadas pelo `ON CONFLICT` no `ReadingWriterService` | Somem sem log nem métrica; teriam mostrado a regressão do RDWS-157 no mesmo dia |
 | P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |
 | P3    | Uma conexão AMQP com os dois consumers no `ReadingWriterService` | Tira a espera de até 500 ms da telemetria com as filas vazias |
-| P2    | `rec_cfg`: spans em `device_config_spans` (V16) pelo `IngestionService` e `ReadingWriterService` | `Plano_Indices_Derivados.md` D1.1, `Plano_Telemetria.md` D2. Pré-requisito da `weather_samples` |
 | P2    | `triggers[]` no JSON Schema do `weather_station`, com conversão de `thr`/`hys` para as unidades do firmware | Contrato no §4 do plano de firmware (nível e tendência `fall`/`rise`). Junto com o passo 8 do firmware |
 | P3    | `extra_uplinks_utc` no schema + políticas de agendamento no `DeviceConfigService` (`sunset_frost`) | §3 do plano de firmware. Precisa de agendador diário e das datas do período de geada |
 | P3    | Invalidação de credencial em tempo real | Hoje o cache de PSK é por poll de 60 s |
@@ -51,7 +50,7 @@ implementação do plano.
 
 | Prio | Item | Observação |
 |---|---|---|
-| P2 | Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source` | Passo 1. O D1.1 (`rec_cfg`) está em "Telemetria e ingestão" |
+| P2 | Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source` | Passo 1. O D1.1 (`rec_cfg`) já está feito |
 | P2 | Funções SQL puras (`es`, `dewpoint`, `vpd`, `wet_bulb`, `slp`, `ra`, `et0_hs`, `et0_pm`) com testes de referência | Passo 2. FAO-56 e Stull 2011 |
 | P2 | View `weather_samples` (com `window_s`) e views instantâneas (Td, DPV, Delta T, P0, tendência 3 h) | Passo 3 |
 | P2 | Painéis instantâneos no Grafana | Passo 4 |

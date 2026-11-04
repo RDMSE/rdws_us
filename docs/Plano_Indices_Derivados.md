@@ -115,8 +115,9 @@ device_config_spans              -- quando cada versão valeu no device
   passo 4e do firmware depois de um boot).
 
 Entregas, separadas: (1) ✅ `device_config_history` (V15) e `device_config_spans` (V16);
-(2) ✅ spans no `IngestionService` e no `ReadingWriterService` (RDWS-169); (3) `rec_cfg` no
-encoder do firmware. Só são necessárias
+(2) ✅ spans no `IngestionService` e no `ReadingWriterService` (RDWS-169); (3) ✅ `rec_cfg` no
+encoder do firmware. Validado na estação 12 em 2026-11-04: uma troca de `agg_window_s` gerou
+dois spans sem sobreposição (v22 até 14:46 UTC, v23 a partir de 14:47 UTC). Só são necessárias
 antes da view `weather_samples` (passo 3 da ordem de implementação).
 
 ## D2 — Fórmulas instantâneas
@@ -356,7 +357,7 @@ Overview ou como um dashboard próprio por fazenda.
 ## Ordem de implementação
 
 1. ⬜ Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source`.
-   - ⬜ 1a. D1.1: `device_config_history` (V15) + `device_config_spans` (V16); spans via
+   - ✅ 1a. D1.1: `device_config_history` (V15) + `device_config_spans` (V16); spans via
      `IngestionService` e `ReadingWriterService`; `rec_cfg` no encoder do firmware.
 2. ⬜ Funções SQL puras (`es`, `dewpoint`, `vpd`, `wet_bulb`, `slp`, `ra`, `et0_hs`,
    `et0_pm`) com testes contra valores de referência (exemplos numéricos da FAO-56; Stull
