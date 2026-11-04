@@ -446,13 +446,19 @@ private:
       return;
     }
 
+    // rec_cfg: the firmware sends the version each file was written under; the simulator
+    // keeps no such thing per reading, so it's the version at send time.
     std::optional<std::pair<double, double>> position;
+    std::optional<int> configVersion;
     try {
       std::scoped_lock dbLock(dbMutex_);
       const auto config = deviceConfigRepo_.findByDeviceId(deviceId_);
       position = readPosition(config ? config->config : std::string{});
+      if (config) {
+        configVersion = config->version;
+      }
     } catch (const std::exception& e) {
-      logger::warn("SensorSimulatorService: reading position from config failed, sending none",
+      logger::warn("SensorSimulatorService: reading config failed, sending no position/rec_cfg",
                    "device_id=" + deviceId_ + " error=" + e.what());
     }
 
@@ -462,7 +468,7 @@ private:
     while (sent < readingsCount) {
       const size_t end = std::min(sent + kMaxReadingsPerPack, readingsCount);
       const auto payload =
-          buildPack(entries, sent, end, /*withDiagnostics=*/packs == 0, position);
+          buildPack(entries, sent, end, /*withDiagnostics=*/packs == 0, position, configVersion);
       const std::vector<uint8_t> payloadBytes(payload.begin(), payload.end());
 
       rdws::coap::CoapDtlsClient coapClient(ingestionHost_, ingestionPort_);
@@ -505,7 +511,8 @@ private:
   // and the position (lat/lon, RFC 8428 units) go only in the first pack of a cycle.
   template <typename Entries>
   std::string buildPack(const Entries& entries, size_t begin, size_t end, bool withDiagnostics,
-                        const std::optional<std::pair<double, double>>& position) {
+                        const std::optional<std::pair<double, double>>& position,
+                        std::optional<int> configVersion) {
     const double bt = entries[begin].time; // entries are sorted: the oldest in the pack
     const auto now = static_cast<double>(std::time(nullptr));
 
@@ -532,6 +539,9 @@ private:
           .set("n", "seq")
           .set("v", static_cast<int64_t>(++seq_));
       payload.PushBack(base.take(), alloc);
+    }
+    if (configVersion) {
+      record("rec_cfg", *configVersion, bt);
     }
     for (size_t i = begin; i < end; ++i) {
       record(sensors_[entries[i].sensorIndex].sensorId, entries[i].value.value, entries[i].time,

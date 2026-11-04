@@ -106,7 +106,7 @@ device_config_spans              -- quando cada versão valeu no device
   o upsert com `LEAST`/`GREATEST`. Idempotente: reenvio ou ordem trocada não mudam nada.
 - `weather_samples` ganha `cfg_version` e `window_s`: o span que contém o timestamp dá a
   versão, e o histórico dá o `agg_window_s` dela. Amostra fora de qualquer span (dados
-  anteriores ao `rec_cfg` — inclusive os que chegaram pelo antigo JSON legado —, simulador) usa a config atual, e na falta dela o
+  anteriores ao `rec_cfg`, inclusive os que chegaram pelo antigo JSON legado) usa a config atual, e na falta dela o
   default de 600 s.
 - Todas as durações deste plano usam `window_s` da amostra, não 600 s fixos: `coverage`
   é a soma de `window_s` sobre a duração do dia, horas = soma de `window_s` das amostras
@@ -115,8 +115,8 @@ device_config_spans              -- quando cada versão valeu no device
   passo 4e do firmware depois de um boot).
 
 Entregas, separadas: (1) ✅ `device_config_history` (V15) e `device_config_spans` (V16);
-(2) spans no `IngestionService` e no `ReadingWriterService`; (3) `rec_cfg` no encoder do
-firmware. Só são necessárias
+(2) ✅ spans no `IngestionService` e no `ReadingWriterService` (RDWS-169); (3) `rec_cfg` no
+encoder do firmware. Só são necessárias
 antes da view `weather_samples` (passo 3 da ordem de implementação).
 
 ## D2 — Fórmulas instantâneas
