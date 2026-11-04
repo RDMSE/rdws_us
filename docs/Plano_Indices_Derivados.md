@@ -82,11 +82,11 @@ O firmware já sabe a versão exata de cada registro: o header de cada arquivo g
 (passo 4e do firmware). Desenho:
 
 ```
-device_configuration_history     -- conteúdo de cada versão
+device_config_history            -- conteúdo de cada versão (V15, criada no RDWS-153)
   device_id  BIGINT (FK → devices.id)
   version    INTEGER
   config     JSONB
-  saved_at   TIMESTAMPTZ
+  changed_at TIMESTAMPTZ
   PRIMARY KEY (device_id, version)
 
 device_config_spans              -- quando cada versão valeu no device
@@ -97,11 +97,13 @@ device_config_spans              -- quando cada versão valeu no device
   PRIMARY KEY (device_id, version)
 ```
 
-- `device_configuration_history`: trigger em `device_configurations` grava uma linha a cada
+- `device_config_history`: trigger em `device_configurations` grava uma linha a cada
   versão nova (a versão já é controlada pelo banco, V12). Backfill da versão atual na
   migration.
-- `device_config_spans`: o `IngestionService` faz upsert a cada pack com `rec_cfg`
-  (`Plano_Telemetria.md` D2), com `LEAST`/`GREATEST` nos timestamps de sensor do pack.
+- `device_config_spans` (V16): a cada pack com `rec_cfg` (`Plano_Telemetria.md` D2), o
+  `IngestionService`, que não acessa o banco, publica o menor e o maior timestamp de sensor
+  do pack na fila `device_telemetry` (`type: "config_span"`), e o `ReadingWriterService` faz
+  o upsert com `LEAST`/`GREATEST`. Idempotente: reenvio ou ordem trocada não mudam nada.
 - `weather_samples` ganha `cfg_version` e `window_s`: o span que contém o timestamp dá a
   versão, e o histórico dá o `agg_window_s` dela. Amostra fora de qualquer span (dados
   anteriores ao `rec_cfg` — inclusive os que chegaram pelo antigo JSON legado —, simulador) usa a config atual, e na falta dela o
@@ -112,8 +114,9 @@ device_config_spans              -- quando cada versão valeu no device
 - De quebra, o histórico dá o mapa canal → `sensor_id` de qualquer versão (limitação do
   passo 4e do firmware depois de um boot).
 
-Entregas, separadas: (1) migration das duas tabelas, com trigger e backfill; (2) upsert
-de spans no `IngestionService`; (3) `rec_cfg` no encoder do firmware. Só são necessárias
+Entregas, separadas: (1) ✅ `device_config_history` (V15) e `device_config_spans` (V16);
+(2) spans no `IngestionService` e no `ReadingWriterService`; (3) `rec_cfg` no encoder do
+firmware. Só são necessárias
 antes da view `weather_samples` (passo 3 da ordem de implementação).
 
 ## D2 — Fórmulas instantâneas
@@ -353,8 +356,8 @@ Overview ou como um dashboard próprio por fazenda.
 ## Ordem de implementação
 
 1. ⬜ Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source`.
-   - ⬜ 1a. D1.1: `device_configuration_history` + `device_config_spans`; upsert de spans
-     no `IngestionService`; `rec_cfg` no encoder do firmware.
+   - ⬜ 1a. D1.1: `device_config_history` (V15) + `device_config_spans` (V16); spans via
+     `IngestionService` e `ReadingWriterService`; `rec_cfg` no encoder do firmware.
 2. ⬜ Funções SQL puras (`es`, `dewpoint`, `vpd`, `wet_bulb`, `slp`, `ra`, `et0_hs`,
    `et0_pm`) com testes contra valores de referência (exemplos numéricos da FAO-56; Stull
    2011 para bulbo úmido ao nível do mar).

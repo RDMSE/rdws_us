@@ -98,8 +98,9 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
     em todo pack que leva registros de sensor. É o `config_version` do header do arquivo
     de onde os registros saíram (cada POST sai de um arquivo só). Diferente do
     diagnóstico `cfg_version`, que diz que config o device roda **agora** (D11). O
-    `IngestionService` não grava `rec_cfg` em `device_telemetry`: faz upsert em
-    `device_config_spans` com o menor e o maior timestamp de sensor do pack. Serve para
+    `IngestionService` não grava `rec_cfg` em `device_telemetry`: publica o menor e o maior
+    timestamp de sensor do pack, e o `ReadingWriterService` faz upsert em
+    `device_config_spans`. Serve para
     saber com que config cada leitura foi produzida (janela de agregação, mapa
     canal → `sensor_id`); contrato completo em `Plano_Indices_Derivados.md`, D1.1. Pack
     sem `rec_cfg` (firmware antigo, simulador) é aceito como hoje.
