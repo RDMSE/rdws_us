@@ -15,6 +15,8 @@
 // Also consumes the "device_telemetry" queue (device diagnostics from SenML packs,
 // Plano_Telemetria.md D5) and upserts into device_telemetry (V11), same ack policy. Every
 // accepted message also refreshes devices.last_seen (V14), at most once a minute per device.
+// The same queue carries {"type": "config_span", ...} messages, one per pack with `rec_cfg`,
+// upserted into device_config_spans (V16, Plano_Indices_Derivados.md D1.1).
 //
 // Housekeeping: device_telemetry rows older than TELEMETRY_RETENTION_DAYS (default 90,
 // Plano_Telemetria.md Fase 3 R4) are deleted at startup and then once a day.
@@ -401,6 +403,10 @@ private:
       return deadLetter(deadTelemetry_, body, "malformed", "", "not a JSON object");
     }
 
+    if (json::getString(doc, "type") == "config_span") {
+      return handleConfigSpan(doc, body);
+    }
+
     const auto deviceId = json::getString(doc, "device_id");
     const auto timestamp = json::getString(doc, "timestamp");
     const auto* data = json::getObject(doc, "data");
@@ -416,6 +422,26 @@ private:
     }
     writeSucceeded();
     touchLastSeen(*deviceId);
+    return Outcome::Ack;
+  }
+
+  // {"type": "config_span", "device_id": "12", "version": 22, "first_ts": "...Z", "last_ts": "...Z"}
+  Outcome handleConfigSpan(const rapidjson::Document& doc, const std::string& body) {
+    const auto deviceId = json::getString(doc, "device_id");
+    const auto version = json::getInt(doc, "version");
+    const auto firstTs = json::getString(doc, "first_ts");
+    const auto lastTs = json::getString(doc, "last_ts");
+    if (!deviceId || !version || !firstTs || !lastTs) {
+      return deadLetter(deadTelemetry_, body, "missing_field", "",
+                        "device_id, version, first_ts and last_ts are required");
+    }
+
+    try {
+      (void)telemetryRepo_->upsertConfigSpan(*deviceId, *version, *firstTs, *lastTs);
+    } catch (const DatabaseError& e) {
+      return onWriteFailure("config_span_upsert", deadTelemetry_, body, e);
+    }
+    writeSucceeded();
     return Outcome::Ack;
   }
 };

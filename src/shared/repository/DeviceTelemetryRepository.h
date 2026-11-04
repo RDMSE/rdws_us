@@ -19,6 +19,12 @@ public:
   [[nodiscard]] virtual bool upsert(const std::string& deviceId, const std::string& timestamp,
                                     const std::string& dataJson) = 0;
 
+  // Widens the span of a config version on a device (V16, Plano_Indices_Derivados.md D1.1):
+  // LEAST/GREATEST make a redelivered or out-of-order pack a no-op.
+  [[nodiscard]] virtual bool upsertConfigSpan(const std::string& deviceId, int version,
+                                              const std::string& firstTs,
+                                              const std::string& lastTs) = 0;
+
   // Retention (Plano_Telemetria.md, Fase 3 R4): drops rows older than `days`.
   [[nodiscard]] virtual bool deleteOlderThan(int days) = 0;
 };
@@ -29,6 +35,9 @@ public:
 
   [[nodiscard]] bool upsert(const std::string& deviceId, const std::string& timestamp,
                             const std::string& dataJson) override;
+  [[nodiscard]] bool upsertConfigSpan(const std::string& deviceId, int version,
+                                      const std::string& firstTs,
+                                      const std::string& lastTs) override;
   [[nodiscard]] bool deleteOlderThan(int days) override;
 
 private:

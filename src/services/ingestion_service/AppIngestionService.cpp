@@ -20,6 +20,12 @@
 // outro Content-Format, ou nenhum, recebe 4.15 — o JSON legado {device_id, readings} foi
 // desativado em 2026-10-30 (RDWS-165); firmware e simulador já mandavam só SenML.
 //
+// `rec_cfg` (Plano_Telemetria.md D2): versão da config com que os registros do pack foram
+// gravados. Não vai para device_telemetry: vira uma mensagem `config_span` na mesma fila, com
+// o menor e o maior timestamp de sensor do pack, e o ReadingWriterService grava em
+// device_config_spans (este serviço não acessa o banco). Se ela não chegar ao RabbitMQ, 5.03:
+// depois do 2.04 o device apaga o arquivo e o span não teria outra chance.
+//
 // Posição: registros SenML `lat`/`lon` (unidades RFC 8428 "lat"/"lon", graus) atualizam
 // devices.location pelo device.update_location — o par mais recente do pack. Substituem o
 // campo `location` do formato legado; nenhum device manda posição ainda (virá do firmware).
@@ -520,6 +526,31 @@ private:
     return false;
   }
 
+  // {"type": "config_span", "device_id", "version", "first_ts", "last_ts"}, on the telemetry
+  // queue. Unlike diagnostics a failure counts: see the header.
+  bool publishConfigSpan(const std::string& deviceId, long long version, double firstTime,
+                         double lastTime) {
+    rapidjson::Document msg(rapidjson::kObjectType);
+    auto& alloc = msg.GetAllocator();
+    msg.AddMember("type", "config_span", alloc);
+    msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    msg.AddMember("version", static_cast<int64_t>(version), alloc);
+    msg.AddMember("first_ts", rapidjson::Value(rdws::senml::toIso8601(firstTime).c_str(), alloc),
+                  alloc);
+    msg.AddMember("last_ts", rapidjson::Value(rdws::senml::toIso8601(lastTime).c_str(), alloc),
+                  alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    msg.Accept(writer);
+    if (telemetryProducer_.publish(buffer.GetString())) {
+      return true;
+    }
+    logger::error("IngestionService: failed to publish config span to RabbitMQ",
+                  "device_id=" + deviceId + " error=" + telemetryProducer_.lastError());
+    return false;
+  }
+
   // One device_telemetry row per instant: {"device_id", "timestamp", "data": {name: value}}.
   // A failed publish only logs — diagnostics never block the readings' 2.04.
   void publishTelemetry(const std::string& deviceId, double time,
@@ -593,6 +624,9 @@ private:
 
     std::vector<std::string> messages;
     int sensorRecords = 0;
+    std::optional<long long> recCfg;
+    std::optional<double> firstTime; // of the readings accepted from this pack
+    std::optional<double> lastTime;
     std::string seq = "-";
     std::string diagnostics;
     std::map<double, std::vector<const rdws::senml::Record*>> telemetry;
@@ -605,6 +639,12 @@ private:
       });
 
       if (!numeric) {
+        if (local == "rec_cfg") {
+          if (rec.value) {
+            recCfg = static_cast<long long>(*rec.value);
+          }
+          continue; // packet metadata, not a diagnostic: never reaches device_telemetry
+        }
         if (local == "seq") {
           seq = rec.value ? std::to_string(static_cast<long long>(*rec.value)) : "?";
         } else {
@@ -648,10 +688,15 @@ private:
 
       messages.push_back(readingMessage(authDeviceId, local, rdws::senml::toIso8601(rec.time),
                                         *value, sensorUnit, rec.flags));
+      firstTime = std::min(firstTime.value_or(rec.time), rec.time);
+      lastTime = std::max(lastTime.value_or(rec.time), rec.time);
     }
 
-    // RabbitMQ failure → 5.03 so the device resends the whole pack, telemetry included.
-    const bool stored = publishReadings(authDeviceId, messages);
+    // RabbitMQ failure → 5.03 so the device resends the whole pack, telemetry included. An
+    // empty pack (diagnostics only) stored nothing, so a span there would have no timestamps.
+    const bool stored =
+        publishReadings(authDeviceId, messages) &&
+        (!recCfg || !firstTime || publishConfigSpan(authDeviceId, *recCfg, *firstTime, *lastTime));
     const int published = stored ? static_cast<int>(messages.size()) : 0;
     const int unpublished = stored ? 0 : static_cast<int>(messages.size());
     if (stored) {
