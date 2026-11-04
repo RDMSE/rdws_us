@@ -221,3 +221,103 @@ TEST(DeviceConfigService, WeatherStation_DisabledChannelStillChecked) {
                                  .updatedBy = "t"})
                    .isSuccess());
 }
+
+namespace {
+
+// A station with the three channels, ready to take triggers through a merge patch
+constexpr char kStation[] =
+    R"({"agg_window_s":600,"onboard":[{"chan":"temp","sensor_id":31},)"
+    R"({"chan":"humidity","sensor_id":32},{"chan":"press","sensor_id":33,"enabled":false}]})";
+
+bool acceptsTriggers(const std::string& triggers, std::string* error = nullptr,
+                     const std::string& base = kStation) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false, base);
+  FakeSensorRepo sensors;
+  DeviceConfigService svc(repo, sensors);
+  const auto result =
+      svc.update("12", {.configJson = R"({"triggers":)" + triggers + "}", .updatedBy = "t"});
+  if (error != nullptr) {
+    *error = result.getErrorMessage();
+  }
+  return result.isSuccess();
+}
+
+} // namespace
+
+TEST(DeviceConfigService, Triggers_LevelAndTrendAccepted) {
+  EXPECT_TRUE(acceptsTriggers(R"([{"chan":"temp","op":"lt","thr":5.0}])"));
+  EXPECT_TRUE(acceptsTriggers(R"([{"chan":"temp","op":"lte","thr":-2.5,"hys":1}])"));
+  EXPECT_TRUE(acceptsTriggers(R"([{"chan":"humidity","op":"rise","thr":10,"win_s":3600}])"));
+}
+
+TEST(DeviceConfigService, Triggers_ShapeRejected) {
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"eq","thr":5}])"));          // unknown op
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"lt"}])"));                  // no thr
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"lt","thr":5,"hys":-1}])")); // hys < 0
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"wind","op":"lt","thr":5}])"));          // unknown chan
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"lt","thr":5,"x":1}])"));    // unknown key
+}
+
+TEST(DeviceConfigService, Triggers_WinSOnlyOnTrendOperators) {
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"fall","thr":2}])"));
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"lt","thr":5,"win_s":600}])"));
+}
+
+TEST(DeviceConfigService, Triggers_TrendThresholdMustBePositive) {
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"fall","thr":0,"win_s":600}])"));
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"rise","thr":-1,"win_s":600}])"));
+}
+
+TEST(DeviceConfigService, Triggers_AtMostEight) {
+  std::string rules = "[";
+  for (int i = 0; i < 9; ++i) {
+    rules += std::string(i > 0 ? "," : "") + R"({"chan":"temp","op":"lt","thr":5})";
+  }
+  EXPECT_FALSE(acceptsTriggers(rules + "]"));
+}
+
+TEST(DeviceConfigService, Triggers_ChannelMustBeSampled) {
+  std::string error;
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"press","op":"lt","thr":90}])", &error)); // disabled
+  EXPECT_NE(error.find("triggers[0]"), std::string::npos);
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"lt","thr":5}])", nullptr, "{}"));
+}
+
+TEST(DeviceConfigService, Triggers_WinSMustBeMultipleOfTheWindow) {
+  EXPECT_TRUE(acceptsTriggers(R"([{"chan":"temp","op":"fall","thr":2,"win_s":10800}])"));
+  std::string error;
+  EXPECT_FALSE(acceptsTriggers(R"([{"chan":"temp","op":"fall","thr":2,"win_s":900}])", &error));
+  EXPECT_NE(error.find("multiple of agg_window_s"), std::string::npos);
+}
+
+TEST(DeviceConfigService, Triggers_WindowDefaultsTo600WithoutTheKey) {
+  constexpr char kNoWindow[] = R"({"onboard":[{"chan":"temp","sensor_id":31}]})";
+  EXPECT_TRUE(
+      acceptsTriggers(R"([{"chan":"temp","op":"fall","thr":2,"win_s":1200}])", nullptr, kNoWindow));
+  EXPECT_FALSE(
+      acceptsTriggers(R"([{"chan":"temp","op":"fall","thr":2,"win_s":300}])", nullptr, kNoWindow));
+}
+
+TEST(DeviceConfigService, Triggers_ChangingTheWindowRevalidatesStoredRules) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false,
+                       R"({"agg_window_s":600,"onboard":[{"chan":"temp","sensor_id":31}],)"
+                       R"("triggers":[{"chan":"temp","op":"fall","thr":2,"win_s":1200}]})");
+  FakeSensorRepo sensors;
+  DeviceConfigService svc(repo, sensors);
+  EXPECT_FALSE(
+      svc.update("12", {.configJson = R"({"agg_window_s":900})", .updatedBy = "t"}).isSuccess());
+  EXPECT_FALSE(repo.written.has_value());
+  EXPECT_TRUE(
+      svc.update("12", {.configJson = R"({"agg_window_s":300})", .updatedBy = "t"}).isSuccess());
+}
+
+TEST(DeviceConfigService, SimulatedStation_TriggersNotValidated) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", true);
+  FakeSensorRepo sensors;
+  DeviceConfigService svc(repo, sensors);
+  EXPECT_TRUE(
+      svc.update("12", {.configJson = R"({"triggers":"anything"})", .updatedBy = "t"}).isSuccess());
+}
