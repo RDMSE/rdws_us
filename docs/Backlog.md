@@ -20,7 +20,6 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 | P3    | Contar duplicatas descartadas pelo `ON CONFLICT` no `ReadingWriterService` | Somem sem log nem métrica; teriam mostrado a regressão do RDWS-157 no mesmo dia |
 | P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |
 | P3    | Uma conexão AMQP com os dois consumers no `ReadingWriterService` | Tira a espera de até 500 ms da telemetria com as filas vazias |
-| P2    | `triggers[]` no JSON Schema do `weather_station`, com conversão de `thr`/`hys` para as unidades do firmware | Contrato no §4 do plano de firmware (nível e tendência `fall`/`rise`). Junto com o passo 8 do firmware |
 | P3    | `extra_uplinks_utc` no schema + políticas de agendamento no `DeviceConfigService` (`sunset_frost`) | §3 do plano de firmware. Precisa de agendador diário e das datas do período de geada |
 | P3    | Invalidação de credencial em tempo real | Hoje o cache de PSK é por poll de 60 s |
 | P3    | Partições de `sensor_readings`/`device_telemetry` | Adiado (R3): revisitar com ~50 mi de linhas ou dashboard lento |
