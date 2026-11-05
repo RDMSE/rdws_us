@@ -118,6 +118,9 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
   | `fs_reformat`   | `vb` | evento            | FS reformatado (dado perdido), D9         |
   | `backlog_count` | `v`  | registros         | Pendentes, só com envio parcial (D9)      |
   | `cfg_version`   | `v`  | versão            | Config que o device roda (D11)            |
+  | `fw_version`    | `vs` | texto             | `git describe` do build                   |
+  | `fw_build`      | `vs` | texto             | Início do GNU build ID, acha o `.elf`     |
+  | `crash_*`       | —    | evento            | Registro de falha, em pack próprio (§10 do plano do firmware): `crash_boot`, `crash_build`, `crash_reason`, `crash_code`, `crash_pc`, `crash_lr`, `crash_uptime_s`, `crash_lost`, `crash_msg` |
   | `lat` / `lon`   | `v`  | graus (WGS84)     | Posição; o par mais recente do pack vira `devices.location` (RDWS-165) |
 
   - Diagnóstico vai **sem `u`**: a unidade é fixa por nome (RFC 8428 permite registro

@@ -16,6 +16,7 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 | Prio  | Item | Observação |
 |-------|------|---|
 | P2    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2). Adiado em 2026-10-23: fazer quando a primeira estação sair da bancada (escolher Telegram, ntfy ou e-mail) |
+| P2    | Falhas de firmware no Grafana (painel com causa, PC e LR; alerta de muitos reinícios) | Depende do registro de falha do firmware (`crash_*`, §10 do plano do firmware). A estação agora reinicia sozinha, então o "Silent station" não pega falha isolada. Contar eventos por `crash_boot`, não por linha |
 | P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
 | P3    | Contar duplicatas descartadas pelo `ON CONFLICT` no `ReadingWriterService` | Somem sem log nem métrica; teriam mostrado a regressão do RDWS-157 no mesmo dia |
 | P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |
