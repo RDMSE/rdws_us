@@ -200,7 +200,8 @@ fonte.
 
 Uptime é um contador que zera e cresce linearmente, e armazená-lo a cada envio é
 majoritariamente ruído. Enviar `boot_count` e `reset_reason`, que mostram quando e por
-que o device reiniciou.
+que o device reiniciou. `crash_uptime_s` não contraria isso: é um valor de evento, enviado uma
+vez por falha.
 
 ### D8 — Roteamento no `IngestionService`
 
@@ -261,6 +262,9 @@ Uma estação sem conectividade não consegue reportar que está sem conectivida
 - **Atraso de ingestão**: calculado a partir de `created_at - timestamp` das leituras
   recebidas. Picos indicam que a estação ficou um período sem conseguir enviar e
   descarregou o backlog.
+- **Reinícios seguidos** (a fazer, depende dos `crash_*`): desde 2026-11-05 a estação reinicia
+  sozinha depois de uma falha, então o alerta de estação silenciosa não pega falha isolada nem
+  repetida. Só o degrau de "Boot count" mostra isso. Item no `Backlog.md`.
 - Esses alertas são **de frota** (operação/manutenção), não do produtor. Ficam separados
   do `AlertingService`, que avalia `sensor_readings`.
 - `last_seen` foi para a **Fase 3** (F4, 2026-10-05), junto da regra que o consome.
@@ -476,6 +480,8 @@ Decidido em 2026-10-07:
   mesma linha, com os filtros de fazenda/campo/device do dashboard.
 - ✅ 3e. Retenção de `device_telemetry` (90 dias): o `ReadingWriterService` apaga as linhas
   mais antigas que `TELEMETRY_RETENTION_DAYS` (padrão 90) ao iniciar e depois a cada 24 h.
+- ✅ 3f. Identidade do firmware (2026-11-05): colunas "Firmware" e "Build" no painel Device
+  diagnostics, sobre `fw_version` e `fw_build`.
 - Partições de `sensor_readings`/`device_telemetry`: adiado (R3).
 
 ### Fase 4 — CBOR (quando necessário)
@@ -497,3 +503,5 @@ Decidido em 2026-10-07:
   device, regra no Grafana (Fase 3, R5/R2).
 - Canal de notificação dos alertas de frota, separado das notificações ao produtor
   (hoje o alerta "Silent station" só aparece no Grafana).
+- Se as falhas (`crash_*`) devem sair da retenção de 90 dias de `device_telemetry`. Elas são
+  raras e valem para comparar versões, e a limpeza apaga a linha inteira.

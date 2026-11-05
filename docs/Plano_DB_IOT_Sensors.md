@@ -85,7 +85,8 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - UNIQUE (sensor_id, timestamp) — idempotência da escrita (V8)
 
 - **device_telemetry** *(diagnóstico do device, V11)* — snapshot por transmissão (RSSI,
-  `boot_count`, `reset_reason`, `cfg_version`, FS…) em JSONB, sem partição; retenção de 90
+  `boot_count`, `reset_reason`, `cfg_version`, FS, `fw_version`, `fw_build`, `crash_*`…) em JSONB,
+  sem partição; retenção de 90
   dias (`Plano_Telemetria.md`, D5 e Fase 3)
     - device_id : BIGINT (FK → devices.id) NOT NULL
     - timestamp : TIMESTAMPTZ NOT NULL
