@@ -166,6 +166,15 @@ TEST_F(HttpE2ETest, ObservabilityEndpoints_ReturnOk) {
     rapidjson::Document doc = parseBody(res->body);
     EXPECT_FALSE(doc.HasParseError()) << path << " body is not valid JSON";
   }
+
+  // Version of the solution and of the API contract (README, "Versões")
+  auto res = httpGet("/status");
+  ASSERT_TRUE(res);
+  rapidjson::Document status = parseBody(res->body);
+  const auto version = json::getString(status, "version");
+  ASSERT_TRUE(version.has_value());
+  EXPECT_EQ(version->rfind('v', 0), 0u) << *version;
+  EXPECT_EQ(json::getInt(status, "apiVersion"), 1);
 }
 
 // ── Scenario 2: Invoke with no backend service → 503 ─────────────────────────

@@ -27,6 +27,7 @@
 #include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <cstdlib>
@@ -173,7 +174,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "device_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {

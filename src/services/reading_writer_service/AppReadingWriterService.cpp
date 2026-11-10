@@ -54,6 +54,7 @@
 #include "../../shared/repository/SensorReadingRepository.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <rapidjson/document.h>
 
@@ -88,7 +89,7 @@ public:
 
   void run() {
     running_.store(true);
-    logger::info("ReadingWriterService starting", "");
+    logger::info("ReadingWriterService starting", std::string("version=") + rdws::kVersion);
     const auto onReading = [this](const std::string& body) { return handleMessage(body); };
     const auto onTelemetry = [this](const std::string& body) {
       return handleTelemetryMessage(body);
