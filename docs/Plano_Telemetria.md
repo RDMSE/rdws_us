@@ -270,9 +270,13 @@ Uma estação sem conectividade não consegue reportar que está sem conectivida
 - **Atraso de ingestão**: calculado a partir de `created_at - timestamp` das leituras
   recebidas. Picos indicam que a estação ficou um período sem conseguir enviar e
   descarregou o backlog.
-- **Reinícios seguidos** (a fazer, depende dos `crash_*`): desde 2026-11-05 a estação reinicia
+- ✅ **Reinícios seguidos** (RDWS-176, 2026-11-10): desde 2026-11-05 a estação reinicia
   sozinha depois de uma falha, então o alerta de estação silenciosa não pega falha isolada nem
-  repetida. Só o degrau de "Boot count" mostra isso. Item no `Backlog.md`.
+  repetida. Alerta "Restart loop" (`infra/grafana/provisioning/alerting/fleet.yml`): 3 ou mais
+  `crash_boot` distintos em 6 h por estação. Conta só falhas de firmware, não o `boot_count`,
+  para não disparar a cada gravação na bancada ou queda de energia. A tabela "Firmware
+  crashes" do Farm Overview mostra cada evento (motivo, PC/LR em hex, build), e a "Device
+  diagnostics" ganhou `cfg_rej`, `up_rej` e `trg`.
 - Esses alertas são **de frota** (operação/manutenção), não do produtor. Ficam separados
   do `AlertingService`, que avalia `sensor_readings`.
 - `last_seen` foi para a **Fase 3** (F4, 2026-10-05), junto da regra que o consome.
