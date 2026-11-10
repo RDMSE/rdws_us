@@ -3,36 +3,22 @@
 #
 #   - -DRDWS_VERSION=... wins: the Docker build has no .git (.dockerignore), so CI computes
 #     `git describe` and passes it as a build arg.
-#   - Otherwise `git describe --tags --match "v[0-9]*" --dirty`, at configure time (re-run
-#     cmake to refresh it). Only SemVer tags count: older tags like development/phase-5/end
-#     are ignored.
-#   - No SemVer tag yet, or no git: v0.0.0-dev+<short sha> / v0.0.0-unknown.
+#   - Otherwise scripts/rdws_version.sh (`git describe` limited to SemVer tags), at configure
+#     time: re-run cmake to refresh it after a commit or a new tag.
 #
 # Produces the INTERFACE target rdws_version with the generated header rdws_version.h.
 
 set(RDWS_VERSION "" CACHE STRING "Version of the solution; empty = from git describe")
 
-if(NOT RDWS_VERSION)
-  find_package(Git QUIET)
-  if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
-    execute_process(
-      COMMAND "${GIT_EXECUTABLE}" describe --tags --match "v[0-9]*" --dirty --always
-      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-      OUTPUT_VARIABLE _rdws_describe
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_QUIET
-      RESULT_VARIABLE _rdws_describe_rc)
-  endif()
-  if(_rdws_describe_rc EQUAL 0 AND _rdws_describe MATCHES "^v[0-9]")
-    set(RDWS_VERSION_EFFECTIVE "${_rdws_describe}")
-  elseif(_rdws_describe_rc EQUAL 0 AND _rdws_describe)
-    # --always without a matching tag: just the commit
-    set(RDWS_VERSION_EFFECTIVE "v0.0.0-dev+g${_rdws_describe}")
-  else()
-    set(RDWS_VERSION_EFFECTIVE "v0.0.0-unknown")
-  endif()
-else()
-  set(RDWS_VERSION_EFFECTIVE "${RDWS_VERSION}")
+# Same rule as CI and the deploy: scripts/rdws_version.sh (RDWS_VERSION in its environment wins)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env "RDWS_VERSION=${RDWS_VERSION}"
+          bash "${PROJECT_SOURCE_DIR}/scripts/rdws_version.sh"
+  OUTPUT_VARIABLE RDWS_VERSION_EFFECTIVE
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE _rdws_version_rc)
+if(NOT _rdws_version_rc EQUAL 0 OR NOT RDWS_VERSION_EFFECTIVE)
+  set(RDWS_VERSION_EFFECTIVE "v0.0.0-unknown")
 endif()
 
 message(STATUS "rdws version: ${RDWS_VERSION_EFFECTIVE}")
