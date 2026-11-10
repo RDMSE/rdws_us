@@ -376,6 +376,13 @@ No servidor (F3, 2026-10-05):
   significa nada.
 - Bit desconhecido é erro do registro (descartado com log), coerente com o `_` de
   must-understand.
+- **`0x4000` `out_of_range`, marcado pelo servidor** (RDWS-174, 2026-11-10): o valor, já
+  na unidade do banco, está fora da faixa física da unidade (`src/shared/senml/sensor_limits.h`,
+  ex.: umidade acima de 100 %). A leitura é gravada mesmo assim, para não perder a
+  evidência de sensor com defeito; índices, alarmes e gráficos ignoram o bit, e as tabelas
+  do Grafana mostram a coluna `out_of_range`. É o bit 14, o mais alto que mantém o
+  `SMALLINT` positivo, longe dos bits do firmware, que crescem a partir do bit 0. O
+  firmware nunca o envia: em `fl_` ele seria bit desconhecido.
 
 ## Decisões de implementação da Fase 1 (F, 2026-10-05)
 

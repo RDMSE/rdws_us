@@ -4,6 +4,7 @@
 #include "senml/conversion.h"
 #include "senml/senml.h"
 #include "senml/trigger_config.h"
+#include "senml/sensor_limits.h"
 
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
@@ -262,4 +263,34 @@ TEST(ConfigForFirmware, UnconvertibleUnitKeepsTheConfigUndelivered) {
   EXPECT_EQ(rdws::senml::configForFirmware(
                 withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), wrong),
             std::nullopt);
+}
+
+// ─── Plausible ranges (Plano_Ingestion.md) ─────────────────────────────────
+
+TEST(SensorLimits, HumidityAbove100IsImplausible) {
+  using rdws::senml::isPlausible;
+  EXPECT_TRUE(isPlausible(100.0, "%"));
+  EXPECT_TRUE(isPlausible(0.0, "%"));
+  EXPECT_FALSE(isPlausible(104.5, "%")); // the wet HTS221 of 2026-11-09
+  EXPECT_FALSE(isPlausible(131.5, "%"));
+  EXPECT_FALSE(isPlausible(-0.1, "%"));
+}
+
+TEST(SensorLimits, EachUnitHasItsRange) {
+  using rdws::senml::isPlausible;
+  EXPECT_TRUE(isPlausible(-40.0, "°C"));
+  EXPECT_FALSE(isPlausible(85.0, "°C"));
+  EXPECT_TRUE(isPlausible(98.0, "kPa"));
+  EXPECT_FALSE(isPlausible(980.0, "kPa")); // hPa sent as kPa
+  EXPECT_FALSE(isPlausible(15.0, "pH"));
+  EXPECT_TRUE(isPlausible(420.0, "ppm"));
+}
+
+TEST(SensorLimits, UnitWithoutLimitsIsAlwaysPlausible) {
+  EXPECT_TRUE(rdws::senml::isPlausible(1e9, "m/s"));
+}
+
+TEST(SensorLimits, FlagFitsSmallintAndAvoidsFirmwareBits) {
+  EXPECT_LE(rdws::senml::kFlagOutOfRange, 32767);
+  EXPECT_EQ(rdws::senml::kFlagOutOfRange & rdws::senml::kKnownFlags, 0);
 }

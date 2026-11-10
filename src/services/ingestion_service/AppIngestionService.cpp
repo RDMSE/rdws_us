@@ -40,6 +40,7 @@
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"
 #include "../../shared/senml/conversion.h"
+#include "../../shared/senml/sensor_limits.h"
 #include "../../shared/senml/trigger_config.h"
 #include "../../shared/senml/senml.h"
 #include "../../shared/utils/json_helper.h"
@@ -644,6 +645,8 @@ private:
     std::vector<std::string> messages;
     int sensorRecords = 0;
     std::optional<long long> recCfg;
+    int outOfRange = 0;
+    std::string outOfRangeExample;
     std::optional<double> firstTime; // of the readings accepted from this pack
     std::optional<double> lastTime;
     std::string seq = "-";
@@ -705,8 +708,17 @@ private:
         continue;
       }
 
+      // Out of the physical range: stored with a flag rather than dropped, so a faulty sensor
+      // shows up in diagnostics; one warning per pack, with the first such reading.
+      uint16_t flags = rec.flags;
+      if (!rdws::senml::isPlausible(*value, sensorUnit)) {
+        flags |= rdws::senml::kFlagOutOfRange;
+        if (outOfRange++ == 0) {
+          outOfRangeExample = ctx + " value=" + std::to_string(*value) + " " + sensorUnit;
+        }
+      }
       messages.push_back(readingMessage(authDeviceId, local, rdws::senml::toIso8601(rec.time),
-                                        *value, sensorUnit, rec.flags));
+                                        *value, sensorUnit, flags));
       firstTime = std::min(firstTime.value_or(rec.time), rec.time);
       lastTime = std::max(lastTime.value_or(rec.time), rec.time);
     }
@@ -730,11 +742,16 @@ private:
       }
     }
 
+    if (outOfRange > 0) {
+      logger::warn("IngestionService: readings outside the plausible range, flagged",
+                   "count=" + std::to_string(outOfRange) + " first: " + outOfRangeExample);
+    }
     logger::info("IngestionService: SenML pack",
                  "device_id=" + authDeviceId + " seq=" + seq + " records=" +
                      std::to_string(pack->size()) + " sensor_records=" +
                      std::to_string(sensorRecords) + " published=" + std::to_string(published) +
                      " unpublished=" + std::to_string(unpublished) +
+                     " out_of_range=" + std::to_string(outOfRange) +
                      " diagnostics=" + (diagnostics.empty() ? "-" : diagnostics));
     return unpublished > 0 ? kUnavailable : published;
   }

@@ -132,6 +132,7 @@ add_library(rdws_shared_senml
     senml/conversion.h
     senml/trigger_config.cpp
     senml/trigger_config.h
+    senml/sensor_limits.h
     senml/senml.cpp
     senml/senml.h
 )
