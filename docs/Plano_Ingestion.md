@@ -29,7 +29,7 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 - Responsabilidades:
   - Receber o payload CoAP do device.
   - Parsear para o formato interno de leitura.
-  - Validar: hoje confere o dono de cada sensor e converte a unidade (leitura de sensor de outro device, ou unidade sem conversão, é descartada com log). Faixas plausíveis ainda não (pontos em aberto). A config em si é validada na edição, no `DeviceConfigService`.
+  - Validar: confere o dono de cada sensor e converte a unidade (leitura de sensor de outro device, ou unidade sem conversão, é descartada com log), e marca com o flag `out_of_range` (`0x4000`) a leitura fora da faixa física da unidade (pontos em aberto). A config em si é validada na edição, no `DeviceConfigService`.
   - Publicar na fila persistente.
 - Não acessa o banco diretamente — é stateless em relação à persistência.
 - **Contrato de payload e identidade: ver `Plano_Telemetria.md`.** Só SenML JSON
@@ -108,12 +108,18 @@ Resumo do que já está no código:
 
 ## Pontos em aberto
 
-- **Validação contra faixas plausíveis** no `IngestionService` — ainda não feita. Desde
-  2026-10 ele já confere dono do sensor e unidade (cache de `sensor.list_owners` com
-  `unit`, Fase 0/1 do `Plano_Telemetria.md`) e a config do `weather_station` é validada no
-  `DeviceConfigService` (schema + sensores do device). Falta rejeitar valores fisicamente
-  impossíveis (ex.: umidade > 100 %) — onde definir as faixas (por tipo de sensor no
-  código, ou em `sensors`) está em aberto.
+- ✅ **Validação contra faixas plausíveis** no `IngestionService` (RDWS-174, 2026-11-10).
+  Motivo: em 2026-11-09 o HTS221 molhado da estação 12 leu 104,5 % e 131,5 % de umidade,
+  e as leituras entraram normais. Decisões:
+  - Faixas **no código, por unidade do banco** (`src/shared/senml/sensor_limits.h`), não em
+    colunas de `sensors`: são limites físicos, que mudam pouco, e o cache de owners já tem
+    a unidade. `%` vale para umidade do ar e do solo. Unidade sem faixa não é conferida.
+  - Fora da faixa, a leitura é **gravada com o flag `0x4000`** (`out_of_range`, DP3 do
+    `Plano_Telemetria.md`), não descartada nem limitada a 100 %: a evidência de sensor com
+    defeito fica no banco. Gráficos, índices e alarmes ignoram o bit; as tabelas do
+    Grafana mostram a coluna `out_of_range`.
+  - A resposta continua `2.04`: um reenvio traria o mesmo valor. O log do pack conta
+    `out_of_range=N`, com um único aviso por pack.
 - ✅ **Identidade pelo handshake** (2026-10-05) — device derivado da `psk_identity`,
   `device_id` divergente → `4.03`, `sensor_id` de outro device descartado. Fase 0 do
   `Plano_Telemetria.md`.
