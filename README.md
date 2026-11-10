@@ -305,6 +305,43 @@ Result:
 - `src/auth/tests/CMakeLists.txt`
 - `src/auth/tests/auth_test.cpp`
 
+## Versões
+
+A versão da solução é a **tag git** `vMAJOR.MINOR.PATCH` (SemVer) no `main`, e é a fonte única:
+nenhum arquivo do repositório guarda o número.
+
+- **Numeração:** `v0.x` enquanto a API ainda muda; a `v1.0.0` vem depois da Fase 13 (IDOR /
+  `public_id`, `docs/Plano_Gateway_HTTP.md`), quando o contrato da API fica estável.
+- **Como a versão chega aos binários:** `scripts/rdws_version.sh` faz `git describe` só com as
+  tags SemVer (`v0.1.0`, `v0.1.0-3-g1a2b3c4` três commits depois, `-dirty` com alterações sem
+  commit, `v0.0.0-dev+g<sha>` sem tag). O CMake gera `rdws_version.h` com `rdws::kVersion`; no
+  Docker, onde não há `.git`, o CI e o deploy passam a versão como `--build-arg RDWS_VERSION`.
+  Fora do Docker, a versão é calculada quando o CMake configura: depois de um commit ou de uma
+  tag nova, rode o `cmake` de novo.
+- **Versão da API**, à parte: `rdws::kApiVersion` (hoje `1`). Só sobe quando o contrato da API
+  quebra, então clientes como o `rdws_web` dependem dela, e não de cada versão da solução.
+- **Onde ver:** `GET /status` do gateway (`version` e `apiVersion`), a versão com que cada
+  serviço se registra no gateway, o log de partida do `ReadingWriterService` e a tag das imagens
+  no GHCR.
+- **Banco:** o schema tem versão própria, a da última migration do Flyway (`db/migrations`),
+  registrada em cada entrada do `CHANGELOG.md`.
+
+### Lançar uma versão
+
+1. No `CHANGELOG.md`, renomeie a seção "Não lançado" para a versão e a data, e confira o quadro
+   de compatibilidade.
+2. Commit no `main` (via PR, como sempre).
+3. Tag anotada no commit do `main` e push da tag:
+
+   ```bash
+   git switch main && git pull
+   git tag -a v0.1.0 -m "v0.1.0"
+   git push origin v0.1.0
+   ```
+
+4. O push da tag dispara o CI (`ci.yml`), que publica as imagens no GHCR também com a tag
+   `:v0.1.0`. O deploy de QA não roda numa tag: ele já rodou no merge do mesmo commit.
+
 ## Licença
 
 O projeto usa duas licenças, indicadas em cada arquivo-fonte pelo cabeçalho SPDX
