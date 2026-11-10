@@ -25,20 +25,20 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 
 - Protocolo: **CoAP**, escolhido por causa do hardware low-power. CoAP roda sobre UDP, sem conexão persistente — o device acorda, envia o datagrama e volta a dormir, economizando rádio/bateria. MQTT (ex. Mosquitto) foi considerado e descartado para a entrada dos dados: exige manter uma conexão TCP com keep-alive aberta, custando mais energia do que o cenário permite.
 - Com **DTLS** obrigatório — sem isso qualquer dispositivo na rede pode injetar leituras falsas.
-- Autenticação por device: **PSK** (resolvido — `Plano_DeviceCredentials.md`), via `libcoap` com backend OpenSSL. Já implementado do lado cliente (`SensorSimulatorService`, ver abaixo); o lado servidor (`coap_context_set_psk2`/`coap_dtls_spsk_info_t`, carregando credenciais ativas do `device_credential.get_active`) ainda não existe.
+- Autenticação por device: **PSK** (resolvido — `Plano_DeviceCredentials.md`), via `libcoap` com backend OpenSSL, nos dois lados: cliente no `SensorSimulatorService` e servidor no `IngestionService`, com as credenciais ativas em cache (poll de 60 s de `device_credential.list_active`).
 - Responsabilidades:
   - Receber o payload CoAP do device.
   - Parsear para o formato interno de leitura.
-  - Validar contra `device_config` (schema esperado, ranges plausíveis) — leituras fora do schema são descartadas/logadas, não publicadas na fila.
+  - Validar: hoje confere o dono de cada sensor e converte a unidade (leitura de sensor de outro device, ou unidade sem conversão, é descartada com log). Faixas plausíveis ainda não (pontos em aberto). A config em si é validada na edição, no `DeviceConfigService`.
   - Publicar na fila persistente.
 - Não acessa o banco diretamente — é stateless em relação à persistência.
-- **Contrato de payload e identidade: ver `Plano_Telemetria.md`.** Migração do JSON atual
-  (Content-Format `50`) para SenML JSON (`110`, depois CBOR `112`), com despacho por
-  Content-Format durante a transição; device derivado da `psk_identity` do handshake
-  (Fase 0, ✅ 2026-10-05); `sensor_id` global no `n`, conferido contra o dono por cache
-  (`sensor.list_owners`);
-  diagnóstico do device roteado para `device_telemetry`; corpo da resposta CoAP com
-  `config_version`/`rules_version` (D11).
+- **Contrato de payload e identidade: ver `Plano_Telemetria.md`.** Só SenML JSON
+  (Content-Format `110`; o JSON legado `50` foi desativado em 2026-10-30, RDWS-165; CBOR `112`
+  no futuro); device derivado da `psk_identity` do handshake (Fase 0, ✅ 2026-10-05);
+  `sensor_id` global no `n`, conferido contra o dono por cache (`sensor.list_owners`);
+  diagnóstico do device roteado para `device_telemetry`; o `2.04` traz a config inteira quando
+  o `cfg_version` declarado está atrás (D11, revisto em 2026-10-06; sem `rules_version`: as
+  regras de gatilho vão dentro da config).
 - Exposição à internet (devices reais sem Tailscale): VPS como porta de entrada pública,
   com relay UDP para o QA no homelab e hardening da porta — ver
   `Plano_Deployment.md` §2.2. Para NB-IoT, avaliar DTLS Connection ID (RFC 9146) no
@@ -96,6 +96,10 @@ Resumo do que já está no código:
   validação mínima de formato, publica uma mensagem por leitura no RabbitMQ.
 - **`ReadingWriterService`**: worker puro (sem gateway/capability), consome a fila e
   grava em `sensor_readings` com ack só após o insert confirmado.
+- **Mudou desde então** (detalhes no `Plano_Telemetria.md` e na seção de vazão abaixo): o
+  payload é SenML, o `IngestionService` publica o pack inteiro em lote com publisher confirms
+  (`publishBatch`, RDWS-157) e responde `5.03` se algo não foi confirmado; diagnósticos e
+  `config_span` vão para a fila `device_telemetry`, que o mesmo writer consome.
 - Validado de ponta a ponta com serviços reais rodando localmente (Postgres, gateway,
   device/field/farm_service, RabbitMQ, `IngestionService`, `ReadingWriterService`,
   `SensorSimulatorService`): `device.create` → geração → trigger manual → handshake
@@ -121,7 +125,9 @@ Resumo do que já está no código:
 - Novos tipos em `sensors.type` (bateria, solar, agregados de vento) — `pressure` e `co2`
   já entraram (V9); os demais entram com o hardware (passos 5–6 do firmware). Ver seção
   "Amostragem interna vs. taxa de transmissão".
-- Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
+- ~~Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger)~~ — fechado em
+  2026-10-07 (`triggers[]` dentro da config do device) e implementado no firmware em
+  2026-11-09/10 (passo 8); ver a nota na seção do edge trigger abaixo.
 
 ## Vazão e falhas do ReadingWriterService (2026-10-09)
 
@@ -224,9 +230,9 @@ ponta a ponta. **Resolvido (2026-07-16)**: `docker-compose.qa-mq.yml` criado jun
 implementação dos dois serviços (`ingestion_service`/`reading_writer_service` em
 `docker-compose.qa-app.yml`).
 
-1. ✅ **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta — ver "Progresso de implementação" acima. Observabilidade (passos 2-3 abaixo) ainda pendente.
-2. **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
-3. **Plugar o ingestion na mesma instância**: adicionar Prometheus + RabbitMQ exporter como datasource no Grafana já existente.
+1. ✅ **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta — ver "Progresso de implementação" acima.
+2. ✅ **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
+3. ✅ **Plugar o ingestion na mesma instância**: o Prometheus coleta o RabbitMQ (`rabbitmq:15692`, jobs `rdws_rabbitmq_qa`/`_dev` em `infra/prometheus/`), e os logs do ingestion e do writer vão para o Loki.
 
 ## Dependência da Fase 10b do gateway (CI/CD)
 
@@ -247,6 +253,11 @@ sensor na mesma cadência da transmissão funciona bem para variáveis "lentas"
 rápido dentro do intervalo — o caso mais claro é vento, onde uma leitura pontual a cada
 transmissão perde rajadas inteiras, justamente o dado mais relevante para decisões como
 janela de pulverização.
+
+> **Revisto em 2026-09-27** (`rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §4): os
+> agregados "desde a última transmissão" foram trocados por uma **janela fixa OMM de 10 min**
+> alinhada a UTC, com rajada de 3 s, que dá a mesma série com 1 ou 24 transmissões por dia. O
+> resto desta seção (desacoplar amostragem e transmissão, média vetorial) continua valendo.
 
 **Decisão de design:** desacoplar as duas taxas.
 
@@ -288,6 +299,14 @@ ser reportada até 24h depois — tarde demais para qualquer ação do produtor.
 `Plano_Alerting.md` só avalia o que já chegou ao servidor; se o dado não chega, não tem
 o que avaliar.
 
+> **Revisto em 2026-10-07 e implementado em 2026-11-09/10** (contrato no §4 do
+> `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`): as regras vão em `triggers[]` dentro
+> da config do device (mesma versão, sem `rules_version` nem tabela própria, e não derivadas de
+> `alarm_rules`); há operadores de nível e de tendência (`fall`/`rise`); a **histerese** substitui
+> o cooldown por regra, com só um teto de envios antecipados por hora; o estado de cada regra
+> sobrevive a reset (latch); e a leitura que mudou de estado sai com a flag `trigger` (`fl_`). O
+> que segue é o desenho original, mantido pelo raciocínio.
+
 **Decisão de design:** o firmware mantém um conjunto pequeno de **regras de gatilho
 locais** — thresholds simples (sem correlação entre sinais, sem histerese sofisticada,
 sem janela deslizante — isso continua sendo responsabilidade do `AlertingService` do
@@ -319,8 +338,9 @@ regra local, o device dispara uma transmissão **imediata, fora do agendamento r
   tratamento prioritário for necessário mais adiante (não obrigatório para o MVP).
 
 **Pontos em aberto (gatilho local):**
-- Formato/tabela das regras de gatilho locais — subconjunto simplificado de
-  `alarm_rules` ou tabela própria (`edge_trigger_rules`?) mais enxuta.
+- ~~Formato/tabela das regras de gatilho locais~~ — `triggers[]` na config (2026-10-07).
 - Conjunto inicial de condições que valem gatilho local (geada é o caso óbvio; rajada de
-  vento perigosa outro) vs. o que pode esperar o ciclo regular.
-- Duração do cooldown local no firmware, e se é fixo ou configurável por device/regra.
+  vento perigosa outro) vs. o que pode esperar o ciclo regular. Ainda em aberto: hoje as
+  regras são escritas à mão por device.
+- ~~Duração do cooldown local no firmware~~ — sem cooldown: histerese + teto por hora
+  (2026-10-07).

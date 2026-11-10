@@ -19,7 +19,8 @@ device.create --> device_credential.provision --> (chave em texto puro, uma úni
                                 v
 IngestionService/SensorSimulatorService --startup--> carrega cache em memória
                                 |
-                    device_credential.changed (EventBus) --> invalida cache pontual
+        (hoje: poll de 60 s via device_credential.list_active;
+         device_credential.changed pelo EventBus é o desenho, ainda não feito)
 ```
 
 ---
@@ -99,6 +100,11 @@ Mantendo o princípio já registrado no `Plano_Ingestion.md` de que o `Ingestion
 - **Refresh**: publica/assina `device_credential.changed` no EventBus interno (mesmo
   mecanismo de `request.completed`/`metrics.snapshot`) — ao revogar/rotacionar um device,
   o `IngestionService` invalida a entrada correspondente sem restart nem polling.
+  **Implementado de outro jeito:** o `IngestionService` recarrega o cache a cada 60 s com
+  `device_credential.list_active` (que também traz o `device_id`, Fase 0 do
+  `Plano_Telemetria.md`). O `EventBus` é por processo, dentro do gateway, e o ingestion roda
+  em outro processo. O evento segue como item P3 no `Backlog.md` ("Invalidação de credencial
+  em tempo real"); até lá uma revogação leva até 60 s para valer.
 - **`SensorSimulatorService`** usa um caminho mais simples que o do `IngestionService`,
   por ser cliente (não servidor): já abre uma nova conexão por device a cada ciclo
   (passo 3 do fluxo, `Plano_SensorSimulatorService.md`) — em vez de manter cache e

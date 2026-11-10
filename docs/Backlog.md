@@ -1,7 +1,7 @@
 # Backlog — rdws_us (backend)
 
 Pendências consolidadas dos planos deste repositório, em 2026-10-07 (revisado em 2026-10-09,
-2026-10-28 e 2026-11-05). Cada item aponta o
+2026-10-28, 2026-11-05 e 2026-11-10). Cada item aponta o
 plano de origem, onde estão o contexto e as decisões. Ao concluir um item, marque-o no plano
 de origem e remova-o daqui. O backlog do firmware fica em
 `rdws_weather_node/docs/Backlog.md`.
@@ -19,7 +19,9 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 | P2    | Falhas de firmware no Grafana (painel com causa, PC e LR; alerta de muitos reinícios) | O firmware já envia `crash_*` (§10 do plano do firmware), e `device_telemetry` já guarda. A estação reinicia sozinha, então o "Silent station" não pega falha isolada. Contar eventos por `crash_boot`, não por linha |
 | P3    | Resolver `crash_pc` em arquivo e linha no servidor | Hoje é manual, com `addr2line` e o `.elf` da máquina do desenvolvedor. Depende da release por tag do firmware, que leva o `.elf` ao servidor |
 | P3    | Retenção das falhas | `crash_*` somem com a limpeza de 90 dias de `device_telemetry`; são raras e servem para comparar versões (`Plano_Telemetria.md`, pontos em aberto) |
-| P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos |
+| P2    | Faixas plausíveis no `IngestionService` (ex.: umidade > 100 %) | Dono do sensor e unidade já são conferidos. Visto na estação 12 em 2026-11-09: o HTS221 molhado leu 104,5 % e 131,5 %, e as leituras entraram normais. O backlog do firmware tem o item espelho (limitar, marcar ou descartar na origem) |
+| P3    | Colunas `cfg_rej`, `up_rej`/`up_rej_code` e `trg` na tabela "Device diagnostics" do Grafana | O firmware já manda (2026-11-09/10) e `device_telemetry` já guarda no JSONB. `cfg_rej` = versão de config que a estação recusou; `up_rej` = lotes que o servidor recusou 3 vezes e a estação descartou; `trg` = bitmask das regras de gatilho em violação |
+| P3    | Não reenviar a config que o device recusou | Hoje, com `cfg_rej` = versão atual, a ingestion reenvia a mesma config no `2.04` de todo ciclo, e a estação recusa de novo. Inofensivo, mas gasta rádio; dá para pular o corpo quando `cfg_rej` = `version` |
 | P3    | Tabela `device_packets` para o `seq` (detecção de perda) | Decidido em 2026-11-09. Hoje o `seq` vai para `device_telemetry` com o tempo da primeira leitura do pacote (`bt`), numa linha separada da do diagnóstico, que usa o tempo do envio. O upsert por (`device_id`, `timestamp`) faz um reenvio (mesmo `bt`, `seq` novo) sobrescrever o `seq` anterior, e cada lote vira uma linha só com `{"seq": N}`. Proposta: uma linha por pacote, (`device_id`, `boot_count`, `seq`, `received_at`, `bt`, registros), chave (`device_id`, `boot_count`, `seq`); `seq` sai da `device_telemetry`. Colunas `BIGINT`: `seq` e `boot_count` são `uint32` no firmware (o `seq` volta a 0 no estouro e recomeça a cada boot). Comparar `seq` em módulo 2³² (RFC 1982). Falta decidir como cada pacote leva o `boot_count`: a ingestion copia o do diagnóstico do ciclo, ou o firmware põe o `boot_count` em todo pacote (~25 bytes; preferido, sem estado na ingestion). A migração limpa o `seq` da `device_telemetry` tirando a chave, não a linha, porque o upsert juntou `seq` e diagnóstico quando os instantes coincidiram (pacote de crash, dois pacotes no mesmo segundo): `UPDATE ... SET data = data - 'seq' WHERE data ? 'seq'` e depois `DELETE ... WHERE data = '{}'`. Sem backfill da `device_packets`: as linhas antigas não têm `boot_count`, e os reenvios já sobrescreveram parte dos `seq` |
 | P3    | Contar duplicatas descartadas pelo `ON CONFLICT` no `ReadingWriterService` | Somem sem log nem métrica; teriam mostrado a regressão do RDWS-157 no mesmo dia |
 | P3    | Insert em lote no `ReadingWriterService` (uma transação por N mensagens) | Hoje ~16 ms por leitura (~62 msg/s), já acompanha o upload; só se o volume crescer muito |

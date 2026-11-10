@@ -122,6 +122,10 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
   | `fw_build`      | `vs` | texto             | Início do GNU build ID, acha o `.elf`     |
   | `crash_*`       | —    | evento            | Registro de falha, em pack próprio (§10 do plano do firmware): `crash_boot`, `crash_build`, `crash_reason`, `crash_code`, `crash_pc`, `crash_lr`, `crash_uptime_s`, `crash_lost`, `crash_msg` |
   | `lat` / `lon`   | `v`  | graus (WGS84)     | Posição; o par mais recente do pack vira `devices.location` (RDWS-165) |
+  | `trg`           | `v`  | bitmask           | Edge triggers em violação, bit *i* = `triggers[i]` da config que o mesmo pack declara em `cfg_version`; só com regras (firmware, passo 8, 2026-11-09) |
+  | `cfg_rej`       | `v`  | versão            | Última versão de config que o firmware recusou; só enquanto houver uma (2026-11-09) |
+  | `up_rej`        | `v`  | contagem          | Lotes que o servidor recusou 3 vezes com `4.xx` de conteúdo e o firmware descartou, ainda não reportados (2026-11-10) |
+  | `up_rej_code`   | `v`  | código            | Último código desses descartes, como classe × 100 + detalhe (ex. `400`); vai com `up_rej` |
 
   - Diagnóstico vai **sem `u`**: a unidade é fixa por nome (RFC 8428 permite registro
     sem unidade quando o contexto a define). `lat`/`lon` são exceção tolerada: o RFC 8428
@@ -212,6 +216,10 @@ vez por falha.
   linha de `device_telemetry`.
 - `seq` → metadado da mensagem, gravado no `data` de `device_telemetry` junto do
   diagnóstico do mesmo instante (decidido em 2026-10-05), para detectar perda depois.
+  Problema visto em 2026-11-09: o `seq` vai com o tempo da primeira leitura do pack (`bt`) e o
+  diagnóstico com o do envio, então viram linhas separadas, e um reenvio (mesmo `bt`, `seq`
+  novo) sobrescreve o `seq` anterior. Decidido mover para uma tabela `device_packets` por
+  (`device_id`, `boot_count`, `seq`) (item no `Backlog.md`).
 - `fl_` → flags da leitura (DP3), gravadas em `sensor_readings.flags` (F3). Um registro
   com o bit de trigger marca a mensagem para priorização futura.
 - O firmware não conhece essa separação.
@@ -295,8 +303,12 @@ config viaja na própria resposta, só quando mudou:
 - ~~Regras de edge trigger (`rul`): mesmo mecanismo quando existirem.~~ **Revisto em
   2026-10-07:** as regras viajam dentro da própria config (`triggers[]`), com a mesma
   versão; não há `rul` nem `rules_version`. Contrato em `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`
-  §4 (Edge triggers). O diagnóstico `trg` (bitmask do estado das regras) entra na tabela
-  do D2 quando ganhar uso.
+  §4 (Edge triggers). O diagnóstico `trg` (bitmask do estado das regras) está na tabela do
+  D2 desde 2026-11-09.
+- Config que o firmware recusa (regra que ele não aceita, ou formato mais novo que ele): ele
+  segue na versão anterior, declara essa versão em `cfg_version` e manda a recusada em
+  `cfg_rej` (2026-11-09). Hoje o servidor reenvia a mesma config a cada ciclo; não reenviar
+  quando `cfg_rej` = `version` está no `Backlog.md`.
 - Sem RTC acertado o diagnóstico não vai e a config não é atualizada naquele ciclo —
   mas sem RTC os registros também não saem.
 
@@ -498,7 +510,11 @@ Decidido em 2026-10-07:
   (bateria/solar) dos ambientais no dashboard do produtor.
 - ~~Se o firmware pode esvaziar o backlog parcialmente~~ — não pode hoje (o envio para no
   primeiro erro e manda tudo no ciclo seguinte), então `backlog_count` não é enviado
-  (2026-10-07). Revisitar se o NB-IoT impuser limite de registros por sessão.
+  (2026-10-07). Revisitar se o NB-IoT impuser limite de registros por sessão. Desde
+  2026-11-10 um lote recusado 3 vezes com `4.xx` de conteúdo é descartado sozinho, e o envio
+  segue; isso aparece em `up_rej`, não em `backlog_count`.
+- `seq` em `device_telemetry` não serve para detectar perda (D8): tabela `device_packets` no
+  `Backlog.md`.
 - ~~Limite da estação silenciosa e onde a regra roda~~ — 3× o intervalo esperado do
   device, regra no Grafana (Fase 3, R5/R2).
 - Canal de notificação dos alertas de frota, separado das notificações ao produtor

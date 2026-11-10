@@ -113,6 +113,12 @@ device_config_spans              -- quando cada versão valeu no device
   que atendem ao critério.
 - De quebra, o histórico dá o mapa canal → `sensor_id` de qualquer versão (limitação do
   passo 4e do firmware depois de um boot).
+- Desde 2026-11-10 o firmware realinha a amostragem na hora em que `agg_window_s` muda e
+  descarta a janela interrompida sem registro (só os sensores lentos existem hoje, com uma
+  leitura no fim da janela). Cada troca deixa um buraco de até uma janela antiga, que a
+  `coverage` do dia vai mostrar e que não indica falha da estação. Quando houver
+  acumuladores (vento, chuva, passo 5 do firmware), a janela interrompida passa a sair com a
+  flag `partial_window`.
 
 Entregas, separadas: (1) ✅ `device_config_history` (V15) e `device_config_spans` (V16);
 (2) ✅ spans no `IngestionService` e no `ReadingWriterService` (RDWS-169); (3) ✅ `rec_cfg` no

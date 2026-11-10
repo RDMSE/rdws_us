@@ -157,7 +157,9 @@ muda no modelo acima.
   detecção de geada:
   - O firmware não avalia risco de geada (sem correlação entre sinais). Ele só usa
     limiares de T em estágios, várias regras sobre `temp` em `triggers[]`. Exemplo:
-    `T < 5 °C` ("noite que merece atenção") e `T < 2 °C` ("geada se aproximando").
+    `T < 5 °C` ("noite que merece atenção") e `T < 2 °C` ("geada se aproximando"). Esse lado
+    está pronto desde 2026-11-10 (passo 8 do firmware: nível, tendência, histerese, envio
+    imediato com teto por hora e estado que sobrevive a reset).
   - Cada disparo descarrega o backlog pendente, então o servidor recebe a série da tarde
     e da noite até aquele momento. Com ela, o `AlertingService` calcula o Td no fim da
     tarde e a taxa de resfriamento, e decide o alerta.
@@ -174,8 +176,9 @@ muda no modelo acima.
     tarde) → estágio de 5 °C (taxa de resfriamento) → estágio de 2 °C (geada próxima) →
     saída da violação pela manhã (fecha o alarme).
 - **Queda barométrica: mesmo raciocínio da geada.** Com 1 uplink/dia a tendência de 3 h
-  chegaria até 24 h depois. Uma regra `{"chan":"press","op":"fall","thr":360,"win_s":10800}`
-  em `triggers[]` (`rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §4) descarrega o backlog quando a
+  chegaria até 24 h depois. Uma regra `{"chan":"press","op":"fall","thr":0.36,"win_s":10800}`
+  (o operador escreve em kPa, a unidade do sensor; o firmware recebe `360` Pa) em `triggers[]`
+  (`rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §4) descarrega o backlog quando a
   queda passa do limiar, e o `AlertingService` confirma pela view de tendência.
   O limiar do device e o da regra de alarme podem ser iguais ou o do device um pouco menor
   (pré-aviso). Abaixo de ~3 hPa a maré barométrica diária dispara a regra todo dia.
