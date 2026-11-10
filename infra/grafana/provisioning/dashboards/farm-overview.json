@@ -244,7 +244,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature') AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote})) AND (d.id::text IN (${device_id:singlequote})) AND d.location IS NOT NULL\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
+          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature' AND (sr.flags & 16384) = 0) AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote})) AND (d.id::text IN (${device_id:singlequote})) AND d.location IS NOT NULL\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
           "rawQuery": true
         },
         {
@@ -363,7 +363,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nGROUP BY time, metric\nORDER BY time",
+          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (sr.flags & 16384) = 0 -- out-of-range readings (kFlagOutOfRange) only in the tables\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nGROUP BY time, metric\nORDER BY time",
           "rawQuery": true
         }
       ],
@@ -388,7 +388,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nORDER BY sr.timestamp DESC\nLIMIT 200",
+          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit, (sr.flags & 16384) <> 0 AS out_of_range\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nORDER BY sr.timestamp DESC\nLIMIT 200",
           "rawQuery": true
         }
       ],
