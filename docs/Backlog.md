@@ -91,6 +91,7 @@ Origem: `docs/Plano_Deployment.md`.
 |---|---|---|
 | P2 | Provisionar a VPS e o primeiro deploy de produção | Fora do alcance de automação |
 | P2 | Endpoint CoAP público na VPS + relay UDP para o QA (§2.2) | Quando a primeira estação sair da bancada |
+| P2 | Tempo de CI/deploy | Cada merge compila tudo três vezes: o CI (estágio `builder` com testes), o `push-ghcr` (9 builds em série) e o deploy de QA (`docker compose up --build`, mais o `qa_simulators.sh`). O `COPY . .` antes do `cmake` invalida o build inteiro a cada commit, até um só de docs, e as dependências do `FetchContent` são baixadas e compiladas de novo. Opções, da que mais rende: (1) o deploy usa as imagens `:qa` do GHCR com `docker compose pull`, como o de produção, e o `push-ghcr` passa a incluir ingestion, reading_writer e simulador; (2) `ccache` com cache mount do BuildKit; (3) dependências numa camada própria antes de copiar o código; (4) `docs/`, `bruno/` e `infra/` no `.dockerignore`. Medir antes a duração de cada passo nos runs do Actions |
 | P3 | Secret `GRAFANA_ADMIN_PASSWORD` no environment `qa` e no `.env.qa` gerado | Hoje cai no padrão se o volume do Grafana se perder |
 | P3 | Habilitar "Log volume" no Loki (`volume_enabled`) | Backlog |
 
