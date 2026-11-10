@@ -8,6 +8,7 @@
 
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/utils/json_helper.h"
+#include "rdws_version.h"
 
 #include <chrono>
 #include <csignal>
@@ -140,7 +141,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "example_service";
     identity.serviceId = serviceId;
-    identity.version = "v2.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = devMode ? "dev" : "prod";
     identity.maxConcurrent = 10;
     identity.capabilities = {"ping", "echo", "status", "info", "math"};

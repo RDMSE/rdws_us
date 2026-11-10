@@ -18,6 +18,7 @@
 
 
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <csignal>
@@ -86,7 +87,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "farm_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"farm.list", "farm.get", "farm.create", "farm.update", "farm.delete"};

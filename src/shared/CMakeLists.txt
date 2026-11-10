@@ -81,6 +81,7 @@ target_include_directories(rdws_shared_utils PUBLIC
 )
 
 target_link_libraries(rdws_shared_utils PUBLIC
+    rdws_version
     expected_wrapper
     rapidjson_wrapper
 )

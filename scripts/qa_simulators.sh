@@ -36,7 +36,8 @@ mapfile -t ids < <(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" 
   "SELECT id FROM devices WHERE is_simulated ORDER BY id")
 echo "simulated devices: ${ids[*]:-none}"
 
-docker build --target runtime --build-arg SERVICE=sensor_simulator_service -t "$IMAGE" .
+docker build --target runtime --build-arg SERVICE=sensor_simulator_service \
+  --build-arg RDWS_VERSION="${RDWS_VERSION:-$(scripts/rdws_version.sh)}" -t "$IMAGE" .
 
 container_name() { printf '%s%02d_qa' "$NAME_PREFIX" "$1"; }
 

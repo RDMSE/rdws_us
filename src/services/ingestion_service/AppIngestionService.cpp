@@ -45,6 +45,7 @@
 #include "../../shared/senml/senml.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <coap3/coap.h>
 
@@ -101,7 +102,7 @@ public:
     identity.serviceName = "ingestion_service";
     identity.serviceId = serviceId_;
     identity.machineName = machineName_;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 1;
     identity.capabilities = {}; // pure client — never serves a capability

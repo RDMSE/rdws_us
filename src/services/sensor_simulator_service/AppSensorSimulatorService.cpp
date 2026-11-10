@@ -23,6 +23,7 @@
 #include "../../shared/senml/conversion.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <httplib.h>
 #include <rapidjson/document.h>
@@ -173,7 +174,7 @@ public:
     identity.serviceName = "sensor_simulator_service";
     identity.serviceId = "simulator_" + deviceId_;
     identity.machineName = "localhost";
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 1;
     identity.capabilities = {};

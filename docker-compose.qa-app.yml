@@ -18,6 +18,8 @@ services:
     build:
       context: .
       target: runtime
+      args:
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-gateway:qa
     container_name: rdws_gateway_qa
     restart: unless-stopped
@@ -39,6 +41,7 @@ services:
       target: runtime
       args:
         SERVICE: auth_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-auth:qa
     container_name: rdws_auth_qa
     restart: unless-stopped
@@ -57,6 +60,7 @@ services:
       target: runtime
       args:
         SERVICE: farm_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-farm:qa
     container_name: rdws_farm_qa
     restart: unless-stopped
@@ -71,6 +75,7 @@ services:
       target: runtime
       args:
         SERVICE: field_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-field:qa
     container_name: rdws_field_qa
     restart: unless-stopped
@@ -85,6 +90,7 @@ services:
       target: runtime
       args:
         SERVICE: device_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-device:qa
     container_name: rdws_device_qa
     restart: unless-stopped
@@ -101,6 +107,7 @@ services:
       target: runtime
       args:
         SERVICE: device_config_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-device-config:qa
     container_name: rdws_device_config_qa
     restart: unless-stopped
@@ -115,6 +122,7 @@ services:
       target: runtime
       args:
         SERVICE: sensor_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-sensor:qa
     container_name: rdws_sensor_qa
     restart: unless-stopped
@@ -129,6 +137,7 @@ services:
       target: runtime
       args:
         SERVICE: sensor_reading_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-sensor-reading:qa
     container_name: rdws_sensor_reading_qa
     restart: unless-stopped
@@ -143,6 +152,7 @@ services:
       target: runtime
       args:
         SERVICE: persistence_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-persistence:qa
     container_name: rdws_persistence_qa
     restart: unless-stopped
@@ -157,6 +167,7 @@ services:
       target: runtime
       args:
         SERVICE: ingestion_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-ingestion:qa
     container_name: rdws_ingestion_qa
     restart: unless-stopped
@@ -178,6 +189,7 @@ services:
       target: runtime
       args:
         SERVICE: reading_writer_service
+        RDWS_VERSION: ${RDWS_VERSION:-}
     image: rdws_us-reading-writer:qa
     container_name: rdws_reading_writer_qa
     restart: unless-stopped

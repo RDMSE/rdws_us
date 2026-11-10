@@ -18,6 +18,7 @@
 #include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <csignal>
@@ -66,7 +67,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "sensor_reading_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 40;
     identity.capabilities = {"sensor_reading.list", "sensor_reading.get"};

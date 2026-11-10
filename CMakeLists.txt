@@ -4,6 +4,8 @@ project(rdws_us VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(cmake/RdwsVersion.cmake)
+
 option(ENABLE_CLANG_TIDY "Run clang-tidy during compilation" OFF)
 
 if(ENABLE_CLANG_TIDY)
