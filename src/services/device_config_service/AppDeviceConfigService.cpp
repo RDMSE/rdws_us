@@ -25,6 +25,7 @@
 
 #include "../../shared/utils/logger.h"
 #include "rdws_version.h"
+#include "../../shared/service/client/DeviceDiagnosticsClient.h"
 
 #include <atomic>
 #include <csignal>
@@ -53,19 +54,23 @@ private:
   PostgreSQLDatabase db_;
   DeviceConfigRepository repo_;
   rdws::sensor::SensorRepository sensorRepo_;
+  // Binds to `client` (still unset here): asks device_service for what the station declared,
+  // through the gateway, instead of reading device_telemetry
+  rdws::device::DeviceDiagnosticsClient declaredSource_;
   rdws::device_config::DeviceConfigService svc_;
 
 public:
   AppDeviceConfigService(const std::string& serviceId, const std::string& machineName,
                          std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), sensorRepo_(db_), svc_(repo_, sensorRepo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), sensorRepo_(db_), declaredSource_(client),
+        svc_(repo_, sensorRepo_, declaredSource_) {
     identity.machineName = machineName;
     identity.serviceName = "device_config_service";
     identity.serviceId = serviceId;
     identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
-    identity.capabilities = {"device_config.get", "device_config.update"};
+    identity.capabilities = {"device_config.get", "device_config.update", "device_config.status"};
   }
 
   bool initialize() {
@@ -113,6 +118,7 @@ private:
         handlers = {
             {"device_config.get", handleGet},
             {"device_config.update", handleUpdate},
+            {"device_config.status", handleStatus},
         };
 
     try {
@@ -160,6 +166,48 @@ private:
         obj.set("updatedBy", cfg->updatedBy);
       }
       return obj.take();
+    });
+  }
+
+  // {"version", "declared", "rejected", "state", "declaredAt"}; declared/rejected/declaredAt are
+  // null when the station never declared or isn't refusing anything.
+  static rapidjson::Document handleStatus(const rdws::utils::CapabilityContext& ctx,
+                                          rdws::device_config::DeviceConfigService& svc) {
+    const std::string deviceId =
+        rdws::utils::LambdaParamsHelper::getPathParam(ctx.request, "id");
+    if (deviceId.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    }
+
+    const auto result = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.status(deviceId);
+    }();
+    if (!result.isSuccess()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+    const auto* status = &result.getData();
+
+    auto t = ctx.profiler.scoped("json.serialize");
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value obj(rapidjson::kObjectType);
+      obj.AddMember("version", status->version, alloc);
+      obj.AddMember("declared",
+                    status->declared ? rapidjson::Value(*status->declared) : rapidjson::Value(),
+                    alloc);
+      obj.AddMember("rejected",
+                    status->rejected ? rapidjson::Value(*status->rejected) : rapidjson::Value(),
+                    alloc);
+      obj.AddMember("state", rapidjson::Value(status->state.c_str(), alloc), alloc);
+      obj.AddMember("declaredAt",
+                    status->declaredAt.empty()
+                        ? rapidjson::Value()
+                        : rapidjson::Value(status->declaredAt.c_str(), alloc),
+                    alloc);
+      return obj;
     });
   }
 

@@ -32,4 +32,17 @@ bool DeviceTelemetryRepository::deleteOlderThan(int days) {
       {std::to_string(days)});
 }
 
+std::optional<DiagnosticsSnapshot>
+DeviceTelemetryRepository::latestDiagnostics(const std::string& deviceId) {
+  const std::string query =
+      "SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS ts, "
+      "data::text AS data FROM device_telemetry "
+      "WHERE device_id = $1 AND data ? 'boot_count' ORDER BY timestamp DESC LIMIT 1";
+  auto rs = db_.execQuery(query, {deviceId});
+  if (!rs->next()) {
+    return std::nullopt;
+  }
+  return DiagnosticsSnapshot{.timestamp = rs->getString("ts"), .dataJson = rs->getString("data")};
+}
+
 } // namespace rdws::device_telemetry

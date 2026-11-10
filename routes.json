@@ -280,6 +280,34 @@
     "updatedAt": "2026-06-18T00:00:00Z"
   },
   {
+    "id": "device-config-status",
+    "name": "GET /devices/{id}/config/status → device_config.status",
+    "inputCapability": "device_config.status",
+    "outputCapability": "device_config.status",
+    "httpMethod": "GET",
+    "httpPath": "/devices/{id}/config/status",
+    "priority": 20,
+    "enabled": true,
+    "condition": null,
+    "fallbackCapability": null,
+    "createdAt": "2026-11-11T00:00:00Z",
+    "updatedAt": "2026-11-11T00:00:00Z"
+  },
+  {
+    "id": "device-diagnostics",
+    "name": "GET /devices/{id}/diagnostics → device.diagnostics",
+    "inputCapability": "device.diagnostics",
+    "outputCapability": "device.diagnostics",
+    "httpMethod": "GET",
+    "httpPath": "/devices/{id}/diagnostics",
+    "priority": 20,
+    "enabled": true,
+    "condition": null,
+    "fallbackCapability": null,
+    "createdAt": "2026-11-11T00:00:00Z",
+    "updatedAt": "2026-11-11T00:00:00Z"
+  },
+  {
     "id": "sensor-list",
     "name": "GET /sensors → sensor.list",
     "inputCapability": "sensor.list",

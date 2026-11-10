@@ -67,4 +67,13 @@ OperationResult DeviceService::remove(const std::string& id) {
   return OperationResult::success(OperationStatus{.ok = true, .message = "Deleted"});
 }
 
+
+rdws::types::ServiceResult<std::optional<rdws::device_telemetry::DiagnosticsSnapshot>>
+DeviceService::diagnostics(const std::string& id) {
+  using Result = rdws::types::ServiceResult<std::optional<rdws::device_telemetry::DiagnosticsSnapshot>>;
+  if (!repo_.findById(id)) {
+    return Result::error("Device not found", 404);
+  }
+  return Result::success(telemetry_.latestDiagnostics(id));
+}
 } // namespace rdws::device

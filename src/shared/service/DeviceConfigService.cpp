@@ -129,6 +129,40 @@ std::string DeviceConfigService::checkSensors(const std::string& deviceId,
   return errors;
 }
 
+std::string configState(int version, std::optional<int> declared, std::optional<int> rejected) {
+  if (!declared) {
+    return "unknown";
+  }
+  if (*declared == version) {
+    return "applied";
+  }
+  if (rejected && *rejected == version) {
+    return "rejected";
+  }
+  return "pending";
+}
+
+rdws::types::ServiceResult<ConfigStatus> DeviceConfigService::status(const std::string& deviceId) {
+  using Result = rdws::types::ServiceResult<ConfigStatus>;
+  const auto config = repo_.findByDeviceId(deviceId);
+  if (!config) {
+    return Result::error("Configuration not found", 404);
+  }
+  const auto lookup = declaredSource_.declared(deviceId);
+  if (lookup.statusCode != 200) {
+    return Result::error(lookup.errorMessage, lookup.statusCode);
+  }
+  ConfigStatus s;
+  s.version = config->version;
+  if (lookup.declared) {
+    s.declared = lookup.declared->declared;
+    s.rejected = lookup.declared->rejected;
+    s.declaredAt = lookup.declared->declaredAt;
+  }
+  s.state = configState(s.version, s.declared, s.rejected);
+  return Result::success(s);
+}
+
 std::optional<DeviceConfig> DeviceConfigService::findByDeviceId(const std::string& deviceId) {
   return repo_.findByDeviceId(deviceId);
 }
