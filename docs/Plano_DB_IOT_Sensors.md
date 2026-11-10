@@ -104,6 +104,18 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
   (`device_id`, `version`, `config`, `changed_at`), gravada por trigger. Dá o intervalo
   da versão que uma estação ainda roda depois que a config mudou.
 
+- **device_config_spans** *(V16)* — quando cada versão da config valeu no device, visto pelas
+  leituras: (`device_id`, `version`, `first_ts`, `last_ts`), PK (`device_id`, `version`). O
+  `ReadingWriterService` alarga o intervalo com o menor e o maior timestamp de sensor de cada
+  pack com `rec_cfg` (`LEAST`/`GREATEST`, idempotente). Sem FK para `device_config_history`:
+  a estação pode ter arquivos de uma versão anterior ao backfill daquela tabela
+  (`Plano_Indices_Derivados.md` D1.1).
+
+- **device_location_history** *(V4)* — histórico de posição do device (`device_id`,
+  `location`, `recorded_at`). Uma trigger em `devices` só grava quando o deslocamento passa de
+  `device_configurations.config->>'location_threshold_m'` (padrão 10 m), para filtrar o ruído
+  do GPS. A posição chega pelos registros `lat`/`lon` do pack (`Plano_Telemetria.md` D2).
+
 ---
 
 ## Correlações

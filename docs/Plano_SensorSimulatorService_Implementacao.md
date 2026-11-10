@@ -2,6 +2,13 @@ Data: 2026-07-15
 
 # Detalhamento de implementação — `SensorSimulatorService` + pré-requisitos
 
+> **Roteiro de julho de 2026, já executado.** Mudou depois: o simulador manda SenML JSON em
+> packs de até 200 leituras e só limpa o buffer do que foi entregue (`Plano_SensorSimulatorService.md`,
+> RDWS-161); `device_credential.rotate` e `revoke` ganharam rota REST só para `admin` em
+> 2026-10-05 (`Plano_API_REST.md`), então o item "nenhuma `device_credential.*` em `routes.json`"
+> da verificação abaixo não vale mais para essas duas; no QA os simuladores sobem pelo
+> `scripts/qa_simulators.sh`.
+
 Este documento detalha a implementação do `SensorSimulatorService` (visão de alto nível
 em `Plano_SensorSimulatorService.md`), incluindo os dois pré-requisitos que o cliente
 CoAP/DTLS exige: `device_credentials` (`Plano_DeviceCredentials.md`) e `is_simulated`

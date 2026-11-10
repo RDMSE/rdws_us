@@ -50,9 +50,9 @@ Cada recurso é um microserviço independente que se conecta ao gateway pelo soc
 
 #### ✅ Rotação e revogação de credencial via REST (2026-10-05)
 
-`device_credential.rotate` e `device_credential.revoke` já existem no `DeviceService`
-(`Plano_DeviceCredentials.md` §6), mas hoje são **internos de propósito** (fora do
-`routes.json`). Sem rota HTTP, uma chave vazada não pode ser trocada sem apagar e
+`device_credential.rotate` e `device_credential.revoke` existem no `DeviceService`
+(`Plano_DeviceCredentials.md` §6) e eram **internos de propósito** (fora do `routes.json`)
+até 2026-10-05. Sem rota HTTP, uma chave vazada não podia ser trocada sem apagar e
 recriar o device. Caso real: a PSK do device 12 (QA, `rdws_weather_node` de bancada)
 apareceu num log de debug em 2026-10-02 e ficou sem rotação por falta dessa rota.
 
@@ -76,10 +76,17 @@ apareceu num log de debug em 2026-10-02 e ficou sem rotação por falta dessa ro
 
 | Método   | Path                         | Capability              | Descrição                       |
 |----------|------------------------------|-------------------------|---------------------------------|
-| GET      | /devices/{id}/config         | device_config.get       | Busca configuração do device    |
-| POST     | /devices/{id}/config         | device_config.create    | Cria configuração do device     |
-| PUT      | /devices/{id}/config         | device_config.update    | Atualiza configuração do device |
-| DELETE   | /devices/{id}/config         | device_config.delete    | Remove configuração do device   |
+| GET      | /devices/{id}/config         | device_config.get       | Busca configuração do device (com `version`) |
+| PATCH    | /devices/{id}/config         | device_config.update    | Atualiza por *merge patch* (RFC 7396)        |
+
+- A config é 1:1 com o device e nasce vazia (`{}`) junto com ele, por trigger (V3); por isso
+  não há `create` nem `delete` (rotas removidas no RDWS-16). `version` é controlada pelo banco
+  (V12) e sobe a cada mudança.
+- No `PATCH`, chave omitida fica como está, `null` remove a chave e uma lista é substituída
+  inteira. Para `weather_station` real, a config mesclada é validada contra um JSON Schema
+  estrito, os `onboard[].sensor_id` precisam ser sensores do device do tipo do canal, e as
+  regras de `triggers[]` são conferidas contra o resto da config (RDWS-172). Erro → `400`.
+- Chaves aceitas pelo firmware: README do `rdws_weather_node`, "Configuração pelo backend".
 
 ### SensorService
 

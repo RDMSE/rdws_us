@@ -34,6 +34,14 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 - PUT /routes/{id} — atualiza regra
 - DELETE /routes/{id} — remove regra
 
+Acrescentados depois (estado de 2026-11-10):
+- GET /metrics/prometheus — as mesmas métricas no formato do Prometheus (Fase 11)
+- GET /config, PATCH/DELETE /config/capabilities/{name}, GET /config/features,
+  PUT /config/features/{name} — `GatewayConfig` em runtime (Fase 9)
+- As rotas REST dos serviços (`/farms`, `/devices/{id}/config`, ...), resolvidas pelo
+  `EventRouter` a partir do `routes.json` (lista em `Plano_API_REST.md`)
+- O CRUD de `/routes` exige token de `admin` desde o RDWS-155 (2026-10-22)
+
 ### Decisões de design tomadas
 1. **Modelo híbrido async+sync**: waitForResponse com timeout; se estourar, retorna 202 com requestId.
 2. **TTL de resultado**: requests terminais (completed/failed/timeout) são removidos após 5 minutos de retenção.
@@ -134,7 +142,7 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 - ✅ Carregamento e persistência de config via arquivo JSON.
 - ✅ API HTTP para leitura/atualização de config em runtime — `GET /config` (snapshot completo), `PATCH`/`DELETE /config/capabilities/{cap}` (override e revert por capability), `GET /config/features` e `PUT /config/features/{name}` (feature flags), em `HttpGateway.cpp`.
 
-### Fase 9b - AuthService e emissão de JWT
+### Fase 9b - AuthService e emissão de JWT ✅
 
 **Decisão de design:** um microserviço dedicado (`AuthService`) é responsável por validar credenciais e emitir tokens JWT. Ele conecta diretamente ao banco de usuários (tabela `users`). O gateway já valida o Bearer token nas requisições subsequentes (fase 8) — a fase 9b adiciona apenas o mecanismo de emissão.
 
@@ -187,7 +195,7 @@ POST /auth/login → gateway → AuthService → valida credenciais no banco →
 
 ---
 
-### Fase 10 - DB/Flyway e CI/CD
+### Fase 10 - DB/Flyway e CI/CD ✅
 
 #### 10a — Persistência via PersistenceService
 
@@ -354,7 +362,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 **Instalação como serviço systemd — nota SELinux:** o runner precisa ficar em `/opt/actions-runner` (não em `~/tools/actions-runner` ou qualquer path dentro do home do usuário). No Fedora, SELinux enforcing bloqueia o `systemd` de executar `runsvc.sh` quando o diretório está em contexto `user_home_t`, mesmo com `chmod +x` (erro `status=203/EXEC` / `Permission denied` no `journalctl`). Diagnóstico: `getenforce` + `sudo ausearch -m avc -ts recent | grep runsvc`. Para mover um runner já configurado sem gerar token novo, copiar a pasta inteira (`.runner`, `.credentials`, `.credentials_rsaparams` etc.) com `rsync -a` para o novo path e rodar `svc.sh install`/`start` de lá — **não** rodar `config.sh` de novo (token só é necessário na primeira configuração).
 
-### Fase 11 - Observabilidade de Logs (Loki + Grafana)
+### Fase 11 - Observabilidade de Logs (Loki + Grafana) ✅ (falta o link painel → logs)
 
 **Decisão de design:** logs não vão para o banco. O gateway já emite logs estruturados JSON via spdlog com arquivo rotativo. O Promtail lê esse arquivo e envia para o Loki; o Grafana consome ambos (PostgreSQL para métricas/requests, Loki para logs).
 
@@ -375,7 +383,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
-### Fase 12 - Profiling granular via RequestContext
+### Fase 12 - Profiling granular via RequestContext ✅
 
 **Contexto:** o `Profiler` atual mede o tempo total do handler no `processRequest`. Para granularidade maior (DB, serialização, cálculos), seria necessário propagar o profiler pelo call stack.
 
@@ -422,7 +430,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
-### Fase 13b - Validação de input (POST/PUT) contra schema
+### Fase 13b - Validação de input (POST/PUT) contra schema ✅
 
 **Contexto:** hoje cada handler valida campo a campo na mão (ex.: `handleUpdate` do
 `device_config_service` só checa se `config` está vazio) — inconsistente entre serviços
@@ -444,7 +452,8 @@ existe mas está vazio.
   (`farm.create/update`, `field.create/update`, `device.create/update`,
   `sensor.create/update`, `device_config.update`) — embutidos como `const std::string`
   em headers por serviço (`src/service_broker/schemas/{farm,field,device,sensor,
-  device_config}_schemas.h`), seguindo o mesmo padrão já usado em `schemas/service.h`.
+  device_config}_schemas.h`), seguindo o mesmo padrão do antigo `schemas/service.h` (removido
+  em 2026-11-10 com a classe `services`, que não existia mais).
   `device_config.update` só exige a presença de `config` (shape interna arbitrária,
   serializada como está pelo `DeviceConfigService`).
 - ✅ (2026-07-14) `SchemaValidator` conectado no `HttpGateway`, não no
@@ -480,7 +489,7 @@ existe mas está vazio.
 
 ---
 
-### Backlog — `identity.environment` hardcoded como `"prod"` em todos os serviços
+### Backlog — `identity.environment` hardcoded como `"prod"` em todos os serviços ✅
 
 **Contexto (2026-07-09):** todo `App*Service.cpp` seta `identity.environment = "prod"` na
 construção, não importa se está rodando em dev, QA ou prod de verdade — apesar do
@@ -508,7 +517,7 @@ revisados, um de cada vez (mesmo ritmo do resto do CRUD hardening desta sessão)
 
 ---
 
-### Backlog — catch genérico vazando detalhes internos (`e.what()`) pro cliente
+### Backlog — catch genérico vazando detalhes internos (`e.what()`) pro cliente ✅
 
 **Contexto (2026-07-10, achado em code review):** `PostgreSQLDatabase::execQuery`/
 `execCommand` fazem `throw std::runtime_error(...)` em erro de SQL/conexão
@@ -784,14 +793,15 @@ Afetava todo `App*Service` que usa `ServiceClient`.
 ---
 
 ## Próximo passo sugerido
-Atualizado em 2026-10-07. As fases 9b, 10a, 10b (CI/CD + Docker) e 11 (Loki + Grafana) estão
-feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), o
+Atualizado em 2026-11-10. As fases 9b, 10a, 10b (CI/CD + Docker), 11 (Loki + Grafana), 12 e 13b
+estão feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), o
 `SensorSimulatorService` e a telemetria SenML (`Plano_Telemetria.md`), todos rodando em QA.
-O que sobra deste plano são os backlogs acima — em ordem sugerida de valor:
+A reconexão do `ServiceClient` (RDWS-92) e a autenticação do CRUD de `/routes` (RDWS-155)
+também. O que sobra deste plano, em ordem sugerida de valor:
 
-1. **`ServiceClient` não reconecta** (risco operacional real, visto no QA em 2026-07-22).
-2. **CRUD de `/routes` sem autenticação** (segurança).
-3. **Fase 13 — IDOR / `public_id`** (segurança; muda contrato da API).
+1. **Fase 13 — IDOR / `public_id`** (segurança; muda contrato da API).
+2. **Timeout de PONG no `ServiceClient`** (conexão meio-aberta, seção do RDWS-92).
+3. Trocar a senha do admin no QA e criar um usuário próprio para o deploy.
 4. Wrappers semânticos do `ResponseHelper`, metadados livres do device, testes de carga.
 5. Fase 14 (multi-instância) e migrar `routes.json`/`GatewayConfig` para o banco — por
    último, sem data.

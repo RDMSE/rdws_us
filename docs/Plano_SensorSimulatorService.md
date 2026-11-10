@@ -41,6 +41,11 @@ apoio principal para o desenvolvimento e tracking da camada de entrada de dados 
    libera o lock, reiniciando o ciclo de geração (volta ao passo 2) — evita a necessidade
    de controle de idempotência mais sofisticado (offset, marca de "enviado"), já que o
    arquivo só existe entre uma geração e o envio seguinte.
+   **Revisto no RDWS-157/RDWS-161 (2026-10-28):** como o firmware, o envio vai em packs de até
+   200 leituras, da mais antiga para a mais nova, para no primeiro pack sem `2.xx` e reescreve
+   o buffer só com o que não foi entregue (`4.xx`/`5.xx` guardam as leituras). Antes, o buffer
+   inteiro ia num POST só, e foi isso que permitiu a "bola de neve" do RDWS-157
+   (`Plano_Ingestion.md`, "Vazão e falhas").
 
 **Agendamento**: cada instância do `Sensor Simulator Service` controla seu próprio timer
 — não há um processo único centralizando o agendamento de múltiplos devices. Simulação
@@ -103,24 +108,20 @@ reaproveitando a ferramenta que já é usada pro resto da API.
 
 ## `IngestionService` (destino do envio) — implementado
 
-O `IngestionService` (servidor CoAP/DTLS que recebe os dados enviados por este serviço)
-já está implementado em `src/services/ingestion_service/AppIngestionService.cpp` (PR #83,
-commit `2d56561`). Escuta em `INGESTION_BIND_HOST:INGESTION_COAP_PORT` (default
-`0.0.0.0:5684`), valida PSK via `coap_context_set_psk2` (credenciais buscadas no gateway
-via `device_credential.list_active`, cacheadas 60s), e espera um `POST` com body JSON
-`{ "device_id": ..., "readings": [{ "sensor_id", "timestamp", "value", "unit"? }] }`.
-Leituras válidas são republicadas no RabbitMQ (`sensor_readings`). Esse é o schema de
-payload que o `Sensor Simulator Service` deve gerar no envio, e é o mesmo schema que o
-firmware real (`rdws_thingy_node`) deve mirar quando enviar via CoAP — ver
-`docs/Plano_Firmware.md`. Validação completa contra `device_config` ainda está deferida
-no lado do `IngestionService` (fora do escopo deste plano).
+O `IngestionService` (`src/services/ingestion_service/AppIngestionService.cpp`) escuta em
+`INGESTION_BIND_HOST:INGESTION_COAP_PORT` (padrão `0.0.0.0:5684`) e valida a PSK com as
+credenciais de `device_credential.list_active` (cache com poll de 60 s).
 
-**Mudança de contrato planejada (`Plano_Telemetria.md`):** o payload migra para SenML
-JSON (Content-Format `110`), com `sensor_id` global no `n`, várias janelas por pacote e
-registros de diagnóstico do device. O simulador acompanha na Fase 2 daquele plano,
-gerando SenML com diagnóstico e múltiplas janelas, e passa a ser o primeiro cliente do
-formato novo, antes do firmware. Até lá, continua no JSON atual, que o
-`IngestionService` mantém durante a transição.
+- **Contrato:** SenML JSON (Content-Format `110`), o mesmo do firmware real
+  (`rdws_weather_node`, `docs/Plano_Firmware_WeatherNode.md` nesse repositório). O simulador
+  passou a gerar SenML na Fase 2 do `Plano_Telemetria.md` (2026-10-06), antes do firmware, e o
+  JSON legado foi desativado no servidor em 2026-10-30 (RDWS-165).
+- **O que o simulador manda:** `bn`/`bt`/`t`, `seq` por pack, leituras com unidades SenML
+  (`rdws::senml::fromSensorUnit`), diagnóstico sintético (`boot_count`, `rssi`) só no primeiro
+  pack, `rec_cfg` com a versão da config no momento do envio (RDWS-169) e, quando a config do
+  device tem `"position": {"lat", "lon"}`, os registros `lat`/`lon` (RDWS-165).
+- **No QA:** um container por device simulado, criado pelo `scripts/qa_simulators.sh` no
+  `deploy-qa.yml` (README, "Rodando o SensorSimulatorService contra o QA").
 
 ## Pontos em aberto
 
@@ -131,3 +132,5 @@ formato novo, antes do firmware. Até lá, continua no JSON atual, que o
   `Plano_SensorSimulatorService_Implementacao.md`.
 - Cenários de falha propositais (payload fora da faixa, perda de pacote, device offline)
   para testar a robustez do `IngestionService` — também já listado no `Plano_Ingestion.md`.
+- Gerar a janela OMM do firmware (vento: média, rajada, direção) quando os tipos de sensor de
+  vento existirem (`Backlog.md`, "Banco e simulador").

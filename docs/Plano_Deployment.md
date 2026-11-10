@@ -247,8 +247,9 @@ Stack de observabilidade completo: **Prometheus** (métricas) + **Loki** (logs) 
 
 ### Como subir o stack de observabilidade (passo a passo)
 
-Nenhum dos dois stacks sobe sozinho — é sempre uma ação manual (`docker compose ... up
--d`), separada do deploy do app. Comandos exatos, copiáveis:
+O de dev é sempre manual. O de QA sobe sozinho a cada `deploy-qa.yml` (passo "Deploy
+observability", que também reinicia o promtail e o Grafana para eles relerem os arquivos do
+checkout); o comando abaixo é para quando for preciso à mão. Comandos exatos, copiáveis:
 
 **Dev** (na sua máquina, sob demanda — suba só quando for investigar algo, derrube
 depois):
@@ -318,18 +319,22 @@ documento para detalhes.
 ## 4. GitHub Actions
 
 - **Runner self-hosted** registrado no homelab (setup manual, fora do escopo do CI em si).
-- **`.github/workflows/build.yml`**: em push/PR — build de cada imagem (matrix por
-  serviço), roda `ctest`, e em push na branch principal faz `docker push` pro
-  `ghcr.io/rdmse/rdws_us/<service>:<sha>` (+ tag `latest` ou `qa`).
-- **`.github/workflows/deploy-qa.yml`**: gatilho após build bem-sucedido na branch
-  principal — roda no runner self-hosted, faz `docker compose -f docker-compose.qa-app.yml
-  pull && up -d` direto no homelab (mesma máquina do runner ou via SSH local). Só o app
-  — o banco (`docker-compose.qa-db.yml`) não faz parte do deploy de rotina, sobe uma vez
-  e fica no ar.
-- **`.github/workflows/deploy-prod.yml`**: gatilho manual (`workflow_dispatch`) ou por
-  tag/release — reusa a mesma imagem já testada em QA (promoção, não rebuild), conecta
-  na VPS via SSH (chave em GitHub Secrets) e roda `docker compose -f
-  docker-compose.prod.yml pull && up -d`.
+Como está em 2026-11-10 (o desenho original previa um `build.yml` e o deploy de QA por
+`pull`; ficou assim):
+
+- **`.github/workflows/ci.yml`**: em push na `main` e em PR — build + `ctest` no runner
+  self-hosted, checagem dos cabeçalhos SPDX (RDWS-163) e, só em push na `main`, o job
+  `push-ghcr` (matrix por serviço) publica `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`.
+- **`.github/workflows/deploy-qa.yml`**: `workflow_run` depois do CI na `main`, no runner
+  self-hosted do homelab. Gera o `.env.qa` dos secrets, garante o Postgres de QA, roda o
+  Flyway, garante o RabbitMQ, **builda e sobe** o app (`docker-compose.qa-app.yml up -d
+  --build`, sem passar pelo GHCR), recria os simuladores (`scripts/qa_simulators.sh`), sobe a
+  observabilidade, faz o health check e sincroniza o `routes.json` no gateway
+  (`scripts/sync_gateway_routes.py`, RDWS-155).
+- **`.github/workflows/deploy-prod.yml`**: `workflow_dispatch` com input `image_tag` —
+  reusa a imagem já publicada no GHCR (promoção, não rebuild), fala com a VPS por
+  `DOCKER_HOST=ssh://...`, roda o Flyway e o `docker-compose.prod-app.yml up -d`. Ainda não
+  rodou de verdade (VPS não provisionada, passo 7 abaixo).
 - Migrations do Flyway rodam como step/job dedicado antes do `up -d` dos serviços, em
   ambos os pipelines de deploy.
 - **`.github/workflows/migrate-dev.yml`** (2026-07-09): dev continua 100% manual pro
@@ -496,7 +501,7 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
 3. Confirmar que o Flyway aplicou as migrations (`flyway_schema_history` populada) no
    banco correto de cada ambiente (`rdws_dev`/`rdws_qa`/`rdws_prod`) e o
    `seed_fake_data.sql` roda sem erro.
-4. Verificar `curl localhost:9090/targets` (Prometheus) mostrando todos os alvos "up", e
+4. Verificar `curl localhost:9091/api/v1/targets` (Prometheus, porta 9091 no host) mostrando todos os alvos "up", e
    o dashboard Grafana carregando dados reais (métricas + logs via Loki).
 5. Rodar o workflow `deploy-qa` manualmente uma vez e conferir logs do runner
    self-hosted; só depois habilitar `deploy-prod` contra a VPS.

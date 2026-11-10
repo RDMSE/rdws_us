@@ -53,7 +53,7 @@ CoAP/DTLS pro `ingestion_service`, útil pra testar o pipeline sem hardware real
 - **`Services/EventBus`** — pub/sub interno assíncrono (worker em background), usado para eventos internos (ex: `request.completed`, `metrics.snapshot`).
 - **`Config/GatewayConfig`** — configuração por capability (timeout, estratégia de load balancing, limites), com persistência.
 
-Ver `src/service_broker/SERVICES_USAGE.md` e `src/service_broker/schemas/README.md` para detalhes operacionais.
+Os schemas que o gateway confere antes de despachar estão em `src/service_broker/schemas/README.md`.
 
 ## Código compartilhado (`src/shared/`)
 
@@ -130,10 +130,10 @@ Grafana.
 
 ### Usando em QA
 
-**Não sobe sozinha** — nem no primeiro deploy nem nos seguintes: o workflow
-`deploy-qa.yml` só sobe `docker-compose.qa-db.yml` (Postgres) e `docker-compose.qa-app.yml`
-(gateway + serviços), nunca o de observabilidade. É um passo manual, uma vez só
-(depois fica no ar com `restart: unless-stopped`):
+**Sobe a cada deploy**: o `deploy-qa.yml` roda o `up -d` do
+`docker-compose.qa-observability.yml` depois do app e reinicia o promtail e o Grafana, para os
+bind mounts (dashboards, regras de alerta, config do promtail) apontarem para o checkout atual
+do runner e os alertas provisionados serem relidos. À mão, o mesmo comando:
 
 ```bash
 docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
@@ -144,8 +144,7 @@ docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
 - Mesmo `.env.qa` que os outros compose de QA já usam — nenhuma variável nova.
 - Acesse via Tailscale: Grafana em `http://fedora-server:3300`, Prometheus em
   `http://fedora-server:9091`.
-- Só precisa repetir o `up -d` se derrubou manualmente ou mudou algo no compose — não a
-  cada deploy do app.
+- À mão, só se derrubou a pilha fora de um deploy.
 
 **Dica pra quem está começando com Docker**: `up -d` sobe em background; `docker compose
 -f <arquivo> ps` mostra se os containers subiram e o status; `docker compose -f
