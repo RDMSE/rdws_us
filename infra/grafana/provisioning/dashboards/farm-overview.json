@@ -427,7 +427,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT device AS \"Device\", last_telemetry AS \"Last telemetry\", rssi AS \"RSSI (dBm)\",\n       boots AS \"Boots\",\n       NULLIF(concat_ws(', ',\n         CASE WHEN reset & 1    > 0 THEN 'PIN' END,\n         CASE WHEN reset & 2    > 0 THEN 'SOFTWARE' END,\n         CASE WHEN reset & 4    > 0 THEN 'BROWNOUT' END,\n         CASE WHEN reset & 8    > 0 THEN 'POWER-ON' END,\n         CASE WHEN reset & 16   > 0 THEN 'WATCHDOG' END,\n         CASE WHEN reset & 32   > 0 THEN 'DEBUG' END,\n         CASE WHEN reset & 128  > 0 THEN 'LOW-POWER WAKE' END,\n         CASE WHEN reset & 256  > 0 THEN 'CPU LOCKUP' END,\n         CASE WHEN reset & 4096 > 0 THEN 'HARDWARE' END,\n         CASE WHEN reset & 8192 > 0 THEN 'USER' END), '') AS \"Last reset\",\n       seq AS \"Last seq\",\n       cfg AS \"Config\",\n       fw AS \"Firmware\",\n       build AS \"Build\",\n       fs_pct AS \"FS used (%)\",\n       fs_errors AS \"FS errors\",\n       last_reformat AS \"Last FS reformat\"\nFROM (\n  -- Latest value of each diagnostic in the time range (device_telemetry, Plano_Telemetria.md D5).\n  -- LEFT JOIN keeps devices that sent nothing, so silent ones show up as empty rows.\n  SELECT d.id, d.type::text || ' #' || d.id::text AS device,\n         max(t.timestamp) AS last_telemetry,\n         (array_agg((t.data->>'rssi')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'rssi'))[1] AS rssi,\n         (array_agg((t.data->>'boot_count')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'boot_count'))[1] AS boots,\n         (array_agg((t.data->>'reset_reason')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'reset_reason'))[1] AS reset,\n         (array_agg((t.data->>'seq')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'seq'))[1] AS seq,\n         (array_agg((t.data->>'cfg_version')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'cfg_version'))[1] AS cfg,\n         (array_agg(t.data->>'fw_version' ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fw_version'))[1] AS fw,\n         (array_agg(t.data->>'fw_build' ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fw_build'))[1] AS build,\n         (array_agg((t.data->>'fs_used_pct')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fs_used_pct'))[1] AS fs_pct,\n         (array_agg((t.data->>'fs_errors')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fs_errors'))[1] AS fs_errors,\n         max(t.timestamp) FILTER (WHERE t.data ? 'fs_reformat') AS last_reformat\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN device_telemetry t ON t.device_id = d.id AND $__timeFilter(t.timestamp)\n  WHERE (f.farm_id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n  GROUP BY d.id, d.type\n) diag\nORDER BY id",
+          "rawSql": "SELECT device AS \"Device\", last_telemetry AS \"Last telemetry\", rssi AS \"RSSI (dBm)\",\n       boots AS \"Boots\",\n       NULLIF(concat_ws(', ',\n         CASE WHEN reset & 1    > 0 THEN 'PIN' END,\n         CASE WHEN reset & 2    > 0 THEN 'SOFTWARE' END,\n         CASE WHEN reset & 4    > 0 THEN 'BROWNOUT' END,\n         CASE WHEN reset & 8    > 0 THEN 'POWER-ON' END,\n         CASE WHEN reset & 16   > 0 THEN 'WATCHDOG' END,\n         CASE WHEN reset & 32   > 0 THEN 'DEBUG' END,\n         CASE WHEN reset & 128  > 0 THEN 'LOW-POWER WAKE' END,\n         CASE WHEN reset & 256  > 0 THEN 'CPU LOCKUP' END,\n         CASE WHEN reset & 4096 > 0 THEN 'HARDWARE' END,\n         CASE WHEN reset & 8192 > 0 THEN 'USER' END), '') AS \"Last reset\",\n       seq AS \"Last seq\",\n       cfg AS \"Config\",\n       fw AS \"Firmware\",\n       build AS \"Build\",\n       fs_pct AS \"FS used (%)\",\n       fs_errors AS \"FS errors\",\n       last_reformat AS \"Last FS reformat\",\n       -- Only while the snapshot carries it: the firmware drops cfg_rej once no version is rejected\n       (snap->>'cfg_rej')::bigint AS \"Config rejected\",\n       CASE WHEN up_rej > 0 THEN up_rej::text || ' (last ' || (up_rej_code / 100)::text || '.'\n            || lpad((up_rej_code % 100)::text, 2, '0') || ')' END AS \"Uplinks rejected\",\n       (SELECT string_agg(i::text, ', ' ORDER BY i) FROM generate_series(0, 31) i\n         WHERE ((snap->>'trg')::bigint >> i) & 1 = 1) AS \"Triggers\"\nFROM (\n  -- Latest value of each diagnostic in the time range (device_telemetry, Plano_Telemetria.md D5).\n  -- LEFT JOIN keeps devices that sent nothing, so silent ones show up as empty rows.\n  SELECT d.id, d.type::text || ' #' || d.id::text AS device,\n         max(t.timestamp) AS last_telemetry,\n         (array_agg((t.data->>'rssi')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'rssi'))[1] AS rssi,\n         (array_agg((t.data->>'boot_count')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'boot_count'))[1] AS boots,\n         (array_agg((t.data->>'reset_reason')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'reset_reason'))[1] AS reset,\n         (array_agg((t.data->>'seq')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'seq'))[1] AS seq,\n         (array_agg((t.data->>'cfg_version')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'cfg_version'))[1] AS cfg,\n         (array_agg(t.data->>'fw_version' ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fw_version'))[1] AS fw,\n         (array_agg(t.data->>'fw_build' ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fw_build'))[1] AS build,\n         (array_agg((t.data->>'fs_used_pct')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fs_used_pct'))[1] AS fs_pct,\n         (array_agg((t.data->>'fs_errors')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fs_errors'))[1] AS fs_errors,\n         max(t.timestamp) FILTER (WHERE t.data ? 'fs_reformat') AS last_reformat,\n         -- The latest diagnostics snapshot as a whole (every one carries cfg_version), for the\n         -- values the firmware only sends while they apply (cfg_rej, trg)\n         (array_agg(t.data ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'cfg_version'))[1] AS snap,\n         -- up_rej counts discards not yet reported, so the range's total is the sum\n         sum((t.data->>'up_rej')::bigint) FILTER (WHERE t.data ? 'up_rej') AS up_rej,\n         (array_agg((t.data->>'up_rej_code')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'up_rej_code'))[1] AS up_rej_code\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN device_telemetry t ON t.device_id = d.id AND $__timeFilter(t.timestamp)\n  WHERE (f.farm_id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n  GROUP BY d.id, d.type\n) diag\nORDER BY id",
           "rawQuery": true
         }
       ],
@@ -513,6 +513,48 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Config rejected"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uplinks rejected"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Last FS reformat"
             },
             "properties": [
@@ -543,6 +585,102 @@
       }
     },
     {
+      "id": 32,
+      "title": "Firmware crashes",
+      "description": "Crash records the stations reported in the selected time range (crash_* in device_telemetry, Plano_Firmware_WeatherNode.md §10), one row per event. PC/LR resolve to file and line with addr2line and the .elf of the build that crashed. Lost = crashes the station couldn't record while an earlier one was pending.",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "-- One row per crash: the record is resent after a lost 2.04, so events are counted by crash_boot\n-- (Plano_Firmware_WeatherNode.md §10), keeping the first arrival of each.\nSELECT * FROM (\n  SELECT DISTINCT ON (t.device_id, (t.data->>'crash_boot')::bigint)\n         t.timestamp AS \"Reported\",\n         d.type::text || ' #' || d.id::text AS \"Device\",\n         (t.data->>'crash_boot')::bigint AS \"Boot\",\n         -- emblib_crash_reason_t (emb_lib, modules/emblib_crash_record.h)\n         CASE (t.data->>'crash_reason')::int\n           WHEN 1 THEN 'ASSERT' WHEN 2 THEN 'FAULT' WHEN 3 THEN 'STACK_OVERFLOW'\n           WHEN 4 THEN 'WATCHDOG' WHEN 5 THEN 'USER' ELSE t.data->>'crash_reason' END AS \"Reason\",\n         (t.data->>'crash_code')::bigint AS \"Code\",\n         -- hex, ready for addr2line against the .elf of \"Build\"\n         '0x' || lpad(to_hex((t.data->>'crash_pc')::bigint), 8, '0') AS \"PC\",\n         '0x' || lpad(to_hex((t.data->>'crash_lr')::bigint), 8, '0') AS \"LR\",\n         (t.data->>'crash_uptime_s')::bigint AS \"Uptime\",\n         t.data->>'crash_build' AS \"Build\",\n         t.data->>'crash_msg' AS \"Message\",\n         (t.data->>'crash_lost')::bigint AS \"Lost\"\n  FROM device_telemetry t\n  JOIN devices d ON d.id = t.device_id\n  JOIN fields f ON f.id = d.field_id\n  WHERE $__timeFilter(t.timestamp)\n    AND t.data ? 'crash_boot'\n    AND (f.farm_id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n  ORDER BY t.device_id, (t.data->>'crash_boot')::bigint, t.timestamp\n) c\nORDER BY \"Reported\" DESC",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uptime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Reason"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lost"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
       "id": 40,
       "title": "Fleet Health",
       "type": "row",
@@ -551,7 +689,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 45
       },
       "panels": []
     },
@@ -564,7 +702,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 46
       },
       "datasource": {
         "type": "postgres",
@@ -594,7 +732,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 46
       },
       "datasource": {
         "type": "postgres",
@@ -624,7 +762,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "datasource": {
         "type": "postgres",
@@ -657,7 +795,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 46
+        "y": 54
       },
       "datasource": {
         "type": "postgres",
@@ -688,7 +826,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 62
       },
       "datasource": {
         "type": "loki",
