@@ -71,6 +71,19 @@ TEST(EventRouterTest, DisabledRule_Skipped) {
   EXPECT_EQ(router.resolve("cap", ep), "enabled-svc");
 }
 
+// ─── exposes (allowlist for HTTP /invoke) ──────────────────────────────────────
+
+TEST(EventRouterTest, Exposes_OnlyEnabledRuleInputs) {
+  EventRouter router;
+  EXPECT_FALSE(router.exposes("cap")); // passthrough in resolve(), but not exposed
+  router.addRule(makeRule("cap", "target"));
+  router.addRule(makeRule("off", "target", 0, /*enabled=*/false));
+  EXPECT_TRUE(router.exposes("cap"));
+  EXPECT_FALSE(router.exposes("target")); // an output is not an input
+  EXPECT_FALSE(router.exposes("off"));
+  EXPECT_FALSE(router.exposes("other"));
+}
+
 // ─── Condition: eq ────────────────────────────────────────────────────────────
 
 TEST(EventRouterTest, Condition_Eq_Matches) {

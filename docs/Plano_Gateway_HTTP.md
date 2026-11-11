@@ -22,7 +22,10 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 9. Cleanup automático de requests terminais após 5 minutos de retenção.
 
 ### Endpoints implementados
-- POST /invoke/{capability} — despacha request (sync ou async)
+- POST /invoke/{capability} — despacha request (sync ou async). Só aceita capabilities que
+  alguma regra habilitada do `EventRouter` expõe (`inputCapability`); as demais respondem `404`.
+  Sem essa lista, qualquer token válido chamava capabilities só de serviço, como
+  `device_credential.list_active`, que devolve as chaves PSK (RDWS-188).
 - GET /requests/{requestId} — consulta resultado de request assíncrono
 - GET /status — estado geral do gateway
 - GET /connections — serviços conectados

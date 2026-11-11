@@ -5,9 +5,11 @@
 // DeviceService — capabilities: device.list, device.get, device.create, device.update,
 // device.delete, device_credential.rotate/revoke (admin only, POST
 // /devices/{id}/credential/rotate|revoke — Plano_API_REST.md), plus internal-only
-// device_credential.get_active/list_active (not present in routes.json — only reachable via
-// ServiceClient::invoke, never HTTP; see Plano_DeviceCredentials.md). device_credential.provision is not a standalone
-// capability — it only runs atomically inside handleCreate (device.create).
+// device_credential.get_active/list_active, which return PSK keys: no route in routes.json, so
+// the gateway's HTTP /invoke refuses them (404), and the handlers also refuse any request that
+// carries an HTTP caller's identity (403), in case a rule is ever added for them. Services reach
+// them through ServiceClient::invoke (Plano_DeviceCredentials.md). device_credential.provision
+// is not a standalone capability — it only runs atomically inside handleCreate (device.create).
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
@@ -530,6 +532,9 @@ private:
   handleCredentialGetActive(const rdws::utils::CapabilityContext& ctx,
                             rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
+    if (auto denied = requireInternal(req)) {
+      return std::move(*denied);
+    }
     const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
     if (deviceId.empty() || !isNumericId(deviceId)) {
       return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
@@ -558,6 +563,16 @@ private:
     return std::nullopt;
   }
 
+  // Service-only capabilities (the active PSK keys): the gateway injects an identity into every
+  // authenticated HTTP request, and a service's ServiceClient::invoke carries none. So any
+  // identity here means the request came from an HTTP client.
+  static std::optional<rapidjson::Document> requireInternal(const rapidjson::Document& req) {
+    if (json::hasActorIdentity(req)) {
+      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
+    }
+    return std::nullopt;
+  }
+
   // HTTP routes carry the id in the path (/devices/{id}/credential/...); internal invokes
   // send it as a device_id body field.
   static std::string credentialDeviceId(const rapidjson::Document& req) {
@@ -570,6 +585,9 @@ private:
   static rapidjson::Document
   handleCredentialListActive(const rdws::utils::CapabilityContext& ctx,
                              rdws::device::DeviceCredentialService& svc) {
+    if (auto denied = requireInternal(ctx.request)) {
+      return std::move(*denied);
+    }
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.listActive();
     if (result.isError()) {

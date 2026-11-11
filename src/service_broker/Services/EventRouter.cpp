@@ -49,6 +49,13 @@ std::string EventRouter::resolve(const std::string& inputCapability,
   return inputCapability; // passthrough — no rule matched
 }
 
+bool EventRouter::exposes(const std::string& inputCapability) const {
+  std::shared_lock lock(mutex_);
+  return std::ranges::any_of(rules_, [&](const RoutingRule& rule) {
+    return rule.enabled && rule.inputCapability == inputCapability;
+  });
+}
+
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 std::string EventRouter::addRule(RoutingRule rule) {
