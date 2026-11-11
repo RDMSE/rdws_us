@@ -13,3 +13,10 @@ get {
 auth:bearer {
   token: {{jwtToken}}
 }
+
+script:post-response {
+  // Without a farm created in this session, Get/Update/Delete Farm use the first one listed
+  if (res.status === 200 && !bru.getVar("farmId") && res.body.data.length > 0) {
+    bru.setVar("farmId", res.body.data[0].id);
+  }
+}
