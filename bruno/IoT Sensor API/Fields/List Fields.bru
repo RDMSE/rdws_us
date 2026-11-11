@@ -17,10 +17,3 @@ params:query {
 auth:bearer {
   token: {{jwtToken}}
 }
-
-script:post-response {
-  // Without a field created in this session, Get/Update/Delete Field use the first one listed
-  if (res.status === 200 && !bru.getVar("fieldId") && res.body.data.length > 0) {
-    bru.setVar("fieldId", res.body.data[0].id);
-  }
-}
