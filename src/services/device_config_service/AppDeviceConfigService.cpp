@@ -193,21 +193,17 @@ private:
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
-      rapidjson::Value obj(rapidjson::kObjectType);
-      obj.AddMember("version", status->version, alloc);
-      obj.AddMember("declared",
-                    status->declared ? rapidjson::Value(*status->declared) : rapidjson::Value(),
-                    alloc);
-      obj.AddMember("rejected",
-                    status->rejected ? rapidjson::Value(*status->rejected) : rapidjson::Value(),
-                    alloc);
-      obj.AddMember("state", rapidjson::Value(status->state.c_str(), alloc), alloc);
-      obj.AddMember("declaredAt",
-                    status->declaredAt.empty()
-                        ? rapidjson::Value()
-                        : rapidjson::Value(status->declaredAt.c_str(), alloc),
-                    alloc);
-      return obj;
+      JsonObj obj(alloc);
+      obj.set("version", status->version)
+          .setOrNull("declared", status->declared)
+          .setOrNull("rejected", status->rejected)
+          .set("state", status->state);
+      if (status->declaredAt.empty()) {
+        obj.setNull("declaredAt");
+      } else {
+        obj.set("declaredAt", status->declaredAt);
+      }
+      return obj.take();
     });
   }
 

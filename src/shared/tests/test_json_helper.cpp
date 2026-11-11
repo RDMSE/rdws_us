@@ -44,3 +44,21 @@ TEST(ActorIdentity, ApiKeyIdentityWithoutClaims_ClaimAbsent) {
   EXPECT_TRUE(hasActorIdentity(req));
   EXPECT_EQ(getActorClaim(req, "role"), std::nullopt);
 }
+
+TEST(JsonObj, SetNullAndSetOrNull) {
+  rapidjson::Document doc;
+  rdws::utils::json::JsonObj obj(doc.GetAllocator());
+  obj.setNull("none")
+      .setOrNull("present", std::optional<int>(23))
+      .setOrNull("absent", std::optional<int>())
+      .setOrNull("text", std::optional<std::string>("v24"));
+  const rapidjson::Value value = obj.take();
+
+  ASSERT_TRUE(value.HasMember("none"));
+  EXPECT_TRUE(value["none"].IsNull());
+  EXPECT_EQ(value["present"].GetInt(), 23);
+  ASSERT_TRUE(value.HasMember("absent")); // key kept, value null: the client sees "no value"
+  EXPECT_TRUE(value["absent"].IsNull());
+  EXPECT_STREQ(value["text"].GetString(), "v24");
+}
+

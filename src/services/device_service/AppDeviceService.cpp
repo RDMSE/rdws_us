@@ -467,20 +467,13 @@ private:
     auto t = ctx.profiler.scoped("json.serialize");
     const auto& snapshot = result.getData();
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
-      rapidjson::Value obj(rapidjson::kObjectType);
-      if (!snapshot) {
-        obj.AddMember("timestamp", rapidjson::Value(), alloc);
-        obj.AddMember("data", rapidjson::Value(), alloc);
-        return obj;
+      JsonObj obj(alloc);
+      if (snapshot) {
+        obj.set("timestamp", snapshot->timestamp).setJsonOrString("data", snapshot->dataJson);
+      } else {
+        obj.setNull("timestamp").setNull("data");
       }
-      rapidjson::Document data;
-      data.Parse(snapshot->dataJson.c_str());
-      obj.AddMember("timestamp", rapidjson::Value(snapshot->timestamp.c_str(), alloc), alloc);
-      obj.AddMember("data",
-                    data.IsObject() ? rapidjson::Value(data, alloc)
-                                    : rapidjson::Value(rapidjson::kObjectType),
-                    alloc);
-      return obj;
+      return obj.take();
     });
   }
 
