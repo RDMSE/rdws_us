@@ -228,6 +228,16 @@ void HttpGateway::registerRoutes() {
       return;
     }
 
+    // Default-deny: only capabilities some routing rule exposes. Without this, any valid token
+    // could call service-only capabilities, e.g. the credential lookups that return PSK keys.
+    // 404, the same as an unknown path, so the response doesn't confirm the capability exists.
+    if (!gateway_.getEventRouter().exposes(capability)) {
+      response.status = 404;
+      response.set_content(ResponseHelper::returnError("Unknown capability: " + capability, 404),
+                           "application/json");
+      return;
+    }
+
     // Bug real (2026-07-09): body inválido era ignorado silenciosamente por
     // documentFromRequest (campos do body simplesmente não eram mesclados no payload),
     // fazendo um JSON malformado parecer "campo obrigatório faltando" em vez de "JSON

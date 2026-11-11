@@ -29,6 +29,12 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 ### Plataforma
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
 
+### Segurança
+- `POST /invoke/{capability}` só encaminha capabilities expostas por uma regra de rota; antes,
+  qualquer token válido chamava capabilities só de serviço, como as que devolvem as chaves PSK
+  ativas (`device_credential.get_active`/`list_active`). Essas duas também recusam (`403`) uma
+  requisição com identidade de cliente HTTP ([RDWS-188]).
+
 ### Corrigido
 - Gateway: quando o serviço respondia antes de o handler HTTP começar a esperar, o pedido era
   descartado como se fosse interno e o cliente recebia `404 Request not found` de uma
@@ -92,3 +98,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-180]: https://github.com/RDMSE/rdws_us/issues/180
 [RDWS-182]: https://github.com/RDMSE/rdws_us/issues/182
 [RDWS-184]: https://github.com/RDMSE/rdws_us/issues/184
+[RDWS-188]: https://github.com/RDMSE/rdws_us/issues/188
