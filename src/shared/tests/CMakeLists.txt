@@ -132,3 +132,18 @@ target_link_libraries(shared_farm_service_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_farm_service_tests)
+
+add_executable(shared_field_service_tests
+    test_field_service.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/FieldService.cpp
+)
+target_include_directories(shared_field_service_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/shared
+)
+target_link_libraries(shared_field_service_tests PRIVATE
+    rdws_shared_types
+    rdws_shared_database
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_field_service_tests)

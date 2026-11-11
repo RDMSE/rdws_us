@@ -21,15 +21,14 @@ bool FieldServiceClient::exists(const std::string& fieldId) {
   rapidjson::Document data;
   data.SetObject();
   auto& allocator = data.GetAllocator();
-  rapidjson::Value pathParams = json::JsonObj(allocator).set("id", fieldId).take();
-  rapidjson::Value dataValue =
-      json::JsonObj(allocator).setValue("pathParameters", std::move(pathParams)).take();
+  rapidjson::Value dataValue = json::JsonObj(allocator).set("id", fieldId).take();
   data.Swap(dataValue);
 
-  const auto result = client_->invoke("field.get", data);
+  // field.get addresses a field by its public id; field.ref also takes the internal one
+  const auto result = client_->invoke("field.ref", data);
 
   if (!result.success) {
-    logger::warn("FieldServiceClient: field.get invoke failed", fieldId + ": " + result.errorMessage);
+    logger::warn("FieldServiceClient: field.ref invoke failed", fieldId + ": " + result.errorMessage);
     return false;
   }
 

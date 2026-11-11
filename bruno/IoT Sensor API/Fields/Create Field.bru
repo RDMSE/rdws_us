@@ -16,9 +16,16 @@ auth:bearer {
 
 body:json {
   {
-    "farm_id": "1",
+    "farm_id": "{{farmId}}",
     "name": "Talhão Norte",
     "area": "12.5000",
     "geometry": "POLYGON((-47.93 -15.78, -47.92 -15.78, -47.92 -15.77, -47.93 -15.77, -47.93 -15.78))"
+  }
+}
+
+script:post-response {
+  // Fields are addressed by their public id (UUID); Get/Update/Delete Field use it
+  if (res.status === 201) {
+    bru.setVar("fieldId", res.body.data.id);
   }
 }
