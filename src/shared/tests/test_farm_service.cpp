@@ -17,7 +17,9 @@ using rdws::farm::IFarmRepository;
 
 namespace {
 
-// pg_timezone_names stand-in: knows two names
+constexpr auto kKnownFarm = "3f2b8c1e-9d4a-4b7e-8a21-0c5d6e7f8a9b";
+
+// pg_timezone_names stand-in: knows two names; one farm exists (kKnownFarm)
 class FakeFarmRepo : public IFarmRepository {
 public:
   std::optional<FarmCreate> created;
@@ -25,15 +27,19 @@ public:
 
   std::vector<Farm> findAll() override { return {}; }
   std::optional<Farm> findById(const std::string&) override { return std::nullopt; }
+  std::optional<Farm> findByPublicId(const std::string&) override { return std::nullopt; }
   std::string create(const FarmCreate& data) override {
     created = data;
-    return "7";
+    return kKnownFarm;
   }
-  bool update(const std::string&, const FarmUpdate& data) override {
+  bool update(const std::string& publicId, const FarmUpdate& data) override {
+    if (publicId != kKnownFarm) {
+      return false;
+    }
     updated = data;
     return true;
   }
-  bool remove(const std::string&) override { return true; }
+  bool remove(const std::string& publicId) override { return publicId == kKnownFarm; }
   bool isKnownTimezone(const std::string& name) override {
     return name == "America/Sao_Paulo" || name == "Europe/Vienna";
   }
@@ -46,7 +52,7 @@ TEST(FarmService, Create_KnownTimezoneStored) {
   FarmService svc(repo);
   const auto result = svc.create({.name = "f", .timezone = "Europe/Vienna", .updatedBy = "t"});
   ASSERT_TRUE(result.isSuccess()) << result.getErrorMessage();
-  EXPECT_EQ(result.getData(), "7");
+  EXPECT_EQ(result.getData(), kKnownFarm); // the public id, not the internal one
   EXPECT_EQ(result.getStatusCode(), 201);
   EXPECT_EQ(repo.created->timezone, "Europe/Vienna");
 }
@@ -71,7 +77,7 @@ TEST(FarmService, Create_UnknownTimezoneIs400AndNothingWritten) {
 TEST(FarmService, Update_UnknownTimezoneIs400AndNothingWritten) {
   FakeFarmRepo repo;
   FarmService svc(repo);
-  const auto result = svc.update("7", {.name = "f", .timezone = "UTC+3", .updatedBy = "t"});
+  const auto result = svc.update(kKnownFarm, {.name = "f", .timezone = "UTC+3", .updatedBy = "t"});
   EXPECT_FALSE(result.isSuccess());
   EXPECT_EQ(result.getStatusCode(), 400);
   EXPECT_FALSE(repo.updated.has_value());
@@ -80,6 +86,22 @@ TEST(FarmService, Update_UnknownTimezoneIs400AndNothingWritten) {
 TEST(FarmService, Update_KeepsTimezoneWhenNotGiven) {
   FakeFarmRepo repo;
   FarmService svc(repo);
-  ASSERT_TRUE(svc.update("7", {.name = "f", .updatedBy = "t"}).isSuccess());
+  ASSERT_TRUE(svc.update(kKnownFarm, {.name = "f", .updatedBy = "t"}).isSuccess());
   EXPECT_TRUE(repo.updated->timezone.empty()); // repository leaves the column as is
+}
+
+TEST(FarmService, Update_UnknownFarmIs404) {
+  FakeFarmRepo repo;
+  FarmService svc(repo);
+  const auto result =
+      svc.update("00000000-0000-4000-8000-000000000000", {.name = "f", .updatedBy = "t"});
+  EXPECT_FALSE(result.isSuccess());
+  EXPECT_EQ(result.getStatusCode(), 404);
+}
+
+TEST(FarmService, Remove_ReportsWhetherTheFarmExisted) {
+  FakeFarmRepo repo;
+  FarmService svc(repo);
+  EXPECT_TRUE(svc.remove(kKnownFarm));
+  EXPECT_FALSE(svc.remove("00000000-0000-4000-8000-000000000000"));
 }

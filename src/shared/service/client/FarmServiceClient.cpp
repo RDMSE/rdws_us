@@ -21,18 +21,17 @@ FarmValidation FarmServiceClient::exists(const std::string& farmId) {
   rapidjson::Document data;
   data.SetObject();
   auto& allocator = data.GetAllocator();
-  rapidjson::Value pathParams = json::JsonObj(allocator).set("id", farmId).take();
-  rapidjson::Value dataValue =
-      json::JsonObj(allocator).setValue("pathParameters", std::move(pathParams)).take();
+  rapidjson::Value dataValue = json::JsonObj(allocator).set("id", farmId).take();
   data.Swap(dataValue);
 
-  const auto result = client_->invoke("farm.get", data);
+  // farm.get addresses a farm by its public id; farm.ref also takes the internal one
+  const auto result = client_->invoke("farm.ref", data);
 
   if (!result.success) {
     if (result.statusCode == 404) {
       return {.found = false, .statusCode = 404, .errorMessage = "Farm not found"};
     }
-    logger::warn("FarmServiceClient: farm.get invoke failed", farmId + ": " + result.errorMessage);
+    logger::warn("FarmServiceClient: farm.ref invoke failed", farmId + ": " + result.errorMessage);
     // Transient/operational failure (timeout, gateway error, etc.), not a "not found" -
     // surface the underlying status so callers don't misreport it as a 404.
     const int statusCode = result.statusCode != 0 ? result.statusCode : 502;
@@ -45,8 +44,8 @@ FarmValidation FarmServiceClient::exists(const std::string& farmId) {
   rapidjson::Document envelope;
   envelope.Parse(result.responsePayload.c_str());
   if (envelope.HasParseError() || !envelope.IsObject()) {
-    logger::warn("FarmServiceClient: invalid JSON envelope from farm.get", farmId);
-    return {.found = false, .statusCode = 502, .errorMessage = "Invalid JSON envelope from farm.get"};
+    logger::warn("FarmServiceClient: invalid JSON envelope from farm.ref", farmId);
+    return {.found = false, .statusCode = 502, .errorMessage = "Invalid JSON envelope from farm.ref"};
   }
 
   if (json::getBool(envelope, "success").value_or(false)) {

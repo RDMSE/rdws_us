@@ -38,4 +38,25 @@ inline bool isNumericId(const std::string& value) {
   return normalized <= kMaxBigint;
 }
 
+// Public ids (Phase 13a) are UUIDs in the canonical 8-4-4-4-12 hex form, either case. Checked
+// before the query for the same reason as isNumericId: "invalid input syntax for type uuid"
+// would otherwise be a 500.
+inline bool isUuid(std::string_view value) {
+  constexpr size_t kLength = 36;
+  if (value.size() != kLength) {
+    return false;
+  }
+  for (size_t i = 0; i < kLength; ++i) {
+    const char c = value[i];
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (c != '-') {
+        return false;
+      }
+    } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace rdws::utils

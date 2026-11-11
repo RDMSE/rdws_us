@@ -13,7 +13,7 @@ class ServiceClient;
 
 namespace rdws::farm {
 
-// Validates farm_id FKs by calling farm_service's "farm.get" capability through
+// Validates farm_id FKs by calling farm_service's internal "farm.ref" capability through
 // the gateway (ServiceClient::invoke), instead of reaching into farm_service's own
 // repository/DB in-process. Mirrors rdws::field::FieldServiceClient.
 //
