@@ -18,7 +18,7 @@
 //
 // Formato: só SenML JSON, Content-Format 110 (Plano_Telemetria.md, D1–D3/DP1–DP3). Qualquer
 // outro Content-Format, ou nenhum, recebe 4.15 — o JSON legado {device_id, readings} foi
-// desativado em 2026-10-30 (RDWS-165); firmware e simulador já mandavam só SenML.
+// desativado em 2026-10-30; firmware e simulador já mandavam só SenML.
 //
 // `rec_cfg` (Plano_Telemetria.md D2): versão da config com que os registros do pack foram
 // gravados. Não vai para device_telemetry: vira uma mensagem `config_span` na mesma fila, com

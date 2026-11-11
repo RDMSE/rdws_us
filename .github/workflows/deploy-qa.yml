@@ -84,7 +84,7 @@ jobs:
       # rota nova commitada no routes.json nunca chega sozinha num gateway já deployado
       # — este passo fecha essa lacuna de forma idempotente (só cria o que falta, nunca
       # sobrescreve o que já existe).
-      # /routes exige identidade admin (RDWS-155): o script faz login com estas credenciais.
+      # /routes exige identidade admin: o script faz login com estas credenciais.
       - name: Sync routes.json into gateway
         env:
           RDWS_ADMIN_USER: ${{ secrets.RDWS_ADMIN_USER }}

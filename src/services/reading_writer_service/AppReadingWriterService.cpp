@@ -382,7 +382,7 @@ private:
     }
 
     // Optional: fl_ (Plano_Telemetria.md, DP3) — always sent since the legacy JSON format was
-    // dropped (RDWS-165), but messages queued before that may lack it.
+    // dropped, but messages queued before that may lack it.
     const int flags = json::getInt(doc, "flags").value_or(0);
 
     try {

@@ -74,13 +74,14 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno |
 | P3 | Wrappers semânticos no `ResponseHelper` | Tirar códigos HTTP soltos dos handlers |
 | P3 | Metadados livres do device (`devices.metadata JSONB`) | Fabricante, série, modelo |
+| P3 | `PATCH /farms/{id}` e `PATCH /devices/{id}` (todos os campos opcionais) | O `PUT` mistura semânticas: o `farm.update` exige `name` e o `device.update` exige `type` e `status`, que são sempre sobrescritos, enquanto `timezone` e `elevation_m` seguem "ausente mantém" (RDWS-182). Para mudar só o fuso ou a altitude, o cliente reenvia o resto. Importa quando o `rdws_web` editar campos soltos |
 | P3 | Testes de carga leve com várias capabilities simultâneas | Fase 5 |
 | P3 | Link painel → logs do request no Grafana | Fase 11 |
 | P3 | Sync de `routes.json` também no `deploy-prod.yml` | Já existe no QA |
 | P3 | Rotas (`EventRouter`) e `GatewayConfig` no banco | "Exceção já decidida" da Fase 14, sem esperar a multi-instância. Rotas do repo entram por migration Flyway (remover uma rota = migration com `DELETE`); coluna `source` (`repo`/`runtime`) separa as criadas via `POST /routes`. Substitui o `sync_gateway_routes.py` e a semeadura do `docker-entrypoint.sh`. Até lá, o QA mantém `POST`/`PUT`/`DELETE /devices/{id}/config` (removidas no RDWS-16) — apagar à mão com token admin |
 | P3 | Fase 14: multi-instância (discovery compartilhado, métricas agregadas) | Por último, sem data. A parte de config no banco está no item acima |
 | P3 | Auditoria mais ampla (tabela de audit log) | Avaliação |
-| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL` |
+| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL`. Parte das falhas era a corrida do RDWS-184 (resposta antes do `waitForResponse`, corrigida); em 2026-11-11 ainda falhou 1 de 3 rodadas com `-j4` (`Invoke_CallerReachesResponder`), então as portas fixas continuam |
 
 ## Infra e deploy
 
