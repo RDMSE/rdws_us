@@ -50,6 +50,12 @@ struct PendingRequest {
   // instead of (or in addition to) an HTTP-side waitForResponse() caller. -1 when
   // the request was originated by the gateway itself (e.g. sendRequest() for HTTP).
   int originatorFd = -1;
+
+  // Nobody will ever collect the response (sendFireAndForget(): the persistence bridges), so
+  // the slot is reclaimed as soon as it arrives. Any other request stays until
+  // waitForResponse() collects it, even when the service answers before the waiter registers
+  // (that used to be taken for fire-and-forget and lost, giving a 404).
+  bool fireAndForget = false;
 };
 
 using MessageHandler =
@@ -132,8 +138,13 @@ public:
   bool handleInvokeMessage(int clientFd, const rapidjson::Document& message);
 
   // Request routing
+  // The caller collects the response with waitForResponse().
   std::string sendRequest(const std::string& capability, const rapidjson::Document& requestData,
                           LoadBalancingStrategy strategy = LoadBalancingStrategy::LEAST_LOADED);
+  // Nobody waits for the response; its slot is reclaimed on arrival.
+  std::string sendFireAndForget(const std::string& capability,
+                                const rapidjson::Document& requestData,
+                                LoadBalancingStrategy strategy = LoadBalancingStrategy::ROUND_ROBIN);
   bool sendDirectRequest(const std::string& serviceId, const rapidjson::Document& requestData);
   rapidjson::Document getRequestStatus(const std::string& requestId) const;
   PendingRequest
@@ -181,6 +192,9 @@ public:
   }
 
 private:
+  std::string dispatchRequest(const std::string& capability, const rapidjson::Document& requestData,
+                              LoadBalancingStrategy strategy, bool fireAndForget);
+
   // Helper methods
   static bool sendMessage(int socketFd, const std::string& message);
   static std::string requestStateToString(RequestState state);

@@ -88,7 +88,7 @@ bool ServiceGateway::start() {
       payload.AddMember("originalCapability", originalCapability, alloc);
     }
     payload.AddMember("capability", rapidjson::Value("persistence.save.request", alloc), alloc);
-    sendRequest("persistence.save.request", payload, LoadBalancingStrategy::ROUND_ROBIN);
+    sendFireAndForget("persistence.save.request", payload);
   });
 
   // Bridge metrics.snapshot → persistence.save.metrics (mesmo motivo do bridge acima)
@@ -97,7 +97,7 @@ bool ServiceGateway::start() {
     payload.CopyFrom(ev, payload.GetAllocator());
     auto& alloc = payload.GetAllocator();
     payload.AddMember("capability", rapidjson::Value("persistence.save.metrics", alloc), alloc);
-    sendRequest("persistence.save.metrics", payload, LoadBalancingStrategy::ROUND_ROBIN);
+    sendFireAndForget("persistence.save.metrics", payload);
   });
 
   // Publish metrics.snapshot every 60 seconds
@@ -603,14 +603,15 @@ bool ServiceGateway::handleResponseMessage(const int clientFd, const rapidjson::
 
     sendMessage(originatorFd, json::docToString(invokeResponse));
     pendingRequests.erase(it);
-  } else if (!hasHttpWaiter) {
-    // Fire-and-forget internal requests (e.g. the request.completed →
-    // persistence.save.request/persistence.save.metrics bridges in start()) have
-    // no HTTP thread and no originator service waiting to consume them either —
-    // nothing will ever call waitForResponse() for this requestId. Reclaim the
-    // slot now instead of leaving it for cleanupExpiredRequests()'s 5-minute
-    // retention window, which made every completed request look "stuck" for
-    // minutes in /health's pendingRequests count.
+  } else if (pending.fireAndForget) {
+    // Fire-and-forget internal requests (the request.completed → persistence.save.request /
+    // persistence.save.metrics bridges in start()) have no HTTP thread and no originator
+    // service to consume them — nothing will ever call waitForResponse() for this requestId.
+    // Reclaim the slot now instead of leaving it for cleanupExpiredRequests()'s 5-minute
+    // retention window, which made every completed request look "stuck" for minutes in
+    // /health's pendingRequests count. Decided by the flag, not by "no HTTP waiter yet": a
+    // fast service answers before HttpGateway reaches waitForResponse(), and erasing then
+    // turned a success into 404 "Request not found".
     pendingRequests.erase(it);
   }
 
@@ -758,6 +759,19 @@ PendingRequest ServiceGateway::waitForResponse(const std::string& requestId,
 std::string ServiceGateway::sendRequest(const std::string& capability,
                                         const rapidjson::Document& requestData,
                                         const LoadBalancingStrategy strategy) {
+  return dispatchRequest(capability, requestData, strategy, /*fireAndForget=*/false);
+}
+
+std::string ServiceGateway::sendFireAndForget(const std::string& capability,
+                                              const rapidjson::Document& requestData,
+                                              const LoadBalancingStrategy strategy) {
+  return dispatchRequest(capability, requestData, strategy, /*fireAndForget=*/true);
+}
+
+std::string ServiceGateway::dispatchRequest(const std::string& capability,
+                                            const rapidjson::Document& requestData,
+                                            const LoadBalancingStrategy strategy,
+                                            const bool fireAndForget) {
   // Apply routing rules: may remap the incoming capability to another.
   const std::string resolvedCapability = router_.resolve(capability, requestData);
 
@@ -778,6 +792,7 @@ std::string ServiceGateway::sendRequest(const std::string& capability,
 
   PendingRequest pending;
   pending.requestId = requestId;
+  pending.fireAndForget = fireAndForget;
   pending.targetServiceId = targetServiceId;
   pending.capability = resolvedCapability;
   pending.requestPayload = json::docToString(requestData);

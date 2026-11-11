@@ -107,7 +107,7 @@ int readIntConfig(const std::string& configJson, const char* field, int defaultV
 
 // Optional `position: {"lat": ..., "lon": ...}` in the device config: the simulator then sends
 // it as SenML `lat`/`lon` records every cycle, so a simulated device exercises the position
-// path (devices.location, RDWS-165) that no real station uses yet. nullopt when absent.
+// path (devices.location) that no real station uses yet. nullopt when absent.
 std::optional<std::pair<double, double>> readPosition(const std::string& configJson) {
   if (configJson.empty()) {
     return std::nullopt;
@@ -381,7 +381,7 @@ private:
   // goes through libcoap's Block1, but each pack still opens its own DTLS session, so a
   // normal cycle (~180 readings at 30 min / 10 s sampling) should stay one pack. The bound is
   // what matters: before, the whole buffer went in a single POST, and when the server got
-  // slow it kept failing and growing (RDWS-157: 24 000-reading packs, minutes each).
+  // slow it kept failing and growing (24 000-reading packs, minutes each).
   static constexpr size_t kMaxReadingsPerPack = 200;
 
   // Pauses generation (holds deviceFileMutex_), fetches a fresh credential and sends the

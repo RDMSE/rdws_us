@@ -80,7 +80,7 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | P3 | Rotas (`EventRouter`) e `GatewayConfig` no banco | "Exceção já decidida" da Fase 14, sem esperar a multi-instância. Rotas do repo entram por migration Flyway (remover uma rota = migration com `DELETE`); coluna `source` (`repo`/`runtime`) separa as criadas via `POST /routes`. Substitui o `sync_gateway_routes.py` e a semeadura do `docker-entrypoint.sh`. Até lá, o QA mantém `POST`/`PUT`/`DELETE /devices/{id}/config` (removidas no RDWS-16) — apagar à mão com token admin |
 | P3 | Fase 14: multi-instância (discovery compartilhado, métricas agregadas) | Por último, sem data. A parte de config no banco está no item acima |
 | P3 | Auditoria mais ampla (tabela de audit log) | Avaliação |
-| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL` |
+| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL`. Parte das falhas era a corrida do RDWS-184 (resposta antes do `waitForResponse`, corrigida); em 2026-11-11 ainda falhou 1 de 3 rodadas com `-j4` (`Invoke_CallerReachesResponder`), então as portas fixas continuam |
 
 ## Infra e deploy
 
