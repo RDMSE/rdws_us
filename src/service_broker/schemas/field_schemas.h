@@ -16,7 +16,7 @@ const std::string FIELD_CREATE_SCHEMA = R"({
         "properties": {
             "farm_id": {
                 "type": "string",
-                "pattern": "^[0-9]+$"
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
             },
             "name": {
                 "type": "string",

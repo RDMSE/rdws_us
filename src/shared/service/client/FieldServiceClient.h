@@ -13,7 +13,7 @@ class ServiceClient;
 
 namespace rdws::field {
 
-// Validates field_id FKs by calling field_service's "field.get" capability through
+// Validates field_id FKs by calling field_service's internal "field.ref" capability through
 // the gateway (ServiceClient::invoke), instead of reaching into field_service's own
 // repository/DB in-process. See backlog "chamada síncrona entre serviços via Gateway"
 // in docs/Plano_Gateway_HTTP.md.

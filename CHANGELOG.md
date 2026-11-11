@@ -9,7 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 1 | V18 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| Não lançado | 1 | V19 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
@@ -30,10 +30,13 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
 
 ### Segurança
-- Farms endereçadas pelo `public_id` (UUID) em vez do id sequencial, que permitia enumerar
-  todas: o `id` de `/farms` e de `/farms/{id}` agora é o UUID, e um id numérico no path
-  responde `400`. `PUT` e `DELETE` de uma farm inexistente respondem `404` (antes, sucesso).
-  Primeiro passo da Fase 13a; fields, devices e sensors seguem ([RDWS-28]).
+- Farms e fields endereçados pelo `public_id` (UUID) em vez do id sequencial, que permitia
+  enumerar todos: o `id` nas respostas e nos paths (`/farms/{id}`, `/fields/{id}`) e o
+  `farm_id` dos fields (corpo, filtro `?farm_id=` e resposta) agora são UUIDs, e um id numérico
+  responde `400`. `PUT` e `DELETE` de um recurso inexistente respondem `404` (antes, sucesso).
+  O field guarda o `public_id` da farm (`fields.farm_public_id`, FK composta com o `farm_id`),
+  para o `field_service` não ler a tabela `farms`. Fase 13a; devices e sensors seguem
+  ([RDWS-28]).
 - `POST /invoke/{capability}` só encaminha capabilities expostas por uma regra de rota; antes,
   qualquer token válido chamava capabilities só de serviço, como as que devolvem as chaves PSK
   ativas (`device_credential.get_active`/`list_active`). Essas duas também recusam (`403`) uma

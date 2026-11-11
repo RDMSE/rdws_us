@@ -5,9 +5,13 @@ meta {
 }
 
 put {
-  url: {{baseUrl}}/farms/{{farmId}}
+  url: {{baseUrl}}/farms/:farmId
   body: json
   auth: bearer
+}
+
+params:path {
+  farmId: {{farmId}}
 }
 
 auth:bearer {
