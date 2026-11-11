@@ -9,7 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 1 | V17 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| Não lançado | 1 | V18 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
@@ -30,6 +30,10 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
 
 ### Segurança
+- Farms endereçadas pelo `public_id` (UUID) em vez do id sequencial, que permitia enumerar
+  todas: o `id` de `/farms` e de `/farms/{id}` agora é o UUID, e um id numérico no path
+  responde `400`. `PUT` e `DELETE` de uma farm inexistente respondem `404` (antes, sucesso).
+  Primeiro passo da Fase 13a; fields, devices e sensors seguem ([RDWS-28]).
 - `POST /invoke/{capability}` só encaminha capabilities expostas por uma regra de rota; antes,
   qualquer token válido chamava capabilities só de serviço, como as que devolvem as chaves PSK
   ativas (`device_credential.get_active`/`list_active`). Essas duas também recusam (`403`) uma
@@ -83,6 +87,7 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 - AGPL-3.0-only, com `src/shared/` e o client do broker em Apache-2.0; cabeçalhos SPDX
   checados no CI ([RDWS-163]).
 
+[RDWS-28]: https://github.com/RDMSE/rdws_us/issues/28
 [RDWS-153]: https://github.com/RDMSE/rdws_us/issues/153
 [RDWS-155]: https://github.com/RDMSE/rdws_us/issues/155
 [RDWS-157]: https://github.com/RDMSE/rdws_us/issues/157
