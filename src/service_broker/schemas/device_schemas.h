@@ -50,6 +50,11 @@ const std::string DEVICE_UPDATE_SCHEMA = R"({
             "status": {
                 "type": "string",
                 "minLength": 1
+            },
+            "elevation_m": {
+                "type": ["number", "null"],
+                "minimum": -500,
+                "maximum": 9000
             }
         },
         "required": ["type", "status"]

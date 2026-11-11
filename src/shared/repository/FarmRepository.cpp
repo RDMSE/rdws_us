@@ -5,7 +5,7 @@
 
 namespace rdws::farm {
 
-static constexpr auto kSelectCols = "SELECT id, name, ST_AsText(location) AS location, "
+static constexpr auto kSelectCols = "SELECT id, name, ST_AsText(location) AS location, timezone, "
                                     "created_at, updated_at, updated_by FROM farms";
 
 Farm FarmRepository::farmFromRow(rdws::database::IResultSet& rs) {
@@ -13,6 +13,7 @@ Farm FarmRepository::farmFromRow(rdws::database::IResultSet& rs) {
   f.id = rs.getString("id");
   f.name = rs.getString("name");
   f.location = rs.isNull("location") ? "" : rs.getString("location");
+  f.timezone = rs.getString("timezone");
   f.createdAt = rs.getString("created_at");
   f.updatedAt = rs.isNull("updated_at") ? "" : rs.getString("updated_at");
   f.updatedBy = rs.isNull("updated_by") ? "" : rs.getString("updated_by");
@@ -43,15 +44,30 @@ std::optional<Farm> FarmRepository::findById(const std::string& id) {
 }
 
 std::string FarmRepository::create(const FarmCreate& data) {
-  const bool hasLocation = !data.locationWkt.empty();
-  const std::string sql =
-      hasLocation ? "INSERT INTO farms (name, location, updated_by) VALUES ($1, "
-                    "ST_SetSRID(ST_GeomFromText($2),4326), $3) RETURNING id"
-                  : "INSERT INTO farms (name, updated_by) VALUES ($1, $2) RETURNING id";
+  // Optional columns are only listed when given, so the table's defaults apply otherwise
+  std::vector<std::string> columns = {"name", "updated_by"};
+  std::vector<std::string> values = {"$1", "$2"};
+  std::vector<std::string> params = {data.name, data.updatedBy};
+  if (!data.locationWkt.empty()) {
+    params.push_back(data.locationWkt);
+    columns.emplace_back("location");
+    values.push_back("ST_SetSRID(ST_GeomFromText($" + std::to_string(params.size()) + "),4326)");
+  }
+  if (!data.timezone.empty()) {
+    params.push_back(data.timezone);
+    columns.emplace_back("timezone");
+    values.push_back("$" + std::to_string(params.size()));
+  }
 
-  const std::vector<std::string> params =
-      hasLocation ? std::vector<std::string>{data.name, data.locationWkt, data.updatedBy}
-                  : std::vector<std::string>{data.name, data.updatedBy};
+  std::string sql = "INSERT INTO farms (";
+  for (size_t i = 0; i < columns.size(); ++i) {
+    sql += (i > 0 ? ", " : "") + columns[i];
+  }
+  sql += ") VALUES (";
+  for (size_t i = 0; i < values.size(); ++i) {
+    sql += (i > 0 ? ", " : "") + values[i];
+  }
+  sql += ") RETURNING id";
 
   auto rs = db_.execQuery(sql, params);
   if (!rs->next()) {
@@ -61,17 +77,26 @@ std::string FarmRepository::create(const FarmCreate& data) {
 }
 
 bool FarmRepository::update(const std::string& id, const FarmUpdate& data) {
-  const bool hasLocation = !data.locationWkt.empty();
-  const std::string sql =
-      hasLocation ? "UPDATE farms SET name=$1, location=ST_SetSRID(ST_GeomFromText($2),4326), "
-                    "updated_at=now(), updated_by=$3 WHERE id=$4"
-                  : "UPDATE farms SET name=$1, updated_at=now(), updated_by=$2 WHERE id=$3";
-
-  const std::vector<std::string> params =
-      hasLocation ? std::vector<std::string>{data.name, data.locationWkt, data.updatedBy, id}
-                  : std::vector<std::string>{data.name, data.updatedBy, id};
+  // name is always replaced; location and timezone only when given
+  std::vector<std::string> params = {data.name, data.updatedBy};
+  std::string sql = "UPDATE farms SET name=$1, updated_by=$2, updated_at=now()";
+  if (!data.locationWkt.empty()) {
+    params.push_back(data.locationWkt);
+    sql += ", location=ST_SetSRID(ST_GeomFromText($" + std::to_string(params.size()) + "),4326)";
+  }
+  if (!data.timezone.empty()) {
+    params.push_back(data.timezone);
+    sql += ", timezone=$" + std::to_string(params.size());
+  }
+  params.push_back(id);
+  sql += " WHERE id=$" + std::to_string(params.size());
 
   return db_.execCommand(sql, params);
+}
+
+bool FarmRepository::isKnownTimezone(const std::string& name) {
+  auto rs = db_.execQuery("SELECT 1 FROM pg_timezone_names WHERE name = $1", {name});
+  return rs->next();
 }
 
 bool FarmRepository::remove(const std::string& id) {

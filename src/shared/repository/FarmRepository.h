@@ -15,6 +15,7 @@ struct Farm {
   std::string id;
   std::string name;
   std::string location; // WKT or empty
+  std::string timezone; // IANA name (V17), local day of the derived indices
   std::string createdAt;
   std::string updatedAt;
   std::string updatedBy;
@@ -23,12 +24,14 @@ struct Farm {
 struct FarmCreate {
   std::string name;
   std::string locationWkt; // empty = no geometry
+  std::string timezone;    // empty = the column default (America/Sao_Paulo)
   std::string updatedBy;
 };
 
 struct FarmUpdate {
   std::string name;
   std::string locationWkt;
+  std::string timezone; // empty = keep the current one
   std::string updatedBy;
 };
 
@@ -41,6 +44,8 @@ public:
   [[nodiscard]] virtual std::string create(const FarmCreate& data) = 0;
   [[nodiscard]] virtual bool update(const std::string& id, const FarmUpdate& data) = 0;
   [[nodiscard]] virtual bool remove(const std::string& id) = 0;
+  // A name PostgreSQL knows (pg_timezone_names): the only list the daily aggregates can use
+  [[nodiscard]] virtual bool isKnownTimezone(const std::string& name) = 0;
 };
 
 class FarmRepository : public IFarmRepository {
@@ -52,6 +57,7 @@ public:
   [[nodiscard]] std::string create(const FarmCreate& data) override;
   [[nodiscard]] bool update(const std::string& id, const FarmUpdate& data) override;
   [[nodiscard]] bool remove(const std::string& id) override;
+  [[nodiscard]] bool isKnownTimezone(const std::string& name) override;
 
 private:
   rdws::database::IDatabase& db_;

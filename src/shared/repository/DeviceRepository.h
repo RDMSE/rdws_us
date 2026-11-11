@@ -18,6 +18,8 @@ struct Device {
   std::string status;
   std::string installationDate; // empty if NULL
   std::string location;         // WKT or empty
+  std::optional<double> elevationM;           // V17, D7 of Plano_Indices_Derivados.md
+  std::optional<std::string> elevationSource; // "dem", "gps" or "manual"; set with elevationM
   bool isSimulated = false;
   std::string createdAt;
   std::string updatedAt;
@@ -46,6 +48,9 @@ struct DeviceUpdate {
   std::string type;
   std::string status;
   std::string updatedBy;
+  // Absent = keep; an empty inner optional = clear; a value = set with source "manual" (the
+  // highest priority in D7, so a later automatic source never overwrites it).
+  std::optional<std::optional<double>> elevationM;
 };
 
 class IDeviceRepository {

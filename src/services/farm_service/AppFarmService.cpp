@@ -57,6 +57,7 @@ rapidjson::Value farmToJson(const Farm& f, rapidjson::Document::AllocatorType& a
   obj.set("id", f.id)
     .set("name", f.name)
     .set("location", f.location)
+    .set("timezone", f.timezone)
     .set("created_at", f.createdAt);
   if (!f.updatedAt.empty()) {
     obj.set("updated_at", f.updatedAt);
@@ -204,21 +205,22 @@ private:
     const FarmCreate data{
         .name = name,
         .locationWkt = parseLocationWkt(req),
+        .timezone = json::getString(req, "timezone").value_or(std::string{}),
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
 
-    const std::string id = [&] {
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
       return svc.create(data);
     }();
-    if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Failed to create farm", 500);
+    if (!result.isSuccess()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
-          return JsonObj(alloc).set("id", id).take();
+          return JsonObj(alloc).set("id", result.getData()).take();
         },
         201);
   }
@@ -242,13 +244,15 @@ private:
     const FarmUpdate data{
         .name = name,
         .locationWkt = parseLocationWkt(req),
+        .timezone = json::getString(req, "timezone").value_or(std::string{}),
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
 
     auto t = ctx.profiler.scoped("db.query");
-    const bool ok = svc.update(id, data);
-    return ok ? ResponseHelper::returnSuccessDoc()
-              : ResponseHelper::returnErrorDoc("Failed to update farm", 500);
+    const auto result = svc.update(id, data);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
   static rapidjson::Document handleDelete(const rdws::utils::CapabilityContext& ctx,

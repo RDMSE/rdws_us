@@ -7,7 +7,8 @@ namespace rdws::device {
 
 static constexpr auto kSelectCols =
     "SELECT id, field_id, type, status, installation_date, "
-    "ST_AsText(location) AS location, is_simulated, created_at, updated_at, updated_by "
+    "ST_AsText(location) AS location, elevation_m, elevation_source::text AS elevation_source, "
+    "is_simulated, created_at, updated_at, updated_by "
     "FROM devices";
 
 Device DeviceRepository::deviceFromRow(rdws::database::IResultSet& rs) {
@@ -18,6 +19,10 @@ Device DeviceRepository::deviceFromRow(rdws::database::IResultSet& rs) {
   d.status = rs.getString("status");
   d.installationDate = rs.isNull("installation_date") ? "" : rs.getString("installation_date");
   d.location = rs.isNull("location") ? "" : rs.getString("location");
+  if (!rs.isNull("elevation_m")) {
+    d.elevationM = rs.getDouble("elevation_m");
+    d.elevationSource = rs.getString("elevation_source");
+  }
   d.isSimulated = rs.getBool("is_simulated");
   d.createdAt = rs.getString("created_at");
   d.updatedAt = rs.isNull("updated_at") ? "" : rs.getString("updated_at");
@@ -88,9 +93,19 @@ std::string DeviceRepository::create(const DeviceCreate& data) {
 }
 
 bool DeviceRepository::update(const std::string& id, const DeviceUpdate& data) {
-  std::string query =
-      "UPDATE devices SET type=$1, status=$2, updated_at=now(), updated_by=$3 WHERE id=$4";
-  std::vector<std::string> params = {data.type, data.status, data.updatedBy, id};
+  std::vector<std::string> params = {data.type, data.status, data.updatedBy};
+  std::string query = "UPDATE devices SET type=$1, status=$2, updated_at=now(), updated_by=$3";
+  if (data.elevationM) {
+    if (*data.elevationM) {
+      params.push_back(std::to_string(**data.elevationM));
+      query += ", elevation_m=$" + std::to_string(params.size()) +
+               ", elevation_source='manual'";
+    } else {
+      query += ", elevation_m=NULL, elevation_source=NULL";
+    }
+  }
+  params.push_back(id);
+  query += " WHERE id=$" + std::to_string(params.size());
   return db_.execCommand(query, params);
 }
 
