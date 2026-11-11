@@ -52,7 +52,6 @@ implementação do plano.
 
 | Prio | Item | Observação |
 |---|---|---|
-| P2 | Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source` | Passo 1. O D1.1 (`rec_cfg`) já está feito |
 | P2 | Funções SQL puras (`es`, `dewpoint`, `vpd`, `wet_bulb`, `slp`, `ra`, `et0_hs`, `et0_pm`) com testes de referência | Passo 2. FAO-56 e Stull 2011 |
 | P2 | View `weather_samples` (com `window_s`) e views instantâneas (Td, DPV, Delta T, P0, tendência 3 h) | Passo 3 |
 | P2 | Painéis instantâneos no Grafana | Passo 4 |

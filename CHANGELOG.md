@@ -9,7 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| Não lançado | 1 | V17 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
@@ -21,6 +21,10 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `GET /devices/{id}/diagnostics`: o snapshot de diagnóstico mais recente do device. O
   `device_service` é o dono da leitura de `device_telemetry`; o `device_config_service` a
   consulta pelo gateway (`DeviceDiagnosticsClient`), não pela tabela ([RDWS-180]).
+
+- `farms.timezone` (fuso IANA, padrão `America/Sao_Paulo`, validado contra o
+  `pg_timezone_names`) e `devices.elevation_m`/`elevation_source` (altitude informada pela API
+  como `manual`), para os índices derivados ([RDWS-182]).
 
 ### Plataforma
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
@@ -80,3 +84,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-176]: https://github.com/RDMSE/rdws_us/issues/176
 [RDWS-178]: https://github.com/RDMSE/rdws_us/issues/178
 [RDWS-180]: https://github.com/RDMSE/rdws_us/issues/180
+[RDWS-182]: https://github.com/RDMSE/rdws_us/issues/182
