@@ -115,6 +115,9 @@ rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorTyp
   if (!d.location.empty()) {
     obj.set("location", d.location);
   }
+  // Always present (null when unknown): the derived indices read them (V17)
+  obj.setOrNull("elevation_m", d.elevationM)
+      .setOrNull("elevation_source", d.elevationSource);
   obj.set("created_at", d.createdAt);
   if (!d.updatedAt.empty()) {
     obj.set("updated_at", d.updatedAt);
@@ -429,11 +432,17 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: status", 400);
     }
 
+    // elevation_m: absent = keep, null = clear, a number = set with source "manual" (D7)
     DeviceUpdate data{
         .type = type,
         .status = status,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
+    if (const auto elevation = req.FindMember("elevation_m"); elevation != req.MemberEnd()) {
+      data.elevationM = elevation->value.IsNumber()
+                            ? std::optional<double>(elevation->value.GetDouble())
+                            : std::nullopt;
+    }
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.update(id, data);
     return result.isSuccess()
@@ -441,9 +450,6 @@ private:
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
-  // Internal-only (not routed via HTTP/routes.json) - device_id comes in the request
-  // body rather than a path param, since callers here are other services (IngestionService),
-  // not the REST gateway.
   // {"timestamp": "...Z", "data": {...}} — the latest diagnostics snapshot (cfg_version, cfg_rej,
   // boot_count, rssi, fw_version, ...); both null when the device never sent any.
   static rapidjson::Document handleDiagnostics(const rdws::utils::CapabilityContext& ctx,
@@ -477,6 +483,9 @@ private:
     });
   }
 
+  // Internal-only (not routed via HTTP/routes.json) - device_id comes in the request
+  // body rather than a path param, since callers here are other services (IngestionService),
+  // not the REST gateway.
   static rapidjson::Document handleUpdateLocation(const rdws::utils::CapabilityContext& ctx,
                                                   rdws::device::DeviceService& svc) {
     const auto& req = ctx.request;
