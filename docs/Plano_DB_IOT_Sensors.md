@@ -31,14 +31,20 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - installation_date : TIMESTAMPTZ
     - status : ENUM('active', 'inactive', 'maintenance') NOT NULL DEFAULT 'active'
     - location : POINT (PostGIS)
+    - is_simulated : BOOLEAN NOT NULL DEFAULT false — imutável depois de criado (V7)
+    - last_seen : TIMESTAMPTZ — hora de chegada do último dado aceito, gravada pelo
+      `ReadingWriterService` (V14, `Plano_Telemetria.md` Fase 3)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
     - updated_by : VARCHAR(255)
 
-- **device_configurations**
+- **device_configurations** *(1:1 com o device, criada por trigger junto dele — V3)*
     - id : BIGINT (PK, auto-increment)
-    - device_id : BIGINT (FK → devices.id) NOT NULL
-    - config : JSONB NOT NULL
+    - device_id : BIGINT (FK → devices.id) NOT NULL UNIQUE
+    - config : JSONB NOT NULL — para `weather_station` real, validado contra o schema em
+      `src/shared/service/DeviceConfigSchemas.h` e cruzado com `sensors`
+    - version : INTEGER NOT NULL DEFAULT 1 — controlada por trigger, sobe a cada mudança
+      real do `config` (V12); o device declara a que roda e recebe a nova (D11)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
     - updated_by : VARCHAR(255)
@@ -46,8 +52,12 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
 - **sensors**
     - id : BIGINT (PK, auto-increment)
     - device_id : BIGINT (FK → devices.id) NOT NULL
-    - type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity', 'other') NOT NULL
-    - unit : VARCHAR(32) NOT NULL (ex: '°C', '%', 'pH')
+    - type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity', 'other', 'pressure', 'co2') NOT NULL
+        - `pressure` e `co2` adicionados na migration V9 (RDWS-103) — ver "Decisão: tipos `pressure` e `co2`" em Observações Técnicas
+    - unit : VARCHAR(32) NOT NULL (ex: '°C', '%', 'pH', 'kPa', 'ppm')
+        - Nomenclatura do banco mantida: o `IngestionService` converte as unidades SenML
+          do payload (`Cel`, `%RH`, `Pa`, `/`, `lx`) para estas (`Plano_Telemetria.md`,
+          DP1, decidido em 2026-10-05).
     - location : POINT (PostGIS)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
     - updated_at : TIMESTAMPTZ
@@ -69,7 +79,42 @@ Este arquivo descreve o modelo de dados para o sistema de análise de sensores I
     - sensor_id : BIGINT (FK → sensors.id) NOT NULL
     - timestamp : TIMESTAMPTZ NOT NULL
     - value : NUMERIC(12, 6) NOT NULL
+    - flags : SMALLINT NOT NULL DEFAULT 0 — bitmask `fl_` do SenML (`0x2` trigger, `0x4`
+      janela parcial; V10)
     - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
+    - UNIQUE (sensor_id, timestamp) — idempotência da escrita (V8)
+
+- **device_telemetry** *(diagnóstico do device, V11)* — snapshot por transmissão (RSSI,
+  `boot_count`, `reset_reason`, `cfg_version`, FS, `fw_version`, `fw_build`, `crash_*`…) em JSONB,
+  sem partição; retenção de 90
+  dias (`Plano_Telemetria.md`, D5 e Fase 3)
+    - device_id : BIGINT (FK → devices.id) NOT NULL
+    - timestamp : TIMESTAMPTZ NOT NULL
+    - data : JSONB NOT NULL
+    - created_at : TIMESTAMPTZ NOT NULL DEFAULT now()
+    - UNIQUE (device_id, timestamp) — conflito mescla as chaves (`data || EXCLUDED.data`)
+
+- **device_liveness** *(view, V14; V15)* — por device: `last_seen`, intervalo de envio esperado
+  (da config) e `silent` (nada chegou há mais de 3× esse intervalo). Usada pelo painel
+  "Devices Online / Offline" e pelo alerta "Silent station". Desde V15, enquanto o
+  `cfg_version` declarado pelo device difere da versão atual (`config_pending`), o
+  intervalo esperado é o maior entre o da versão que ele roda e o da atual.
+
+- **device_config_history** *(V15)* — toda versão da config de cada device
+  (`device_id`, `version`, `config`, `changed_at`), gravada por trigger. Dá o intervalo
+  da versão que uma estação ainda roda depois que a config mudou.
+
+- **device_config_spans** *(V16)* — quando cada versão da config valeu no device, visto pelas
+  leituras: (`device_id`, `version`, `first_ts`, `last_ts`), PK (`device_id`, `version`). O
+  `ReadingWriterService` alarga o intervalo com o menor e o maior timestamp de sensor de cada
+  pack com `rec_cfg` (`LEAST`/`GREATEST`, idempotente). Sem FK para `device_config_history`:
+  a estação pode ter arquivos de uma versão anterior ao backfill daquela tabela
+  (`Plano_Indices_Derivados.md` D1.1).
+
+- **device_location_history** *(V4)* — histórico de posição do device (`device_id`,
+  `location`, `recorded_at`). Uma trigger em `devices` só grava quando o deslocamento passa de
+  `device_configurations.config->>'location_threshold_m'` (padrão 10 m), para filtrar o ruído
+  do GPS. A posição chega pelos registros `lat`/`lon` do pack (`Plano_Telemetria.md` D2).
 
 ---
 
@@ -105,6 +150,12 @@ CREATE INDEX idx_devices_status ON devices (status);
 
 ## Particionamento de `sensor_readings`
 
+> **Adiado (2026-10-07, `Plano_Telemetria.md` Fase 3, R3).** O volume atual é pequeno
+> (~4 mil leituras/dia por estação) e particionar exige trocar a PK (`id` →
+> `(id, timestamp)`) e migrar os dados. Revisitar quando `sensor_readings` passar de ~50
+> milhões de linhas ou as consultas do dashboard ficarem lentas. O desenho abaixo vale
+> para quando chegar a hora.
+
 Leituras podem crescer milhões por dia. Estratégia: particionamento por mês via `RANGE` no PostgreSQL.
 
 ```sql
@@ -120,6 +171,17 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
 
 ---
 
+## Telemetria de diagnóstico do device
+
+Implementada (`device_telemetry`, V11; `devices.last_seen` e `device_liveness`, V14) — ver
+"Estrutura de Tabelas" acima e `Plano_Telemetria.md`.
+
+- Futuro (estação agregadora): **devices.parent_device_id** : BIGINT (FK → devices.id).
+- Bateria e painel solar continuam como sensores em `sensor_readings` (D6), por causa do
+  alerting.
+
+---
+
 ## Retenção de Dados
 
 | Período         | Ação                                      |
@@ -127,6 +189,11 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
 | 0 – 90 dias     | Leituras brutas, acesso frequente          |
 | 90 dias – 1 ano | Compressão (TimescaleDB) ou tablespace frio |
 | > 1 ano         | Arquivamento ou agregação por hora/dia     |
+
+`device_telemetry` tem retenção própria, mais curta: 90 dias, apagados diariamente pelo
+`ReadingWriterService` (`TELEMETRY_RETENTION_DAYS`). Diagnóstico não tem valor agronômico
+de longo prazo. A retenção/compressão de `sensor_readings` da tabela acima ainda não foi
+implementada.
 
 ---
 
@@ -138,3 +205,13 @@ CREATE TABLE sensor_readings_2026_06 PARTITION OF sensor_readings
     - **JSONB** em vez de JSON para `device_configurations` (indexável, mais eficiente)
     - **TIMESTAMPTZ** em todos os campos de data (armazena UTC, essencial para IoT distribuído)
     - Connection pooling via **PgBouncer**
+
+### Decisão: tipos `pressure` e `co2` no `sensor_type` (RDWS-103)
+
+- **Contexto:** o `rdws_thingy_node` exporta pressão atmosférica (LPS22HB) e qualidade do ar como eCO2 em ppm (CCS811, canal `SENSOR_CHAN_CO2` do Zephyr). Sem um tipo dedicado, as duas grandezas eram gravadas como `'other'`, ficando indistinguíveis entre si no mesmo device — e de qualquer sensor futuro realmente não categorizado.
+- **Decisão:** adicionar `'pressure'` e `'co2'` ao enum `sensor_type` via `db/migrations/V9__sensor_type_pressure_co2.sql` (`ALTER TYPE ... ADD VALUE`).
+- **Unidades esperadas:** `pressure` → `kPa` (unidade do `SENSOR_CHAN_PRESS` no Zephyr; usar `hPa` só se o firmware/loader converter explicitamente); `co2` → `ppm`.
+- **Observações:**
+    - O CCS811 fornece **eCO2** (CO2 equivalente estimado a partir de VOCs), não CO2 medido por NDIR. O tipo `co2` representa esse valor; se no futuro entrar um sensor de CO2 real ou de TVOC, avaliar um tipo separado (ex.: `tvoc`).
+    - `ALTER TYPE ... ADD VALUE` não é reversível no PostgreSQL (não há `DROP VALUE`); remover os tipos exigiria recriar o enum.
+    - Os valores adicionados vão para o fim do enum — a ordem do enum não deve ser usada para ordenação semântica.

@@ -1,0 +1,296 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
+#include "senml/conversion.h"
+#include "senml/senml.h"
+#include "senml/trigger_config.h"
+#include "senml/sensor_limits.h"
+
+#include <gtest/gtest.h>
+#include <rapidjson/document.h>
+
+#include <string>
+#include <unordered_map>
+
+using rdws::senml::parse;
+
+namespace {
+
+constexpr double kNow = 1791040000; // arbitrary absolute "current time"
+
+} // namespace
+
+// The example pack from Plano_Telemetria.md (D1).
+TEST(SenmlParse, PlanExample_ResolvesBaseFields) {
+  const auto result = parse(R"([
+    {"bn":"12/", "bt":1791035100, "n":"seq", "v":812},
+    {"n":"31", "u":"Cel", "v":25.4, "fl_":2},
+    {"n":"32", "u":"%RH", "v":62.1},
+    {"n":"33", "u":"Pa",  "v":98780},
+    {"n":"rssi", "v":-67},
+    {"n":"31", "t":600, "v":25.1}
+  ])",
+                            kNow);
+  ASSERT_TRUE(result) << result.error();
+  const auto& recs = *result;
+  ASSERT_EQ(recs.size(), 6U);
+
+  EXPECT_EQ(recs[0].name, "12/seq");
+  EXPECT_DOUBLE_EQ(recs[0].time, 1791035100);
+  EXPECT_DOUBLE_EQ(*recs[0].value, 812); // integer accepted as a number
+
+  EXPECT_EQ(recs[1].name, "12/31");
+  EXPECT_EQ(recs[1].unit, "Cel");
+  EXPECT_EQ(recs[1].flags, 2);
+
+  EXPECT_DOUBLE_EQ(*recs[3].value, 98780);
+  EXPECT_EQ(recs[4].unit, ""); // diagnostics carry no unit
+  EXPECT_EQ(recs[4].flags, 0);
+
+  EXPECT_EQ(recs[5].name, "12/31");
+  EXPECT_DOUBLE_EQ(recs[5].time, 1791035700);
+}
+
+TEST(SenmlParse, BaseFieldsPersistUntilRedefined) {
+  const auto result = parse(R"([
+    {"bn":"12/", "bt":1791035100, "bu":"Cel", "bv":20, "n":"31", "v":1.5},
+    {"n":"31", "t":600, "v":2},
+    {"bn":"12/child/", "n":"9", "u":"V", "v":3}
+  ])",
+                            kNow);
+  ASSERT_TRUE(result) << result.error();
+  const auto& recs = *result;
+  EXPECT_EQ(recs[1].unit, "Cel");
+  EXPECT_DOUBLE_EQ(*recs[1].value, 22);
+  EXPECT_DOUBLE_EQ(recs[1].time, 1791035700);
+  EXPECT_EQ(recs[2].name, "12/child/9");
+  EXPECT_EQ(recs[2].unit, "V");
+  EXPECT_DOUBLE_EQ(recs[2].time, 1791035100);
+}
+
+TEST(SenmlParse, SmallTimesAreRelativeToNow) {
+  const auto result = parse(R"([{"n":"x", "t":-60, "v":1}, {"n":"y", "v":2}])", kNow);
+  ASSERT_TRUE(result) << result.error();
+  EXPECT_DOUBLE_EQ((*result)[0].time, kNow - 60);
+  EXPECT_DOUBLE_EQ((*result)[1].time, kNow);
+}
+
+TEST(SenmlParse, BoolAndStringValues) {
+  const auto result =
+      parse(R"([{"n":"fs_reformat", "vb":true}, {"n":"fw", "vs":"1.2.3"}])", kNow);
+  ASSERT_TRUE(result) << result.error();
+  EXPECT_TRUE(*(*result)[0].boolValue);
+  EXPECT_FALSE((*result)[0].value.has_value());
+  EXPECT_EQ(*(*result)[1].stringValue, "1.2.3");
+}
+
+TEST(SenmlParse, UnknownPlainFieldIgnored) {
+  const auto result = parse(R"([{"n":"x", "v":1, "ut":30}])", kNow);
+  ASSERT_TRUE(result) << result.error();
+}
+
+TEST(SenmlParse, EmptyPackIsValid) {
+  const auto result = parse("[]", kNow);
+  ASSERT_TRUE(result) << result.error();
+  EXPECT_TRUE(result->empty());
+}
+
+TEST(SenmlParse, UnknownMustUnderstandField_Rejected) {
+  const auto result = parse(R"([{"n":"x", "v":1, "foo_":1}])", kNow);
+  ASSERT_FALSE(result);
+  EXPECT_NE(result.error().find("foo_"), std::string::npos);
+}
+
+TEST(SenmlParse, MalformedPacks_Rejected) {
+  EXPECT_FALSE(parse("{not json", kNow));
+  EXPECT_FALSE(parse(R"({"n":"x","v":1})", kNow));          // not an array
+  EXPECT_FALSE(parse(R"([1])", kNow));                       // record not an object
+  EXPECT_FALSE(parse(R"([{"n":"x"}])", kNow));               // no value
+  EXPECT_FALSE(parse(R"([{"n":"x","v":1,"vb":true}])", kNow)); // two values
+  EXPECT_FALSE(parse(R"([{"n":"x","v":"1"}])", kNow));       // v not a number
+  EXPECT_FALSE(parse(R"([{"v":1}])", kNow));                 // no name at all
+  EXPECT_FALSE(parse(R"([{"n":"-x","v":1}])", kNow));        // must start alphanumeric
+  EXPECT_FALSE(parse(R"([{"n":"a b","v":1}])", kNow));       // invalid char
+  EXPECT_FALSE(parse(R"([{"bver":11,"n":"x","v":1}])", kNow)); // newer SenML version
+}
+
+TEST(SenmlParse, InvalidFlags_Rejected) {
+  EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":-1}])", kNow));
+  EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":70000}])", kNow));
+  EXPECT_FALSE(parse(R"([{"n":"x","v":1,"fl_":"2"}])", kNow));
+}
+
+using rdws::senml::fromIso8601;
+using rdws::senml::fromSensorUnit;
+using rdws::senml::toIso8601;
+using rdws::senml::toSensorUnit;
+
+TEST(SenmlConversion, UnitRules) {
+  EXPECT_DOUBLE_EQ(*toSensorUnit(98780, "Pa", "kPa"), 98.78);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(25.4, "Cel", "°C"), 25.4);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(62.1, "%RH", "%"), 62.1);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(0.31, "/", "%"), 31);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(1200, "lx", "lux"), 1200);
+  EXPECT_DOUBLE_EQ(*toSensorUnit(6.8, "pH", "pH"), 6.8); // identical units pass through
+  EXPECT_DOUBLE_EQ(*toSensorUnit(9, "kPa", "kPa"), 9);   // even if not a SenML unit
+}
+
+TEST(SenmlConversion, NoRule_Rejected) {
+  EXPECT_FALSE(toSensorUnit(1, "", "°C"));     // u is mandatory for sensors
+  EXPECT_FALSE(toSensorUnit(1, "Cel", "kPa")); // wrong quantity
+  EXPECT_FALSE(toSensorUnit(1, "%RH", "°C"));
+}
+
+TEST(SenmlConversion, Iso8601) {
+  EXPECT_EQ(toIso8601(1791035100), "2026-10-03T13:45:00.000Z");
+  EXPECT_EQ(toIso8601(1791035100.25), "2026-10-03T13:45:00.250Z");
+  EXPECT_EQ(toIso8601(1791035100.9996), "2026-10-03T13:45:01.000Z");
+}
+
+TEST(SenmlConversion, FromSensorUnit_InverseRules) {
+  const auto pressure = fromSensorUnit(98.78, "kPa", "pressure");
+  EXPECT_EQ(pressure.unit, "Pa");
+  EXPECT_DOUBLE_EQ(pressure.value, 98780);
+  EXPECT_EQ(fromSensorUnit(21.5, "°C", "temperature").unit, "Cel");
+  EXPECT_EQ(fromSensorUnit(55, "%", "humidity").unit, "%RH");
+  const auto moisture = fromSensorUnit(31, "%", "moisture");
+  EXPECT_EQ(moisture.unit, "/");
+  EXPECT_DOUBLE_EQ(moisture.value, 0.31);
+  EXPECT_EQ(fromSensorUnit(1200, "lux", "luminosity").unit, "lx");
+  EXPECT_EQ(fromSensorUnit(6.8, "pH", "ph").unit, "pH"); // no rule: unchanged
+}
+
+TEST(SenmlConversion, FromSensorUnit_RoundTrip) {
+  struct Case {
+    double value;
+    const char* unit;
+    const char* type;
+  };
+  for (const auto& c : {Case{98.78, "kPa", "pressure"}, Case{21.5, "°C", "temperature"},
+                        Case{55, "%", "humidity"}, Case{31, "%", "moisture"},
+                        Case{1200, "lux", "luminosity"}, Case{6.8, "pH", "ph"}}) {
+    const auto senml = fromSensorUnit(c.value, c.unit, c.type);
+    const auto back = toSensorUnit(senml.value, senml.unit, c.unit);
+    ASSERT_TRUE(back) << c.unit << "/" << c.type;
+    EXPECT_NEAR(*back, c.value, 1e-9) << c.unit << "/" << c.type;
+  }
+}
+
+TEST(SenmlConversion, FromIso8601) {
+  EXPECT_DOUBLE_EQ(*fromIso8601("2026-10-03T13:45:00Z"), 1791035100);
+  EXPECT_DOUBLE_EQ(*fromIso8601("2026-10-03T13:45:00.250Z"), 1791035100.25);
+  EXPECT_FALSE(fromIso8601("2026-10-03 13:45:00"));
+  EXPECT_FALSE(fromIso8601("2026-10-03T13:45:00+02:00"));
+  EXPECT_FALSE(fromIso8601("garbage"));
+}
+
+// ─── Edge trigger rules for the firmware (Plano_Firmware_WeatherNode.md §4) ───
+
+namespace {
+
+const std::unordered_map<std::string, std::string> kUnits = {
+    {"31", "°C"}, {"32", "%"}, {"33", "kPa"}};
+
+constexpr char kOnboard[] =
+    R"("onboard":[{"chan":"temp","sensor_id":31},{"chan":"humidity","sensor_id":32},)"
+    R"({"chan":"press","sensor_id":33}])";
+
+std::string withTriggers(const std::string& triggers) {
+  return std::string("{") + kOnboard + R"(,"triggers":)" + triggers + "}";
+}
+
+} // namespace
+
+TEST(FirmwareFixedPoint, PlanExamples) {
+  using rdws::senml::toFirmwareFixedPoint;
+  EXPECT_EQ(toFirmwareFixedPoint(5.0, "temp", "°C"), 500);
+  EXPECT_EQ(toFirmwareFixedPoint(2.0, "temp", "°C"), 200);
+  EXPECT_EQ(toFirmwareFixedPoint(-2.5, "temp", "°C"), -250);
+  EXPECT_EQ(toFirmwareFixedPoint(85.5, "humidity", "%"), 8550);
+  EXPECT_EQ(toFirmwareFixedPoint(0.36, "press", "kPa"), 360); // 3.6 hPa
+}
+
+TEST(FirmwareFixedPoint, UnconvertibleUnitOrChannel) {
+  using rdws::senml::toFirmwareFixedPoint;
+  EXPECT_EQ(toFirmwareFixedPoint(5.0, "temp", "kPa"), std::nullopt);
+  EXPECT_EQ(toFirmwareFixedPoint(5.0, "wind", "°C"), std::nullopt);
+}
+
+TEST(ConfigForFirmware, WithoutTriggersComesBackAsIs) {
+  const std::string config = R"({"agg_window_s":600})";
+  EXPECT_EQ(rdws::senml::configForFirmware(config, kUnits), config);
+}
+
+TEST(ConfigForFirmware, ConvertsThrAndHysKeepingTheRest) {
+  const auto out = rdws::senml::configForFirmware(
+      withTriggers(R"([{"chan":"temp","op":"lt","thr":2.0,"hys":1.0},)"
+                   R"({"chan":"press","op":"fall","thr":0.36,"win_s":10800,"hys":0.1}])"),
+      kUnits);
+  ASSERT_TRUE(out.has_value());
+  rapidjson::Document doc;
+  doc.Parse(out->c_str());
+  ASSERT_TRUE(doc.IsObject());
+  EXPECT_TRUE(doc.HasMember("onboard"));
+  const auto& rules = doc["triggers"];
+  EXPECT_EQ(rules[0]["thr"].GetInt64(), 200);
+  EXPECT_EQ(rules[0]["hys"].GetInt64(), 100);
+  EXPECT_STREQ(rules[0]["op"].GetString(), "lt");
+  EXPECT_EQ(rules[1]["thr"].GetInt64(), 360);
+  EXPECT_EQ(rules[1]["hys"].GetInt64(), 100);
+  EXPECT_EQ(rules[1]["win_s"].GetInt64(), 10800);
+}
+
+TEST(ConfigForFirmware, AbsentHysStaysAbsent) {
+  const auto out = rdws::senml::configForFirmware(
+      withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), kUnits);
+  ASSERT_TRUE(out.has_value());
+  rapidjson::Document doc;
+  doc.Parse(out->c_str());
+  EXPECT_FALSE(doc["triggers"][0].HasMember("hys"));
+  EXPECT_EQ(doc["triggers"][0]["thr"].GetInt64(), 500);
+}
+
+// A raw value must never reach the station: 5.0 read as fixed point would be 0.05 °C.
+TEST(ConfigForFirmware, UnknownSensorKeepsTheConfigUndelivered) {
+  const std::unordered_map<std::string, std::string> noTemp = {{"33", "kPa"}};
+  EXPECT_EQ(rdws::senml::configForFirmware(
+                withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), noTemp),
+            std::nullopt);
+}
+
+TEST(ConfigForFirmware, UnconvertibleUnitKeepsTheConfigUndelivered) {
+  const std::unordered_map<std::string, std::string> wrong = {{"31", "kPa"}};
+  EXPECT_EQ(rdws::senml::configForFirmware(
+                withTriggers(R"([{"chan":"temp","op":"lt","thr":5}])"), wrong),
+            std::nullopt);
+}
+
+// ─── Plausible ranges (Plano_Ingestion.md) ─────────────────────────────────
+
+TEST(SensorLimits, HumidityAbove100IsImplausible) {
+  using rdws::senml::isPlausible;
+  EXPECT_TRUE(isPlausible(100.0, "%"));
+  EXPECT_TRUE(isPlausible(0.0, "%"));
+  EXPECT_FALSE(isPlausible(104.5, "%")); // the wet HTS221 of 2026-11-09
+  EXPECT_FALSE(isPlausible(131.5, "%"));
+  EXPECT_FALSE(isPlausible(-0.1, "%"));
+}
+
+TEST(SensorLimits, EachUnitHasItsRange) {
+  using rdws::senml::isPlausible;
+  EXPECT_TRUE(isPlausible(-40.0, "°C"));
+  EXPECT_FALSE(isPlausible(85.0, "°C"));
+  EXPECT_TRUE(isPlausible(98.0, "kPa"));
+  EXPECT_FALSE(isPlausible(980.0, "kPa")); // hPa sent as kPa
+  EXPECT_FALSE(isPlausible(15.0, "pH"));
+  EXPECT_TRUE(isPlausible(420.0, "ppm"));
+}
+
+TEST(SensorLimits, UnitWithoutLimitsIsAlwaysPlausible) {
+  EXPECT_TRUE(rdws::senml::isPlausible(1e9, "m/s"));
+}
+
+TEST(SensorLimits, FlagFitsSmallintAndAvoidsFirmwareBits) {
+  EXPECT_LE(rdws::senml::kFlagOutOfRange, 32767);
+  EXPECT_EQ(rdws::senml::kFlagOutOfRange & rdws::senml::kKnownFlags, 0);
+}

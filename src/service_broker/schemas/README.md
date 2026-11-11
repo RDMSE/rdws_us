@@ -1,98 +1,26 @@
-# Service Schema Usage Example
+# Schemas de validação do gateway
 
-Este arquivo demonstra como usar os schemas de validação criados em `schemas/service.h` para validar arquivos JSON de serviços.
+## Schemas de capability (em uso)
 
-## ✅ Schemas Disponíveis
+O `HttpGateway` valida o corpo de cada capability de escrita **antes** de despachar para o
+serviço: um corpo inválido recebe `400` direto do gateway, com a lista de erros, e nem chega
+ao serviço de domínio (Fase 13b do `docs/Plano_Gateway_HTTP.md`). O mapa capability →
+schema fica no `CapabilitySchemaRegistry` (`capability_schema_registry.h/.cpp`); capability
+sem schema registrado (leituras, deletes) não é validada aqui.
 
-### 1. `SERVICE_SCHEMA`
-Valida um único objeto de serviço:
-```json
-{
-    "name": "service-test1",
-    "path": "./services/test1",
-    "instances": 1
-}
-```
+| Arquivo | Capabilities |
+|---|---|
+| `farm_schemas.h` | `farm.create`, `farm.update` |
+| `field_schemas.h` | `field.create`, `field.update` |
+| `device_schemas.h` | `device.create`, `device.update` |
+| `sensor_schemas.h` | `sensor.create`, `sensor.update` |
+| `device_config_schemas.h` | `device_config.update` (só a forma do envelope `{"config": {...}}`) |
 
-### 2. `SERVICES_ARRAY_SCHEMA`  
-Valida arrays de serviços (como `services.json`):
-```json
-[
-    {
-        "name": "service-test1",
-        "path": "./services/test1",
-        "instances": 1
-    },
-    {
-        "name": "service-test2", 
-        "path": "./services/test2",
-        "instances": 2
-    }
-]
-```
+O conteúdo da config de uma `weather_station` (chaves, faixas, `onboard[]`, `triggers[]`) é
+validado depois, no `DeviceConfigService`, sobre a config **já mesclada**, com o schema estrito
+de `src/shared/service/DeviceConfigSchemas.h`: depende do tipo do device e do resto da config,
+o que o gateway não conhece.
 
-## 💻 Como Usar no Código
-
-```cpp
-#include "validator/schema_validator.h"
-#include "schemas/service.h"
-
-using namespace rdws::utils::validator;
-using namespace loader::schemas;
-
-// Validar um arquivo services.json
-bool validateServicesFile(const std::string& filePath) {
-    auto validator = SchemaValidator::fromString("services", SERVICES_ARRAY_SCHEMA);
-    
-    // Ler arquivo JSON
-    std::ifstream file(filePath);
-    Json::Value servicesJson;
-    file >> servicesJson;
-    
-    // Validar
-    auto errors = validator.validate(servicesJson);
-    
-    if (errors.empty()) {
-        std::cout << "✅ Services file is valid!" << std::endl;
-        return true;
-    } else {
-        std::cout << "❌ Validation errors found:" << std::endl;
-        for (const auto& error : errors) {
-            std::cout << "  - Field: " << error.field 
-                      << ", Error: " << error.message << std::endl;
-        }
-        return false;
-    }
-}
-```
-
-## 🔄 Integração com a Classe `services`
-
-Os schemas podem ser usados na classe `services` para validar dados antes de criar objetos `service`:
-
-```cpp
-// Em services.cpp
-bool services::loadFromJson(const std::filesystem::path& jsonFilePath) {
-    // 1. Validar o JSON com schema
-    auto validator = SchemaValidator::fromString("services", SERVICES_ARRAY_SCHEMA);
-    
-    if (!validator.validateFile(jsonFilePath)) {
-        return false;
-    }
-    
-    // 2. Se válido, carregar os serviços
-    // ... resto da implementação
-}
-```
-
-## 🧪 Testes Incluídos
-
-Os seguintes testes garantem que os schemas funcionam corretamente:
-
-- ✅ `ValidatesSingleServiceObject` - Testa validação de objeto individual
-- ✅ `RejectsServiceWithMissingName` - Rejeita quando falta campo obrigatório  
-- ✅ `RejectsServiceWithInvalidInstancesCount` - Rejeita valores negativos
-- ✅ `ValidatesServicesArray` - Valida arrays de serviços
-- ✅ `ValidatesExistingServicesJsonStructure` - Valida formato atual do projeto
-
-Todos os testes estão passando (13/13) ✅
+Para acrescentar uma capability: um `const std::string <NOME>_SCHEMA` (JSON Schema draft-07)
+num `*_schemas.h`, o registro no construtor do `CapabilitySchemaRegistry` e um caso no
+`src/service_broker/tests/test_http_e2e.cpp`.

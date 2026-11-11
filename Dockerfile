@@ -26,9 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 
+# .git isn't in the build context (.dockerignore), so the version comes from outside:
+# scripts/rdws_version.sh in CI/deploy (README, "Versões"). Empty = v0.0.0-unknown.
+ARG RDWS_VERSION=
+
 # Complete build (all targets, including tests) — does not reference SERVICE on purpose,
 # so this layer (the most expensive one) is cached between builds of different services.
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+        -DRDWS_VERSION="${RDWS_VERSION}" \
     && cmake --build build -j"$(nproc)"
 
 ARG SERVICE=service_gateway_http

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "ServiceRegistry.h"
 
 #include "../../shared/utils/logger.h"

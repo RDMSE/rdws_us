@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // PersistenceService — capabilities: persistence.save.request, persistence.save.metrics
 //
@@ -13,6 +16,7 @@
 #include "../../shared/utils/profiler.h"
 
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <chrono>
@@ -74,7 +78,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "persistence_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"persistence.save.request", "persistence.save.metrics"};

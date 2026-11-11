@@ -2,6 +2,11 @@ Data: 2026-07-16
 
 # Detalhamento de implementação — `IngestionService` + RabbitMQ + `ReadingWriterService`
 
+> **Roteiro de julho de 2026, já executado.** As partes 1–5 registram como a primeira versão
+> foi feita. O que mudou depois está no `Plano_Telemetria.md` (SenML, identidade pela PSK,
+> `device_telemetry`, config no `2.04`) e no `Plano_Ingestion.md` ("Vazão e falhas":
+> `publishBatch`, publisher confirms, dead-letter). Os runbooks do fim valem para hoje.
+
 Este documento detalha a implementação da última etapa do pipeline de ingestão
 (`Plano_Ingestion.md`): o `IngestionService` (servidor CoAP/DTLS), a fila RabbitMQ, e o
 `ReadingWriterService` (consumidor → Postgres).
@@ -183,11 +188,12 @@ capability no gateway** (conforme `Plano_Ingestion.md`: "não expõe endpoints H
 
 ## Pendência a registrar no `Plano_Ingestion.md` ao final
 - Validação completa contra `device_config` (schema/faixas plausíveis) no
-  `IngestionService` — adiada nesta entrega (só validação mínima de formato). Definir
-  nessa próxima iteração como um serviço stateless acessa `device_config` (nova
-  capability interna, provavelmente).
+  `IngestionService` — adiada nesta entrega (só validação mínima de formato). Desde 2026-10
+  o dono do sensor e a unidade são conferidos, e a config é validada na edição; faixas
+  plausíveis seguem no `Backlog.md`.
 - Invalidação de credencial em tempo real (`device_credential.changed` via EventBus) —
-  adiada; `IngestionService` usa poll periódico (60s) em vez de bridge no gateway.
+  adiada; `IngestionService` usa poll periódico (60s) em vez de bridge no gateway. Segue no
+  `Backlog.md`.
 
 ## Runbook (VS Code) — subir tudo via Tasks
 
@@ -202,10 +208,11 @@ Ordem recomendada:
    descartável). Management UI em [http://localhost:15672](http://localhost:15672)
    (usuário/senha `rdws_dev`/`rdws_dev`).
 2. **`run-gateway`** — sobe o broker/gateway.
-3. **`run-farm-service`**, **`run-field-service`**, **`run-device-service`** — ou
-   **`run-all-services`** pra subir esses + auth/sensor/sensor-reading/persistence de
-   uma vez (não inclui ingestion/reading-writer/simulator, que pedem passos extras
-   abaixo).
+3. **`run-all-services`** — sobe auth, farm, field, device, device-config, sensor,
+   sensor-reading e persistence de uma vez (não inclui ingestion/reading-writer/simulator,
+   que pedem passos extras abaixo). Para o pipeline, o mínimo é farm, field, device,
+   **device-config** e **sensor**: a ingestion pede `sensor.list_owners` ao `sensor_service`
+   (sem ele, todo pack recebe `5.03`) e `device_config.get` para a config no `2.04`.
 4. Criar um device simulado (com sensores) via `bruno/IoT Sensor API/Devices/Create
    Device.bru`, marcando `is_simulated: true` no corpo — ou via `curl`, ver passo 4 do
    runbook manual abaixo. Guarde o `id` retornado.
@@ -261,6 +268,11 @@ export RDWS_AUTH_MODE=none   # ou "jwt" com RDWS_JWT_SECRET, se preferir autenti
 
 export CREDENTIAL_ENCRYPTION_KEY=<32 bytes exatos>  # ver .env.qa.example
 ./build/bin/device_service device_001 localhost tcp://localhost:8080 &
+
+# A ingestion depende dos dois: sensor.list_owners (dono e unidade de cada sensor; sem ele
+# todo pack recebe 5.03) e device_config.get (config no 2.04)
+./build/bin/sensor_service sensor_001 localhost tcp://localhost:8080 &
+./build/bin/device_config_service device_config_001 localhost tcp://localhost:8080 &
 ```
 Confirmar que todos registraram: `curl http://localhost:3001/health`.
 
@@ -293,7 +305,8 @@ export SIMULATOR_CONTROL_PORT=9100
 export INGESTION_HOST=127.0.0.1 INGESTION_PORT=5684   # omitir se pular o passo 5
 ./build/bin/sensor_simulator_service --device-id <id> --gateway tcp://localhost:8080 &
 ```
-Confirma que está gerando: `cat sim_data/*.data` (arquivo JSON crescendo a cada ~30s).
+Confirma que está gerando: `cat sim_data/*.data` (arquivo JSON crescendo a cada ~30s). O
+envio sai em SenML JSON (Content-Format 110), em packs de até 200 leituras.
 
 ### 7. Disparar o envio via Bruno
 1. Abrir a coleção `bruno/IoT Sensor API/` no Bruno.
@@ -310,6 +323,7 @@ arquivo — não perde nada, só não confirma envio.
 ### 8. Verificar que chegou no banco
 ```bash
 psql -h localhost -U <user> -d rdws_dev -c "SELECT * FROM sensor_readings ORDER BY id DESC LIMIT 10;"
+psql -h localhost -U <user> -d rdws_dev -c "SELECT * FROM device_telemetry ORDER BY timestamp DESC LIMIT 5;"
 ```
 Disparar de novo (passo 7) deve inserir só as leituras novas — sem duplicar as já
 processadas (constraint `UNIQUE(sensor_id, timestamp)`, `V8`).

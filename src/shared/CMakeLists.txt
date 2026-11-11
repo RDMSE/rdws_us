@@ -81,6 +81,7 @@ target_include_directories(rdws_shared_utils PUBLIC
 )
 
 target_link_libraries(rdws_shared_utils PUBLIC
+    rdws_version
     expected_wrapper
     rapidjson_wrapper
 )
@@ -125,6 +126,27 @@ target_include_directories(rdws_shared_coap PUBLIC
 
 target_link_libraries(rdws_shared_coap PUBLIC
     coap-3
+)
+
+add_library(rdws_shared_senml
+    senml/conversion.cpp
+    senml/conversion.h
+    senml/trigger_config.cpp
+    senml/trigger_config.h
+    senml/sensor_limits.h
+    senml/senml.cpp
+    senml/senml.h
+)
+
+target_include_directories(rdws_shared_senml PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/senml
+)
+
+target_link_libraries(rdws_shared_senml PUBLIC
+    rapidjson_wrapper
+    expected_wrapper
+    rdws_shared_json_utils
 )
 
 add_library(rdws_shared_amqp

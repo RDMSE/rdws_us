@@ -1,7 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "ServiceGateway.h"
 
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <arpa/inet.h>
 #include <cmath>
@@ -913,6 +917,8 @@ rapidjson::Document ServiceGateway::getGatewayStatus() const {
 
   rapidjson::Value statusValue = json::JsonObj(allocator)
       .set("status", running.load())
+      .set("version", rdws::kVersion)
+      .set("apiVersion", rdws::kApiVersion)
       .set("tcpPort", tcpPort)
       .set("unixSocket", unixSocketPath)
       .set("activeConnections", static_cast<int>(getActiveConnectionCount()))

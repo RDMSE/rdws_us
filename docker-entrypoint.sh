@@ -11,10 +11,18 @@
 # no volume normalmente entre redeploys, sem esse script sobrescrever nada.
 set -e
 
+#
+# Só vale para o gateway: o 4º argumento dele é o routes.json. Outros serviços podem ter um
+# 4º argumento qualquer (ex. sensor_simulator_service: --device-id N --gateway tcp://...),
+# por isso o filtro por extensão.
 routes_file="$4"
-if [ -n "$routes_file" ] && [ ! -f "$routes_file" ] && [ -f ./routes.json ]; then
-  mkdir -p "$(dirname "$routes_file")"
-  cp ./routes.json "$routes_file"
-fi
+case "$routes_file" in
+  *.json)
+    if [ ! -f "$routes_file" ] && [ -f ./routes.json ]; then
+      mkdir -p "$(dirname "$routes_file")"
+      cp ./routes.json "$routes_file"
+    fi
+    ;;
+esac
 
 exec ./service "$@"

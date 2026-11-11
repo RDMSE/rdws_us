@@ -34,6 +34,14 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 - PUT /routes/{id} — atualiza regra
 - DELETE /routes/{id} — remove regra
 
+Acrescentados depois (estado de 2026-11-10):
+- GET /metrics/prometheus — as mesmas métricas no formato do Prometheus (Fase 11)
+- GET /config, PATCH/DELETE /config/capabilities/{name}, GET /config/features,
+  PUT /config/features/{name} — `GatewayConfig` em runtime (Fase 9)
+- As rotas REST dos serviços (`/farms`, `/devices/{id}/config`, ...), resolvidas pelo
+  `EventRouter` a partir do `routes.json` (lista em `Plano_API_REST.md`)
+- O CRUD de `/routes` exige token de `admin` desde o RDWS-155 (2026-10-22)
+
 ### Decisões de design tomadas
 1. **Modelo híbrido async+sync**: waitForResponse com timeout; se estourar, retorna 202 com requestId.
 2. **TTL de resultado**: requests terminais (completed/failed/timeout) são removidos após 5 minutos de retenção.
@@ -134,7 +142,7 @@ Consolidar o gateway HTTP em C++ que recebe requisições, transforma em payload
 - ✅ Carregamento e persistência de config via arquivo JSON.
 - ✅ API HTTP para leitura/atualização de config em runtime — `GET /config` (snapshot completo), `PATCH`/`DELETE /config/capabilities/{cap}` (override e revert por capability), `GET /config/features` e `PUT /config/features/{name}` (feature flags), em `HttpGateway.cpp`.
 
-### Fase 9b - AuthService e emissão de JWT
+### Fase 9b - AuthService e emissão de JWT ✅
 
 **Decisão de design:** um microserviço dedicado (`AuthService`) é responsável por validar credenciais e emitir tokens JWT. Ele conecta diretamente ao banco de usuários (tabela `users`). O gateway já valida o Bearer token nas requisições subsequentes (fase 8) — a fase 9b adiciona apenas o mecanismo de emissão.
 
@@ -187,7 +195,7 @@ POST /auth/login → gateway → AuthService → valida credenciais no banco →
 
 ---
 
-### Fase 10 - DB/Flyway e CI/CD
+### Fase 10 - DB/Flyway e CI/CD ✅
 
 #### 10a — Persistência via PersistenceService
 
@@ -354,7 +362,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 **Instalação como serviço systemd — nota SELinux:** o runner precisa ficar em `/opt/actions-runner` (não em `~/tools/actions-runner` ou qualquer path dentro do home do usuário). No Fedora, SELinux enforcing bloqueia o `systemd` de executar `runsvc.sh` quando o diretório está em contexto `user_home_t`, mesmo com `chmod +x` (erro `status=203/EXEC` / `Permission denied` no `journalctl`). Diagnóstico: `getenforce` + `sudo ausearch -m avc -ts recent | grep runsvc`. Para mover um runner já configurado sem gerar token novo, copiar a pasta inteira (`.runner`, `.credentials`, `.credentials_rsaparams` etc.) com `rsync -a` para o novo path e rodar `svc.sh install`/`start` de lá — **não** rodar `config.sh` de novo (token só é necessário na primeira configuração).
 
-### Fase 11 - Observabilidade de Logs (Loki + Grafana)
+### Fase 11 - Observabilidade de Logs (Loki + Grafana) ✅ (falta o link painel → logs)
 
 **Decisão de design:** logs não vão para o banco. O gateway já emite logs estruturados JSON via spdlog com arquivo rotativo. O Promtail lê esse arquivo e envia para o Loki; o Grafana consome ambos (PostgreSQL para métricas/requests, Loki para logs).
 
@@ -375,7 +383,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
-### Fase 12 - Profiling granular via RequestContext
+### Fase 12 - Profiling granular via RequestContext ✅
 
 **Contexto:** o `Profiler` atual mede o tempo total do handler no `processRequest`. Para granularidade maior (DB, serialização, cálculos), seria necessário propagar o profiler pelo call stack.
 
@@ -422,7 +430,7 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ---
 
-### Fase 13b - Validação de input (POST/PUT) contra schema
+### Fase 13b - Validação de input (POST/PUT) contra schema ✅
 
 **Contexto:** hoje cada handler valida campo a campo na mão (ex.: `handleUpdate` do
 `device_config_service` só checa se `config` está vazio) — inconsistente entre serviços
@@ -444,7 +452,8 @@ existe mas está vazio.
   (`farm.create/update`, `field.create/update`, `device.create/update`,
   `sensor.create/update`, `device_config.update`) — embutidos como `const std::string`
   em headers por serviço (`src/service_broker/schemas/{farm,field,device,sensor,
-  device_config}_schemas.h`), seguindo o mesmo padrão já usado em `schemas/service.h`.
+  device_config}_schemas.h`), seguindo o mesmo padrão do antigo `schemas/service.h` (removido
+  em 2026-11-10 com a classe `services`, que não existia mais).
   `device_config.update` só exige a presença de `config` (shape interna arbitrária,
   serializada como está pelo `DeviceConfigService`).
 - ✅ (2026-07-14) `SchemaValidator` conectado no `HttpGateway`, não no
@@ -480,7 +489,7 @@ existe mas está vazio.
 
 ---
 
-### Backlog — `identity.environment` hardcoded como `"prod"` em todos os serviços
+### Backlog — `identity.environment` hardcoded como `"prod"` em todos os serviços ✅
 
 **Contexto (2026-07-09):** todo `App*Service.cpp` seta `identity.environment = "prod"` na
 construção, não importa se está rodando em dev, QA ou prod de verdade — apesar do
@@ -508,7 +517,7 @@ revisados, um de cada vez (mesmo ritmo do resto do CRUD hardening desta sessão)
 
 ---
 
-### Backlog — catch genérico vazando detalhes internos (`e.what()`) pro cliente
+### Backlog — catch genérico vazando detalhes internos (`e.what()`) pro cliente ✅
 
 **Contexto (2026-07-10, achado em code review):** `PostgreSQLDatabase::execQuery`/
 `execCommand` fazem `throw std::runtime_error(...)` em erro de SQL/conexão
@@ -727,72 +736,74 @@ rodando 2x seguidas).
 
 ---
 
-### Backlog — CRUD de `/routes` sem autenticação
+### ✅ CRUD de `/routes` sem autenticação (RDWS-155, 2026-10-22)
 
-**Contexto (2026-07-22, achado ao investigar o item acima):** os handlers de
-`GET/POST/PUT/DELETE /routes` (`src/service_broker/HttpGateway.cpp:362-459`) não chamam
-`auth_.authenticate(...)` como os demais endpoints (`/invoke/:capability` e o dispatch
-REST genérico chamam, ver linhas 199 e 616) — mesmo com `RDWS_AUTH_MODE=jwt` configurado.
-Como a porta HTTP do gateway (`3001`) é exposta publicamente
-(`docker-compose.qa-app.yml`, `"3001:3001"`), qualquer um que alcance
-`fedora-server:3001/routes` hoje pode criar/editar/apagar regras de roteamento sem token.
+**Contexto (2026-07-22):** os handlers de `GET/POST/PUT/DELETE /routes` não chamavam
+`auth_.authenticate(...)` — `/routes` estava em `AuthConfig::publicPaths` — mesmo com
+`RDWS_AUTH_MODE=jwt`. Na revisão apareceu o mesmo problema em `/config`
+(`PATCH`/`DELETE /config/capabilities/{cap}`, `PUT /config/features/{name}`) e em
+`POST /events/{topic}`. Com a porta `3001` exposta, qualquer um mudava rotas, timeouts,
+feature flags ou publicava no bus sem token.
 
-**Decisão:** não corrigido ainda — registrar e priorizar depois. Corrigir exigiria
-decidir se `/routes` deve exigir o mesmo JWT de usuário comum ou uma role/escopo
-administrativo separado (provavelmente a segunda opção, já que CRUD de rotas é operação
-de infraestrutura, não de domínio).
+**Decisão:** role administrativa, não o JWT de usuário comum — são operações de
+infraestrutura, não de domínio.
 
-- ⬜ Adicionar checagem de auth aos 5 handlers de `/routes` em `HttpGateway.cpp`.
-- ⬜ Decidir se basta reusar `auth_.authenticate` (JWT de usuário) ou se merece uma role
-  `admin`/escopo próprio.
-- ⬜ Cobrir com teste de integração (`service_gateway_http_e2e_test` ou similar)
-  garantindo 401/403 sem token válido.
+- ✅ `AuthMiddleware::authorizeAdmin()`: 401 sem credencial válida, 403 se não for admin
+  (JWT: claim `role == "admin"`; API key: label `admin`); ignora `publicPaths`; modo
+  `none` continua liberado.
+- ✅ `HttpGateway::requireAdmin()` nos 11 handlers: `/routes` (5), `GET /config`,
+  `/config/capabilities/{cap}` (PATCH/DELETE), `/config/features` (GET/PUT),
+  `POST /events/{topic}`. `/routes` e `/events` saíram de `publicPaths`.
+- ✅ Testes: `service_gateway_auth_test` (authorizeAdmin) e `service_gateway_http_e2e_test`
+  (401/403/2xx nos 11 endpoints; modo `none` aberto).
+- ✅ `scripts/sync_gateway_routes.py` faz login como admin (`RDWS_ADMIN_USER`/
+  `RDWS_ADMIN_PASSWORD`, secrets do environment `qa`); `List Routes.bru` manda o Bearer.
+- ✅ Validado no QA: sync com login ok (0 criadas, 27 presentes), `/routes` e `/config`
+  → 401 sem token, `/health` → 200, List Routes no Bruno com token → 200.
+- ⬜ Fora do escopo: `/connections`, `/requests` e `GET /events` continuam públicos (só leitura).
 
 ---
 
-### Backlog — `ServiceClient` não reconecta após perder a conexão com o gateway
+### ✅ `ServiceClient` não reconecta após perder a conexão com o gateway (RDWS-92, 2026-07-23)
 
 **Contexto (2026-07-22, achado em produção no QA):** duas instâncias do
-`sensor_simulator_service` desconectaram do gateway (log `"Connection lost to broker"`,
-`ServiceClient.cpp:337`) e ficaram "zumbis" — container de pé, processo vivo, mas sem
-nenhuma atividade por 26 minutos até uma chamada `device_credential.get_active` falhar
-com `"Failed to send invoke request"`.
+`sensor_simulator_service` desconectaram do gateway (log `"Connection lost to broker"`)
+e ficaram "zumbis" — container de pé, processo vivo, sem atividade por 26 minutos até
+uma chamada `device_credential.get_active` falhar com `"Failed to send invoke request"`.
+Causa: `messageLoop()` saía do laço quando `recv()` falhava sem resetar `connected`, então
+`pingLoop()` girava pra sempre num socket morto e `run()` ficava bloqueado no `join()`.
+Afetava todo `App*Service` que usa `ServiceClient`.
 
-Causa raiz em `src/service_broker/Services/ServiceClient.cpp`:
-`messageLoop()` (linhas 329-354) sai do laço com `break` quando `recv()` falha, mas
-**nunca** reseta a flag `connected` nem `socketFd`. Como `pingLoop()` (linha 356) só para
-quando `connected.load()` vira `false`, ele continua rodando pra sempre, tentando mandar
-PING a cada 30s num socket morto (falha silenciosa via `sendMessage()`). `run()`
-(linha 211) fica bloqueado indefinidamente em `pingThread.join()` — o processo nunca sai
-nem tenta reconectar sozinho. Afeta **todo** `App*Service` que usa `ServiceClient`, não
-só o simulador — é só mais fácil de notar nele porque ninguém está olhando os outros
-serviços o tempo todo.
-
-**Decisão:** não corrigido ainda. Mitigação atual é manual: `docker restart <container>`
-força reconexão do zero (o `run()` de cada serviço reconecta normalmente do zero quando
-o processo reinicia). Não investigado ainda o gatilho original da queda de conexão em si
-(rede, timeout, restart do gateway) — só o sintoma (zumbi permanente após a queda).
-
-- ⬜ Adicionar reconexão automática com backoff em `ServiceClient`: ao detectar
-  `recv() <= 0` em `messageLoop()`, resetar `connected`/`socketFd`, fechar o fd antigo, e
-  tentar `connect()` + `registerService()` de novo em vez de só sair da thread.
-- ⬜ `pingLoop()` deve parar (ou pausar) quando a conexão cai, em vez de girar em loop
-  tentando enviar num socket morto.
-- ⬜ Decidir política de backoff (fixo vs. exponencial) e limite de tentativas (ou
-  infinito, já que hoje `restart: unless-stopped` do Docker já reinicia o container
-  inteiro se o processo morrer — mas o processo *não* morre, só fica zumbi, então o
-  Docker nem percebe que precisa reiniciar).
-- ⬜ Investigar o gatilho da queda original (2026-07-22, ~09:18) — checar logs do
-  `rdws_gateway_qa` no mesmo horário pra saber se foi o gateway que reiniciou/bounced ou
-  algo do lado da rede.
+- ✅ `run()` virou um laço de reconexão: `connect()` + `registerService()`, backoff
+  exponencial de 1 s a 30 s, tentativas sem limite até `stop()` (`01855e3`).
+- ✅ `messageLoop()` chama `disconnect()` quando `recv() <= 0`, o que também encerra o
+  `pingLoop()`; `run()` volta ao laço e reconecta.
+- ✅ Teste de regressão `ClientReconnectsAutomatically_AfterGatewayRestart` em
+  `test_gateway_integration.cpp` (`5660109`).
+- ✅ RDWS-96 endureceu `disconnect()`/`sendMessage()` (`shutdown()` antes do `close()`,
+  `socketFd` atômico, `invoke()` só depois de registrado).
+- ✅ Sem novos zumbis no QA de 2026-07-23 a 2026-10-23.
+- ⬜ Não investigado: o gatilho da queda original (2026-07-22, ~09:18).
+- ⬜ Conexão meio-aberta (o gateway some sem FIN): `recv()` fica bloqueado e o `send()`
+  do PING continua aceito pelo kernel enquanto o TCP retransmite, então nada derruba a
+  conexão. Proposta: timeout de PONG no cliente — sem PONG por ~2 intervalos de ping,
+  `shutdown()` no socket e o laço de reconexão assume. Preferido a `SO_KEEPALIVE`, que não
+  pega um gateway travado com o socket aberto. No `Backlog.md` (P2).
 
 ---
 
 ## Próximo passo sugerido
-Fases 9b (AuthService) e 10a (PersistenceService) já implementadas e testadas. Próximo
-passo: **Fase 10b (CI/CD + Docker)** e **Fase 11 (Loki + Grafana)**, detalhadas em
-`Plano_Deployment.md`. `Plano_Ingestion.md` (RabbitMQ) entra depois, reaproveitando o
-mesmo pipeline de CI/CD e a mesma instância de Grafana. O `Plano_SensorSimulatorService.md`
-(ferramenta de apoio para o pipeline de ingestão) só é executado depois — por último na
-ordem de implementação do `Plano_Deployment.md` (§6, passo 8), após tudo dockerizado e
-rodando em QA e prod.
+Atualizado em 2026-11-10. As fases 9b, 10a, 10b (CI/CD + Docker), 11 (Loki + Grafana), 12 e 13b
+estão feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), o
+`SensorSimulatorService` e a telemetria SenML (`Plano_Telemetria.md`), todos rodando em QA.
+A reconexão do `ServiceClient` (RDWS-92) e a autenticação do CRUD de `/routes` (RDWS-155)
+também. O que sobra deste plano, em ordem sugerida de valor:
+
+1. **Fase 13 — IDOR / `public_id`** (segurança; muda contrato da API).
+2. **Timeout de PONG no `ServiceClient`** (conexão meio-aberta, seção do RDWS-92).
+3. Trocar a senha do admin no QA e criar um usuário próprio para o deploy.
+4. Wrappers semânticos do `ResponseHelper`, metadados livres do device, testes de carga.
+5. Fase 14 (multi-instância) e migrar `routes.json`/`GatewayConfig` para o banco — por
+   último, sem data.
+
+A lista consolidada de pendências dos planos está em `docs/Backlog.md`.

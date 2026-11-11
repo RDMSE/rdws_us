@@ -103,6 +103,49 @@ homelab (aceitável, já que o homelab não tem o teto de memória apertado da V
 - Migrations (Flyway) rodam uma vez por banco/ambiente — mesmo `db/migrations/`, `.toml`
   com env vars diferentes por ambiente (`DB_NAME=rdws_dev|rdws_qa|rdws_prod`).
 
+## 2.2 Exposição pública do CoAP (devices reais)
+
+Devices com firmware Zephyr (`rdws_weather_node`) não rodam Tailscale, então o
+`IngestionService` precisa ser alcançável por um endpoint UDP público assim que houver
+hardware fora da LAN de casa (Wi-Fi em campo ou NB-IoT, que sai sempre pela rede da
+operadora). **A VPS é a porta de entrada pública de todos os ambientes**, mas o QA
+continua inteiro no homelab:
+
+| Ambiente | Onde roda o `IngestionService` | Como o device chega |
+|---|---|---|
+| dev (bancada) | notebook ou homelab | LAN direto (`fedora-server:5684`), sem VPS |
+| QA | homelab (compose de QA, junto do RabbitMQ e do `rdws_qa`) | VPS `:5685` → relay UDP → `fedora-server:5684` via Tailscale |
+| prod | VPS (`docker-compose.prod-app.yml`) | VPS `:5684` |
+
+- **VPS entra no tailnet** — o device não precisa, a VPS sim. É o que permite o relay de
+  QA alcançar o homelab sem expor nada da rede de casa.
+- **Relay de QA é "burro"** (nginx `stream` com `listen 5685 udp` ou `socat`): só repassa
+  datagramas, sem conhecer PSK nem terminar DTLS — o DTLS continua ponta a ponta entre
+  device e `IngestionService`. Custo de memória desprezível no teto de 1GB da VPS. O IP
+  de origem real do device se perde no relay, o que não importa: a identidade vem da
+  `psk_identity` do handshake.
+- **Por que não mover o `IngestionService` de QA pra VPS**: publicaria no RabbitMQ do
+  homelab atravessando o tailnet — dependência entre redes no caminho crítico, e mistura
+  ambientes na mesma máquina. Com o relay, QA segue isolado e o que o `deploy-qa.yml`
+  sobe continua valendo sem mudança.
+- **Alternativas descartadas**:
+  - *Tailscale Funnel* — só expõe TCP (HTTPS/TLS), não UDP.
+  - *Port-forward no roteador de casa* — CGNAT comum nas operadoras, IP dinâmico
+    (exigiria DDNS) e expõe a rede doméstica.
+- **Hardening da porta UDP exposta** (vale para QA e prod):
+  - HelloVerifyRequest (cookie DTLS) ativo contra amplificação/spoofing — padrão no
+    libcoap, confirmar no servidor.
+  - Rate limit por IP de origem no firewall da VPS (nftables); só `5684/udp` e
+    `5685/udp` abertos além do SSH.
+  - Portas distintas e conjuntos de PSK distintos por ambiente (`rdws_qa` × `rdws_prod`)
+    — device de QA nunca autentica em prod.
+- **NB-IoT (futuro)**: o endpoint é o mesmo, mas o NAT da operadora expira rápido
+  (às vezes < 1 min) e troca IP/porta entre envios, derrubando a sessão DTLS e forçando
+  handshake completo a cada acordada. Mitigação: **DTLS Connection ID (RFC 9146)** —
+  suportado pelo mbedTLS do Zephyr; verificar suporte no libcoap com o backend usado pelo
+  `IngestionService` (suspeita: CID só nos backends Mbed TLS/tinydtls, não OpenSSL). O
+  relay de QA é transparente a CID (só repassa datagramas).
+
 ## 3. Observabilidade ✅
 
 - ✅ **`GET /metrics/prometheus`** no `service_gateway_http`
@@ -204,8 +247,9 @@ Stack de observabilidade completo: **Prometheus** (métricas) + **Loki** (logs) 
 
 ### Como subir o stack de observabilidade (passo a passo)
 
-Nenhum dos dois stacks sobe sozinho — é sempre uma ação manual (`docker compose ... up
--d`), separada do deploy do app. Comandos exatos, copiáveis:
+O de dev é sempre manual. O de QA sobe sozinho a cada `deploy-qa.yml` (passo "Deploy
+observability", que também reinicia o promtail e o Grafana para eles relerem os arquivos do
+checkout); o comando abaixo é para quando for preciso à mão. Comandos exatos, copiáveis:
 
 **Dev** (na sua máquina, sob demanda — suba só quando for investigar algo, derrube
 depois):
@@ -275,18 +319,22 @@ documento para detalhes.
 ## 4. GitHub Actions
 
 - **Runner self-hosted** registrado no homelab (setup manual, fora do escopo do CI em si).
-- **`.github/workflows/build.yml`**: em push/PR — build de cada imagem (matrix por
-  serviço), roda `ctest`, e em push na branch principal faz `docker push` pro
-  `ghcr.io/rdmse/rdws_us/<service>:<sha>` (+ tag `latest` ou `qa`).
-- **`.github/workflows/deploy-qa.yml`**: gatilho após build bem-sucedido na branch
-  principal — roda no runner self-hosted, faz `docker compose -f docker-compose.qa-app.yml
-  pull && up -d` direto no homelab (mesma máquina do runner ou via SSH local). Só o app
-  — o banco (`docker-compose.qa-db.yml`) não faz parte do deploy de rotina, sobe uma vez
-  e fica no ar.
-- **`.github/workflows/deploy-prod.yml`**: gatilho manual (`workflow_dispatch`) ou por
-  tag/release — reusa a mesma imagem já testada em QA (promoção, não rebuild), conecta
-  na VPS via SSH (chave em GitHub Secrets) e roda `docker compose -f
-  docker-compose.prod.yml pull && up -d`.
+Como está em 2026-11-10 (o desenho original previa um `build.yml` e o deploy de QA por
+`pull`; ficou assim):
+
+- **`.github/workflows/ci.yml`**: em push na `main` e em PR — build + `ctest` no runner
+  self-hosted, checagem dos cabeçalhos SPDX (RDWS-163) e, só em push na `main`, o job
+  `push-ghcr` (matrix por serviço) publica `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`.
+- **`.github/workflows/deploy-qa.yml`**: `workflow_run` depois do CI na `main`, no runner
+  self-hosted do homelab. Gera o `.env.qa` dos secrets, garante o Postgres de QA, roda o
+  Flyway, garante o RabbitMQ, **builda e sobe** o app (`docker-compose.qa-app.yml up -d
+  --build`, sem passar pelo GHCR), recria os simuladores (`scripts/qa_simulators.sh`), sobe a
+  observabilidade, faz o health check e sincroniza o `routes.json` no gateway
+  (`scripts/sync_gateway_routes.py`, RDWS-155).
+- **`.github/workflows/deploy-prod.yml`**: `workflow_dispatch` com input `image_tag` —
+  reusa a imagem já publicada no GHCR (promoção, não rebuild), fala com a VPS por
+  `DOCKER_HOST=ssh://...`, roda o Flyway e o `docker-compose.prod-app.yml up -d`. Ainda não
+  rodou de verdade (VPS não provisionada, passo 7 abaixo).
 - Migrations do Flyway rodam como step/job dedicado antes do `up -d` dos serviços, em
   ambos os pipelines de deploy.
 - **`.github/workflows/migrate-dev.yml`** (2026-07-09): dev continua 100% manual pro
@@ -320,8 +368,9 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    - `routes.json` persistido em volume nomeado (`gateway_data`), sobrevive a restart.
    - Validado: `docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build`
      sobe o gateway com auth JWT ativo (confirmado no log `auth=jwt`).
-3. ✅ **Containers dos serviços** — todos os 8 (`auth`, `farm`, `field`, `device`,
-   `device_config`, `sensor`, `sensor_reading`, `persistence`) em
+3. ✅ **Containers dos serviços** — os 8 de CRUD (`auth`, `farm`, `field`, `device`,
+   `device_config`, `sensor`, `sensor_reading`, `persistence`), mais `ingestion_service` e
+   `reading_writer_service` depois (passo 5), em
    `docker-compose.qa-app.yml`, reaproveitando o mesmo Dockerfile genérico
    (`--build-arg SERVICE=<nome>`) e bloco `environment` compartilhado via YAML anchor
    (`x-db-env`/`*db-env`) para as credenciais de banco.
@@ -377,14 +426,11 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
    - Validado localmente: os dois sobem lado a lado sem conflito, migrations aplicadas
      (schema `flyway_schema_history` em v2, extensões `postgis`/`pgcrypto` ativas),
      `rdws_dev` acessível externamente, `rdws_qa` não.
-5. ⏸️ **RabbitMQ containerizado** — adiado. Depende do `IngestionService` e
-   `ReadingWriterService` (`Plano_Ingestion.md`), que ainda não existem no código — sem
-   nada publicando/consumindo, não dá pra validar o container de ponta a ponta como os
-   demais passos desta lista. Na prática entra junto do `SensorSimulatorService` (passo 8),
-   que é o gerador de carga que alimenta esse pipeline; RabbitMQ deve ser containerizado
-   quando o `IngestionService`/`ReadingWriterService` forem implementados, não antes.
-   Pulado por ora — seguindo pro passo 6 (observabilidade), que já tem o que observar
-   (gateway + 8 serviços rodando).
+5. ✅ **RabbitMQ containerizado** — `docker-compose.qa-mq.yml`, subido pelo `deploy-qa`
+   antes dos serviços. `IngestionService` e `ReadingWriterService` estão no
+   `docker-compose.qa-app.yml` (build local no deploy) e o pipeline roda de ponta a ponta
+   em QA com a placa de bancada e os simuladores (2026-10). (Adiado no início porque esses
+   serviços ainda não existiam.)
 6. ✅ **Prometheus + Loki + Promtail + Grafana containerizados**.
    `docker-compose.qa-observability.yml` + `docker-compose.dev-observability.yml` (ver §3
    para o detalhe da separação por ambiente). `GET /metrics/prometheus` novo no gateway
@@ -423,6 +469,14 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
 8. **`SensorSimulatorService`** — só depois de tudo dockerizado e rodando em QA e prod
    (etapas 1-7). Fica de fora do compose principal (aplicação separada, ver §1); com o
    pipeline de ingestão já estável, plano próprio detalha seu desenho.
+   - QA (2026-10-06): `scripts/qa_simulators.sh`, chamado no fim do `deploy-qa.yml` (ou à
+     mão no homelab), constrói a imagem `rdws_us-sensor-simulator:qa` do checkout e recria
+     um container por device com `devices.is_simulated = true` (`rdws_sim_device_NN_qa`,
+     porta de controle 9100 + id, volume `rdws_qa_sim_data_NN` para o buffer). Remove os
+     containers de devices que deixaram de ser simulados. Os containers levam os labels
+     `rdws.env=qa`/`rdws.service=sensor_simulator`, que o promtail de QA também coleta.
+     Substitui os containers manuais `sim-device-NN` a partir de uma imagem builder
+     etiquetada à mão, que nenhum workflow atualizava.
 9. **Escalabilidade horizontal do gateway** — backlog, sem data. O `HttpGateway` hoje
    assume instância única (conexões de socket com backends, config/rotas em arquivo local
    por instância); ver `Plano_Gateway_HTTP.md` (Fase 14) para o levantamento completo e o
@@ -432,6 +486,10 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
     não tem `limits_config.volume_enabled: true`; sem isso, o recurso de "Log volume"
     do Explore do Grafana (histograma de volume de logs) mostra aviso de não configurado.
     Não afeta o dashboard principal (`gateway-overview.json`), só o Explore.
+11. **Endpoint CoAP público** (§2.2) — quando o primeiro `rdws_weather_node` sair da
+    bancada. VPS no tailnet, relay UDP `5685 → fedora-server:5684` para QA, firewall
+    (nftables + rate limit) e `5684/udp` publicado no compose de prod. Na bancada o
+    device fala direto com o homelab pela LAN, sem depender deste passo.
 
 ## Verificação
 
@@ -443,7 +501,7 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
 3. Confirmar que o Flyway aplicou as migrations (`flyway_schema_history` populada) no
    banco correto de cada ambiente (`rdws_dev`/`rdws_qa`/`rdws_prod`) e o
    `seed_fake_data.sql` roda sem erro.
-4. Verificar `curl localhost:9090/targets` (Prometheus) mostrando todos os alvos "up", e
+4. Verificar `curl localhost:9091/api/v1/targets` (Prometheus, porta 9091 no host) mostrando todos os alvos "up", e
    o dashboard Grafana carregando dados reais (métricas + logs via Loki).
 5. Rodar o workflow `deploy-qa` manualmente uma vez e conferir logs do runner
    self-hosted; só depois habilitar `deploy-prod` contra a VPS.

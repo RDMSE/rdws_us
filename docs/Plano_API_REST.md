@@ -48,14 +48,45 @@ Cada recurso é um microserviço independente que se conecta ao gateway pelo soc
 | PUT      | /devices/{id}    | device.update    | Atualiza device                   |
 | DELETE   | /devices/{id}    | device.delete    | Remove device                     |
 
+#### ✅ Rotação e revogação de credencial via REST (2026-10-05)
+
+`device_credential.rotate` e `device_credential.revoke` existem no `DeviceService`
+(`Plano_DeviceCredentials.md` §6) e eram **internos de propósito** (fora do `routes.json`)
+até 2026-10-05. Sem rota HTTP, uma chave vazada não podia ser trocada sem apagar e
+recriar o device. Caso real: a PSK do device 12 (QA, `rdws_weather_node` de bancada)
+apareceu num log de debug em 2026-10-02 e ficou sem rotação por falta dessa rota.
+
+| Método | Path                                | Capability                | Descrição                                             |
+|--------|-------------------------------------|---------------------------|-------------------------------------------------------|
+| POST   | /devices/{id}/credential/rotate     | device_credential.rotate  | Gera nova PSK (retornada uma única vez), revoga a atual |
+| POST   | /devices/{id}/credential/revoke     | device_credential.revoke  | Revoga a PSK ativa                                    |
+
+- Restrito a `admin`, porque é operação sensível. A resposta do `rotate` traz a chave
+  em claro, como no `device.create`. A checagem fica no handler (`requireAdmin()` em
+  `AppDeviceService.cpp`): com identidade injetada pelo gateway, exige a claim
+  `role = admin` (senão `403`); sem identidade (modo `none` em dev, ou invoke interno),
+  passa, como as demais rotas.
+- O id vem do path (`{id}`); invokes internos ainda podem mandar `device_id` no corpo.
+- Requests no Bruno: `Devices/Rotate Device Credential` e `Revoke Device Credential`.
+- Quando o `rotate` passar a valer pra hardware em campo, entra o grace period que o
+  `Plano_DeviceCredentials.md` §6 adiou.
+- ✅ PSK do device 12 rotacionada e placa reprovisionada com `rdws psk set` (2026-10-05).
+
 ### DeviceConfigService
 
 | Método   | Path                         | Capability              | Descrição                       |
 |----------|------------------------------|-------------------------|---------------------------------|
-| GET      | /devices/{id}/config         | device_config.get       | Busca configuração do device    |
-| POST     | /devices/{id}/config         | device_config.create    | Cria configuração do device     |
-| PUT      | /devices/{id}/config         | device_config.update    | Atualiza configuração do device |
-| DELETE   | /devices/{id}/config         | device_config.delete    | Remove configuração do device   |
+| GET      | /devices/{id}/config         | device_config.get       | Busca configuração do device (com `version`) |
+| PATCH    | /devices/{id}/config         | device_config.update    | Atualiza por *merge patch* (RFC 7396)        |
+
+- A config é 1:1 com o device e nasce vazia (`{}`) junto com ele, por trigger (V3); por isso
+  não há `create` nem `delete` (rotas removidas no RDWS-16). `version` é controlada pelo banco
+  (V12) e sobe a cada mudança.
+- No `PATCH`, chave omitida fica como está, `null` remove a chave e uma lista é substituída
+  inteira. Para `weather_station` real, a config mesclada é validada contra um JSON Schema
+  estrito, os `onboard[].sensor_id` precisam ser sensores do device do tipo do canal, e as
+  regras de `triggers[]` são conferidas contra o resto da config (RDWS-172). Erro → `400`.
+- Chaves aceitas pelo firmware: README do `rdws_weather_node`, "Configuração pelo backend".
 
 ### SensorService
 

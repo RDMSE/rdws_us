@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "Auth/AuthMiddleware.h"
 #include "Config/GatewayConfig.h"
 #include "HttpGateway.h"
@@ -84,7 +87,7 @@ static rapidjson::Document parseBody(const std::string& body) {
 // ── Fixture ───────────────────────────────────────────────────────────────────
 
 // TCP broker ports: 18300–18309
-// HTTP gateway ports: 19300–19309
+// HTTP gateway ports: 19300–19310
 // Socket paths:      /tmp/rdws_e2e_N.sock
 
 class HttpE2ETest : public ::testing::Test {
@@ -163,6 +166,15 @@ TEST_F(HttpE2ETest, ObservabilityEndpoints_ReturnOk) {
     rapidjson::Document doc = parseBody(res->body);
     EXPECT_FALSE(doc.HasParseError()) << path << " body is not valid JSON";
   }
+
+  // Version of the solution and of the API contract (README, "Versões")
+  auto res = httpGet("/status");
+  ASSERT_TRUE(res);
+  rapidjson::Document status = parseBody(res->body);
+  const auto version = json::getString(status, "version");
+  ASSERT_TRUE(version.has_value());
+  EXPECT_EQ(version->rfind('v', 0), 0u) << *version;
+  EXPECT_EQ(json::getInt(status, "apiVersion"), 1);
 }
 
 // ── Scenario 2: Invoke with no backend service → 503 ─────────────────────────
@@ -432,4 +444,60 @@ TEST_F(HttpE2ETest, EventRouter_RedirectsCapability_ServiceResponds) {
   const auto routedValue = json::getBool(doc, "routed");
   ASSERT_TRUE(routedValue.has_value());
   EXPECT_TRUE(routedValue.value());
+}
+
+// ── Scenario 9: Admin endpoints require an admin identity ──────────────────────
+
+TEST_F(HttpE2ETest, AdminEndpoints_RequireAdminKey) {
+  AuthConfig authCfg;
+  authCfg.mode = AuthMode::API_KEY;
+  authCfg.apiKeys = {{"sk-admin", "admin"}, {"sk-service", "some-service"}};
+
+  ASSERT_TRUE(startStack(19309, "/tmp/rdws_e2e_10.sock", std::move(authCfg)));
+
+  httplib::Client cli("127.0.0.1", httpPort);
+  const httplib::Headers admin = {{"X-API-Key", "sk-admin"}};
+  const httplib::Headers service = {{"X-API-Key", "sk-service"}};
+  const std::string rule = R"({"inputCapability":"a","outputCapability":"b"})";
+
+  // No credentials → 401 on every administrative endpoint.
+  EXPECT_EQ(cli.Get("/routes")->status, 401);
+  EXPECT_EQ(cli.Post("/routes", rule, "application/json")->status, 401);
+  EXPECT_EQ(cli.Get("/routes/any")->status, 401);
+  EXPECT_EQ(cli.Put("/routes/any", rule, "application/json")->status, 401);
+  EXPECT_EQ(cli.Delete("/routes/any")->status, 401);
+  EXPECT_EQ(cli.Get("/config")->status, 401);
+  EXPECT_EQ(cli.Patch("/config/capabilities/a", R"({"timeoutMs":10})", "application/json")->status,
+            401);
+  EXPECT_EQ(cli.Delete("/config/capabilities/a")->status, 401);
+  EXPECT_EQ(cli.Get("/config/features")->status, 401);
+  EXPECT_EQ(cli.Put("/config/features/x", R"({"enabled":true})", "application/json")->status,
+            401);
+  EXPECT_EQ(cli.Post("/events/topic", "{}", "application/json")->status, 401);
+
+  // Valid but non-admin key → 403.
+  EXPECT_EQ(cli.Get("/routes", service)->status, 403);
+  EXPECT_EQ(cli.Post("/routes", service, rule, "application/json")->status, 403);
+
+  // Admin key → handlers run normally.
+  auto created = cli.Post("/routes", admin, rule, "application/json");
+  ASSERT_TRUE(created);
+  EXPECT_EQ(created->status, 201);
+  const auto id = json::getString(parseBody(created->body), "id");
+  ASSERT_TRUE(id.has_value());
+  EXPECT_EQ(cli.Get("/routes", admin)->status, 200);
+  EXPECT_EQ(cli.Delete(("/routes/" + *id).c_str(), admin)->status, 204);
+  EXPECT_EQ(cli.Get("/config", admin)->status, 200);
+
+  // Observability stays public.
+  EXPECT_EQ(cli.Get("/health")->status, 200);
+}
+
+// ── Scenario 10: Without auth configured, admin endpoints stay open ────────────
+
+TEST_F(HttpE2ETest, AdminEndpoints_AuthModeNone_Open) {
+  ASSERT_TRUE(startStack(19310, "/tmp/rdws_e2e_11.sock"));
+
+  EXPECT_EQ(httpGet("/routes")->status, 200);
+  EXPECT_EQ(httpGet("/config")->status, 200);
 }

@@ -14,4 +14,4 @@ python3 tools/generate_token.py --ttl 31536000 --bearer
 
 1. Using same vars from gateway environment
 RDWS_JWT_SECRET=meu-segredo-dev RDWS_JWT_ISSUER=rdws-dev \
-  python3 tools/generate_token.py --subject alice@empresa.com --role editor
+  python3 tools/generate_token.py --subject alice@empresa.com --role viewer

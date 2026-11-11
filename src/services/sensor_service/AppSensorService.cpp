@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update,
-// sensor.delete
+// sensor.delete, plus internal-only sensor.list_owners (not in routes.json; IngestionService's
+// sensor_id -> {device_id, unit} cache, Plano_Telemetria.md Fase 0/DP1)
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
@@ -15,6 +19,7 @@
 #include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <csignal>
@@ -72,11 +77,11 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "sensor_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
-    identity.capabilities = {"sensor.list", "sensor.get", "sensor.create", "sensor.update",
-                             "sensor.delete"};
+    identity.capabilities = {"sensor.list",   "sensor.get",    "sensor.create",
+                             "sensor.update", "sensor.delete", "sensor.list_owners"};
   }
 
   bool initialize() {
@@ -125,6 +130,7 @@ private:
             {"sensor.create", handleCreate},
             {"sensor.update", handleUpdate},
             {"sensor.delete", handleDelete},
+            {"sensor.list_owners", handleListOwners},
         };
 
     try {
@@ -156,6 +162,31 @@ private:
       rapidjson::Value arr(rapidjson::kArrayType);
       for (const auto& s : sensors) {
         arr.PushBack(sensorToJson(s, alloc), alloc);
+      }
+      return arr;
+    });
+  }
+
+  // Bulk sensor_id -> {device_id, unit}, so IngestionService can drop readings for sensors that
+  // don't belong to the device authenticated by the DTLS PSK, and convert SenML units to
+  // sensors.unit (Plano_Telemetria.md, DP1).
+  static rapidjson::Document handleListOwners(const rdws::utils::CapabilityContext& ctx,
+                                              rdws::sensor::SensorService& svc) {
+    const auto sensors = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findAll();
+    }();
+
+    auto t = ctx.profiler.scoped("json.serialize");
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      rapidjson::Value arr(rapidjson::kArrayType);
+      for (const auto& s : sensors) {
+        arr.PushBack(json::JsonObj(alloc)
+                         .set("id", s.id)
+                         .set("device_id", s.deviceId)
+                         .set("unit", s.unit)
+                         .take(),
+                     alloc);
       }
       return arr;
     });

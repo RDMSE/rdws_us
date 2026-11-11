@@ -221,7 +221,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT\n  sum(CASE WHEN last_seen >= now() - interval '10 minutes' THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN last_seen < now() - interval '10 minutes' OR last_seen IS NULL THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\nFROM (\n  SELECT d.id, max(sr.timestamp) AS last_seen\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN sensors s ON s.device_id = d.id\n  LEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\n  WHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote}))\n  GROUP BY d.id\n) t",
+          "rawSql": "SELECT\n  sum(CASE WHEN NOT l.silent THEN 1 ELSE 0 END) AS online,\n  sum(CASE WHEN l.silent THEN 1 ELSE 0 END) AS offline,\n  count(*) AS total\n-- device_liveness (V14): silent = nothing arrived for more than 3 x the device's expected\n-- uplink interval (from its config), not a fixed 10 minutes\nFROM device_liveness l\nJOIN devices d ON d.id = l.device_id\nJOIN fields f ON f.id = d.field_id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote}))",
           "rawQuery": true
         }
       ]
@@ -244,7 +244,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature') AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote})) AND (d.id::text IN (${device_id:singlequote})) AND d.location IS NOT NULL\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
+          "rawSql": "SELECT d.id::text AS device_id, d.type::text || ' #' || d.id::text AS device_name, ST_Y(d.location) AS lat, ST_X(d.location) AS lon, max(sr.timestamp) AS last_seen, avg(sr.value) FILTER (WHERE s.type='temperature' AND (sr.flags & 16384) = 0) AS last_temp\nFROM devices d\nJOIN fields f ON f.id = d.field_id\nLEFT JOIN sensors s ON s.device_id = d.id\nLEFT JOIN sensor_readings sr ON sr.sensor_id = s.id\nWHERE (d.field_id::text IN (${field_id:singlequote})) AND (f.farm_id::text IN (${farm_id:singlequote})) AND (d.id::text IN (${device_id:singlequote})) AND d.location IS NOT NULL\nGROUP BY d.id, d.type, d.location\nLIMIT 1000",
           "rawQuery": true
         },
         {
@@ -363,7 +363,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nGROUP BY time, metric\nORDER BY time",
+          "rawSql": "SELECT date_trunc('minute', sr.timestamp) AS time, d.type::text || ' / ' || s.id::text AS metric, avg(sr.value)::double precision AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (sr.flags & 16384) = 0 -- out-of-range readings (kFlagOutOfRange) only in the tables\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nGROUP BY time, metric\nORDER BY time",
           "rawQuery": true
         }
       ],
@@ -388,12 +388,435 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nORDER BY sr.timestamp DESC\nLIMIT 200",
+          "rawSql": "SELECT sr.timestamp, fm.name AS farm, f.name AS field, d.type::text || ' #' || d.id::text AS device, s.id AS sensor_id, s.type AS sensor_type, sr.value, s.unit, (sr.flags & 16384) <> 0 AS out_of_range\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.timestamp)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\n  AND (s.type::text IN (${sensor_type:singlequote}))\nORDER BY sr.timestamp DESC\nLIMIT 200",
           "rawQuery": true
         }
       ],
       "repeat": "sensor_type",
       "repeatDirection": "v"
+    },
+    {
+      "id": 30,
+      "title": "Device Health",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "title": "Device diagnostics",
+      "description": "Latest diagnostics each device reported in the selected time range (device_telemetry). Empty rows: no SenML diagnostics in the range (silent, or still on the legacy JSON payload).",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT device AS \"Device\", last_telemetry AS \"Last telemetry\", rssi AS \"RSSI (dBm)\",\n       boots AS \"Boots\",\n       NULLIF(concat_ws(', ',\n         CASE WHEN reset & 1    > 0 THEN 'PIN' END,\n         CASE WHEN reset & 2    > 0 THEN 'SOFTWARE' END,\n         CASE WHEN reset & 4    > 0 THEN 'BROWNOUT' END,\n         CASE WHEN reset & 8    > 0 THEN 'POWER-ON' END,\n         CASE WHEN reset & 16   > 0 THEN 'WATCHDOG' END,\n         CASE WHEN reset & 32   > 0 THEN 'DEBUG' END,\n         CASE WHEN reset & 128  > 0 THEN 'LOW-POWER WAKE' END,\n         CASE WHEN reset & 256  > 0 THEN 'CPU LOCKUP' END,\n         CASE WHEN reset & 4096 > 0 THEN 'HARDWARE' END,\n         CASE WHEN reset & 8192 > 0 THEN 'USER' END), '') AS \"Last reset\",\n       seq AS \"Last seq\",\n       cfg AS \"Config\",\n       fw AS \"Firmware\",\n       build AS \"Build\",\n       fs_pct AS \"FS used (%)\",\n       fs_errors AS \"FS errors\",\n       last_reformat AS \"Last FS reformat\",\n       -- Only while the snapshot carries it: the firmware drops cfg_rej once no version is rejected\n       (snap->>'cfg_rej')::bigint AS \"Config rejected\",\n       CASE WHEN up_rej > 0 THEN up_rej::text || ' (last ' || (up_rej_code / 100)::text || '.'\n            || lpad((up_rej_code % 100)::text, 2, '0') || ')' END AS \"Uplinks rejected\",\n       (SELECT string_agg(i::text, ', ' ORDER BY i) FROM generate_series(0, 31) i\n         WHERE ((snap->>'trg')::bigint >> i) & 1 = 1) AS \"Triggers\"\nFROM (\n  -- Latest value of each diagnostic in the time range (device_telemetry, Plano_Telemetria.md D5).\n  -- LEFT JOIN keeps devices that sent nothing, so silent ones show up as empty rows.\n  SELECT d.id, d.type::text || ' #' || d.id::text AS device,\n         max(t.timestamp) AS last_telemetry,\n         (array_agg((t.data->>'rssi')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'rssi'))[1] AS rssi,\n         (array_agg((t.data->>'boot_count')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'boot_count'))[1] AS boots,\n         (array_agg((t.data->>'reset_reason')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'reset_reason'))[1] AS reset,\n         (array_agg((t.data->>'seq')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'seq'))[1] AS seq,\n         (array_agg((t.data->>'cfg_version')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'cfg_version'))[1] AS cfg,\n         (array_agg(t.data->>'fw_version' ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fw_version'))[1] AS fw,\n         (array_agg(t.data->>'fw_build' ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fw_build'))[1] AS build,\n         (array_agg((t.data->>'fs_used_pct')::numeric ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fs_used_pct'))[1] AS fs_pct,\n         (array_agg((t.data->>'fs_errors')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'fs_errors'))[1] AS fs_errors,\n         max(t.timestamp) FILTER (WHERE t.data ? 'fs_reformat') AS last_reformat,\n         -- The latest diagnostics snapshot as a whole (every one carries cfg_version), for the\n         -- values the firmware only sends while they apply (cfg_rej, trg)\n         (array_agg(t.data ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'cfg_version'))[1] AS snap,\n         -- up_rej counts discards not yet reported, so the range's total is the sum\n         sum((t.data->>'up_rej')::bigint) FILTER (WHERE t.data ? 'up_rej') AS up_rej,\n         (array_agg((t.data->>'up_rej_code')::bigint ORDER BY t.timestamp DESC)\n            FILTER (WHERE t.data ? 'up_rej_code'))[1] AS up_rej_code\n  FROM devices d\n  JOIN fields f ON f.id = d.field_id\n  LEFT JOIN device_telemetry t ON t.device_id = d.id AND $__timeFilter(t.timestamp)\n  WHERE (f.farm_id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n  GROUP BY d.id, d.type\n) diag\nORDER BY id",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RSSI (dBm)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": -80
+                    },
+                    {
+                      "color": "green",
+                      "value": -67
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last telemetry"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "FS errors"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Config rejected"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uplinks rejected"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last FS reformat"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 32,
+      "title": "Firmware crashes",
+      "description": "Crash records the stations reported in the selected time range (crash_* in device_telemetry, Plano_Firmware_WeatherNode.md §10), one row per event. PC/LR resolve to file and line with addr2line and the .elf of the build that crashed. Lost = crashes the station couldn't record while an earlier one was pending.",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "-- One row per crash: the record is resent after a lost 2.04, so events are counted by crash_boot\n-- (Plano_Firmware_WeatherNode.md §10), keeping the first arrival of each.\nSELECT * FROM (\n  SELECT DISTINCT ON (t.device_id, (t.data->>'crash_boot')::bigint)\n         t.timestamp AS \"Reported\",\n         d.type::text || ' #' || d.id::text AS \"Device\",\n         (t.data->>'crash_boot')::bigint AS \"Boot\",\n         -- emblib_crash_reason_t (emb_lib, modules/emblib_crash_record.h)\n         CASE (t.data->>'crash_reason')::int\n           WHEN 1 THEN 'ASSERT' WHEN 2 THEN 'FAULT' WHEN 3 THEN 'STACK_OVERFLOW'\n           WHEN 4 THEN 'WATCHDOG' WHEN 5 THEN 'USER' ELSE t.data->>'crash_reason' END AS \"Reason\",\n         (t.data->>'crash_code')::bigint AS \"Code\",\n         -- hex, ready for addr2line against the .elf of \"Build\"\n         '0x' || lpad(to_hex((t.data->>'crash_pc')::bigint), 8, '0') AS \"PC\",\n         '0x' || lpad(to_hex((t.data->>'crash_lr')::bigint), 8, '0') AS \"LR\",\n         (t.data->>'crash_uptime_s')::bigint AS \"Uptime\",\n         t.data->>'crash_build' AS \"Build\",\n         t.data->>'crash_msg' AS \"Message\",\n         (t.data->>'crash_lost')::bigint AS \"Lost\"\n  FROM device_telemetry t\n  JOIN devices d ON d.id = t.device_id\n  JOIN fields f ON f.id = d.field_id\n  WHERE $__timeFilter(t.timestamp)\n    AND t.data ? 'crash_boot'\n    AND (f.farm_id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n  ORDER BY t.device_id, (t.data->>'crash_boot')::bigint, t.timestamp\n) c\nORDER BY \"Reported\" DESC",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uptime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Reason"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lost"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 40,
+      "title": "Fleet Health",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "title": "Ingestion delay",
+      "description": "Max delay per device between a reading's window and its arrival at the server, in minutes (created_at - timestamp). Normally about the uplink interval; peaks mean the station stayed offline and then sent its backlog.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "-- How late readings arrive: arrival (created_at) minus the reading's own window\n-- (timestamp). Around the uplink interval normally; peaks = a station catching up on a\n-- backlog (D10).\nSELECT $__timeGroupAlias(sr.created_at, $__interval),\n       d.type::text || ' #' || d.id::text AS metric,\n       max(extract(epoch FROM sr.created_at - sr.timestamp)) / 60 AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.created_at)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nGROUP BY 1, 2\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 42,
+      "title": "RSSI",
+      "description": "Link signal reported by each station once per uplink cycle (device_telemetry).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__time(t.timestamp),\n       d.type::text || ' #' || d.id::text AS metric,\n       (t.data->>'rssi')::numeric AS value\nFROM device_telemetry t\nJOIN devices d ON d.id = t.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(t.timestamp) AND t.data ? 'rssi'\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 43,
+      "title": "Boot count",
+      "description": "Boot counter reported once per uplink cycle; each step up is a reboot.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__time(t.timestamp),\n       d.type::text || ' #' || d.id::text AS metric,\n       (t.data->>'boot_count')::bigint AS value\nFROM device_telemetry t\nJOIN devices d ON d.id = t.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(t.timestamp) AND t.data ? 'boot_count'\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 44,
+      "title": "FS used (%)",
+      "description": "Record filesystem occupation reported once per uplink cycle.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__time(t.timestamp),\n       d.type::text || ' #' || d.id::text AS metric,\n       (t.data->>'fs_used_pct')::numeric AS value\nFROM device_telemetry t\nJOIN devices d ON d.id = t.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(t.timestamp) AND t.data ? 'fs_used_pct'\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
     },
     {
       "id": 20,
@@ -403,7 +826,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 62
       },
       "datasource": {
         "type": "loki",

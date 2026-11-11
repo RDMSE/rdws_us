@@ -7,6 +7,7 @@ target_link_libraries(ingestion_service PRIVATE
     rdws_shared_coap
     rdws_shared_amqp
     rdws_shared_logger
+    rdws_shared_senml
 )
 
 target_include_directories(ingestion_service PRIVATE

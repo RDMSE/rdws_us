@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // AuthService — capability: auth.login
 // Validates credentials against the users table and returns a JWT HS256 token.
@@ -10,6 +13,7 @@
 #include "../../shared/utils/logger.h"
 #include "../../shared/utils/profiler.h"
 #include "../../shared/utils/response_helper.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <chrono>
@@ -82,7 +86,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "auth_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"auth.login"};

@@ -1,8 +1,34 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // IngestionService — CoAP/DTLS server receiving sensor readings from devices/
 // SensorSimulatorService (Plano_Ingestion.md). Stateless quanto à persistência: não
 // conecta no Postgres, só ao gateway (device_credential.list_active, refresh
 // periódico do cache de PSKs) e ao RabbitMQ (produtor, uma mensagem por leitura).
+//
+// Identidade: o device vem da PSK identity da sessão DTLS; um device_id no corpo diferente
+// dele é rejeitado com 4.03, e leituras de sensor de outro device (ou desconhecido) são
+// descartadas com log (Plano_Telemetria.md, Fase 0). O mapa sensor -> device vem de
+// sensor.list_owners, no mesmo refresh periódico das PSKs; enquanto ele nunca carregou,
+// a resposta é 5.03 para o device reenviar depois em vez de perder dados. Também é 5.03
+// quando alguma leitura do pack não chegou ao RabbitMQ (publish com confirm falhou): o
+// device reenvia o pack inteiro, e as leituras repetidas são absorvidas pelo
+// UNIQUE(sensor_id, timestamp) do ReadingWriterService.
+//
+// Formato: só SenML JSON, Content-Format 110 (Plano_Telemetria.md, D1–D3/DP1–DP3). Qualquer
+// outro Content-Format, ou nenhum, recebe 4.15 — o JSON legado {device_id, readings} foi
+// desativado em 2026-10-30 (RDWS-165); firmware e simulador já mandavam só SenML.
+//
+// `rec_cfg` (Plano_Telemetria.md D2): versão da config com que os registros do pack foram
+// gravados. Não vai para device_telemetry: vira uma mensagem `config_span` na mesma fila, com
+// o menor e o maior timestamp de sensor do pack, e o ReadingWriterService grava em
+// device_config_spans (este serviço não acessa o banco). Se ela não chegar ao RabbitMQ, 5.03:
+// depois do 2.04 o device apaga o arquivo e o span não teria outra chance.
+//
+// Posição: registros SenML `lat`/`lon` (unidades RFC 8428 "lat"/"lon", graus) atualizam
+// devices.location pelo device.update_location — o par mais recente do pack. Substituem o
+// campo `location` do formato legado; nenhum device manda posição ainda (virá do firmware).
 //
 // Validação: só formato mínimo (campos obrigatórios presentes/tipos corretos) —
 // validação completa contra device_config fica para uma iteração futura
@@ -13,8 +39,13 @@
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"
+#include "../../shared/senml/conversion.h"
+#include "../../shared/senml/sensor_limits.h"
+#include "../../shared/senml/trigger_config.h"
+#include "../../shared/senml/senml.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <coap3/coap.h>
 
@@ -25,16 +56,23 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <csignal>
 #include <cstring>
+#include <map>
+#include <ctime>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 using namespace servicegateway;
 namespace json = rdws::utils::json;
@@ -48,20 +86,23 @@ public:
       : serviceId_(std::move(serviceId)), machineName_(std::move(machineName)),
         gatewayAddress_(std::move(gatewayAddress)), coapBindHost_(std::move(coapBindHost)),
         coapPort_(coapPort),
-        producer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
-                 "sensor_readings") {}
+        producer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
+        telemetryProducer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
+                           "device_telemetry") {}
 
   bool initialize() {
-    if (!producer_.connect()) {
-      logger::error("IngestionService: failed to connect to RabbitMQ", "");
-      return false;
+    // Not fatal: publish() connects lazily, and until RabbitMQ is up packs get 5.03 (the
+    // device keeps the data and resends) instead of the process exiting into a restart loop.
+    if (!producer_.connect() || !telemetryProducer_.connect()) {
+      logger::warn("IngestionService: RabbitMQ unavailable at startup, will connect on demand",
+                   "");
     }
 
     ServiceIdentity identity;
     identity.serviceName = "ingestion_service";
     identity.serviceId = serviceId_;
     identity.machineName = machineName_;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 1;
     identity.capabilities = {}; // pure client — never serves a capability
@@ -81,7 +122,7 @@ public:
     while (!credentialClient_->isConnected() && std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    refreshCache(); // synchronous first load, so the cache isn't empty at startup
+    refreshCaches(); // synchronous first load, so the caches aren't empty at startup
     refreshThread_ = std::thread([this] { refreshLoop(); });
 
     runCoapServer(); // blocks until shutdown()
@@ -104,22 +145,35 @@ private:
   uint16_t coapPort_;
 
   rdws::amqp::AmqpProducer producer_;
+  rdws::amqp::AmqpProducer telemetryProducer_; // device diagnostics (Plano_Telemetria.md D5)
   std::unique_ptr<ServiceClient> credentialClient_;
   std::thread clientThread_;
   std::thread refreshThread_;
   std::atomic<bool> running_{false};
 
-  // psk_identity -> plaintext key, refreshed periodically (poll instead of the
+  // psk_identity -> plaintext key + owning device, refreshed periodically (poll instead of the
   // EventBus bridge that Plano_DeviceCredentials.md envisions — see
   // Plano_Ingestion_Implementacao.md for the trade-off).
   struct CachedCredential {
     std::string key;
+    std::string deviceId;
     coap_bin_const_t bin{}; // .s points into `key`'s storage, kept alive by the map
   };
   std::mutex cacheMutex_;
   std::unordered_map<std::string, CachedCredential> pskCache_;
 
+  // sensor_id -> owner + sensors.unit (sensor.list_owners). A failed refresh keeps the
+  // previous map.
+  struct SensorInfo {
+    std::string deviceId;
+    std::string unit; // sensors.unit, target of the SenML unit conversion (DP1)
+  };
+  std::mutex ownersMutex_;
+  std::unordered_map<std::string, SensorInfo> sensorOwners_;
+  bool ownersLoaded_ = false;
+
   static constexpr int kRefreshIntervalSec = 60;
+  static constexpr unsigned kSessionTimeoutSec = 60;
 
   void refreshLoop() {
     while (running_.load()) {
@@ -127,16 +181,55 @@ private:
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
       if (running_.load()) {
-        refreshCache();
+        refreshCaches();
       }
     }
   }
 
-  void refreshCache() {
+  void refreshCaches() {
     if (!credentialClient_ || !credentialClient_->isConnected()) {
-      logger::warn("IngestionService: not connected to gateway, skipping credential refresh", "");
+      logger::warn("IngestionService: not connected to gateway, skipping cache refresh", "");
       return;
     }
+    refreshCredentials();
+    refreshSensorOwners();
+  }
+
+  void refreshSensorOwners() {
+    rapidjson::Document req(rapidjson::kObjectType);
+    const auto result = credentialClient_->invoke("sensor.list_owners", req);
+    if (!result.success) {
+      logger::error("sensor.list_owners failed", result.errorMessage);
+      return;
+    }
+
+    rapidjson::Document envelope;
+    if (envelope.Parse(result.responsePayload.c_str()).HasParseError() || !envelope.IsObject()) {
+      return;
+    }
+    const auto* dataArr = json::getArray(envelope, "data");
+    if (dataArr == nullptr) {
+      return;
+    }
+
+    std::unordered_map<std::string, SensorInfo> owners;
+    for (const auto& entry : dataArr->GetArray()) {
+      const auto sensorId = json::getString(entry, "id");
+      const auto deviceId = json::getString(entry, "device_id");
+      if (sensorId && deviceId) {
+        owners.emplace(*sensorId,
+                       SensorInfo{*deviceId, json::getString(entry, "unit").value_or("")});
+      }
+    }
+
+    std::scoped_lock lock(ownersMutex_);
+    sensorOwners_ = std::move(owners);
+    ownersLoaded_ = true;
+    logger::info("IngestionService: sensor owner cache refreshed",
+                 "count=" + std::to_string(sensorOwners_.size()));
+  }
+
+  void refreshCredentials() {
 
     rapidjson::Document req(rapidjson::kObjectType);
     const auto result = credentialClient_->invoke("device_credential.list_active", req);
@@ -159,12 +252,14 @@ private:
     for (const auto& entry : dataArr->GetArray()) {
       const auto identity = json::getString(entry, "psk_identity");
       const auto keyHex = json::getString(entry, "psk_key");
-      if (!identity || !keyHex) {
+      const auto deviceId = json::getString(entry, "device_id");
+      if (!identity || !keyHex || !deviceId) {
         continue;
       }
       const auto keyBytes = rdws::crypto::fromHex(*keyHex);
       CachedCredential cred;
       cred.key = std::string(keyBytes.begin(), keyBytes.end());
+      cred.deviceId = *deviceId;
       auto [it, inserted] = pskCache_.emplace(*identity, std::move(cred));
       it->second.bin.length = it->second.key.size();
       it->second.bin.s = reinterpret_cast<const uint8_t*>(it->second.key.data());
@@ -199,6 +294,12 @@ private:
     // libcoap reassemble a fragmented (Block1) request before calling our resource
     // handler, so onRequest() always sees the complete payload in one shot.
     coap_context_set_block_mode(ctx, COAP_BLOCK_USE_LIBCOAP | COAP_BLOCK_SINGLE_BODY);
+    // Idle sessions go after 60 s instead of libcoap's 300 s. The eswifi module reconnects
+    // from the same source port (5684) after a reboot, so a station reset mid-cycle (no
+    // close_notify) has its new ClientHello delivered to the stale session and ignored; its
+    // ~31 s of retries keep that session alive. With a short timeout the stale session
+    // expires between uplink cycles and the next cycle handshakes normally.
+    coap_context_set_session_timeout(ctx, kSessionTimeoutSec);
 
     coap_dtls_spsk_t setupData{};
     setupData.version = COAP_DTLS_SPSK_SETUP_VERSION;
@@ -222,7 +323,7 @@ private:
                                      coap_pdu_t* response) {
                                     auto* self = static_cast<AppIngestionService*>(
                                         coap_context_get_app_data(coap_session_get_context(session)));
-                                    self->onRequest(request, response);
+                                    self->onRequest(res, session, request, query, response);
                                   });
     coap_add_resource(ctx, resource);
 
@@ -235,7 +336,28 @@ private:
     coap_free_context(ctx);
   }
 
-  void onRequest(const coap_pdu_t* request, coap_pdu_t* response) {
+  // Device bound to the DTLS session's PSK identity (Plano_Telemetria.md, Fase 0). Empty if
+  // the credential left the cache (revoked/rotated) after the handshake.
+  std::string authenticatedDeviceId(coap_session_t* session) {
+    const coap_bin_const_t* identity = coap_session_get_psk_identity(session);
+    if (identity == nullptr) {
+      return {};
+    }
+    const std::string identityStr(reinterpret_cast<const char*>(identity->s), identity->length);
+    std::scoped_lock lock(cacheMutex_);
+    const auto it = pskCache_.find(identityStr);
+    return it == pskCache_.end() ? std::string{} : it->second.deviceId;
+  }
+
+  void onRequest(coap_resource_t* resource, coap_session_t* session, const coap_pdu_t* request,
+                 const coap_string_t* query, coap_pdu_t* response) {
+    const auto deviceId = authenticatedDeviceId(session);
+    if (deviceId.empty()) {
+      logger::warn("IngestionService: session has no known PSK identity, rejecting", "");
+      coap_pdu_set_code(response, COAP_RESPONSE_CODE_UNAUTHORIZED);
+      return;
+    }
+
     const uint8_t* data = nullptr;
     size_t len = 0, offset = 0, total = 0;
     coap_get_data_large(request, &len, &data, &offset, &total);
@@ -244,25 +366,107 @@ private:
         ? std::string(reinterpret_cast<const char*>(data), len)
         : std::string{};
 
-    const int publishedCount = handlePayload(body);
-
-    coap_pdu_set_code(response, publishedCount >= 0 ? COAP_RESPONSE_CODE_CHANGED
-                                                    : COAP_RESPONSE_CODE_BAD_REQUEST);
-  }
-
-  // Optional `location: {"lat": ..., "lon": ...}` on the payload (Plano_Ingestion.md) -
-  // gateways without a fixed installation point (e.g. a mobile/roaming device) report
-  // their position on every send cycle. Fire-and-forget over the same broker connection
-  // already used for credential refresh; a failure here shouldn't block reading ingestion.
-  void reportLocation(const std::string& deviceId, const rapidjson::Value& location) {
-    const auto lat = json::getDouble(location, "lat");
-    const auto lon = json::getDouble(location, "lon");
-    if (!lat || !lon) {
-      logger::warn("IngestionService: location present but missing lat/lon", "");
+    if (!isSenml(request)) {
+      logger::warn("IngestionService: unsupported Content-Format (only SenML JSON, 110)",
+                   "device_id=" + deviceId);
+      coap_pdu_set_code(response, COAP_RESPONSE_CODE_UNSUPPORTED_CONTENT_FORMAT);
       return;
     }
 
-    const std::string wkt = "POINT(" + std::to_string(*lon) + " " + std::to_string(*lat) + ")";
+    std::optional<long long> declaredCfg;
+    const int result = handleSenml(deviceId, body, declaredCfg);
+
+    coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
+                                : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
+                                : result == kUnavailable ? COAP_RESPONSE_CODE_SERVICE_UNAVAILABLE
+                                                         : COAP_RESPONSE_CODE_CHANGED);
+
+    // Config piggyback (Plano_Telemetria.md, D11): the station declared the config version
+    // it runs; if it's behind, this 2.04 carries the current one. Block2 when it doesn't
+    // fit in one PDU — libcoap handles the follow-up block requests.
+    if (result >= 0 && declaredCfg) {
+      if (auto reply = configReply(deviceId, *declaredCfg)) {
+        auto* owned = new std::string(std::move(*reply));
+        coap_add_data_large_response(
+            resource, session, request, response, query, COAP_MEDIATYPE_APPLICATION_JSON, -1,
+            0, owned->size(), reinterpret_cast<const uint8_t*>(owned->data()),
+            [](coap_session_t*, void* app) { delete static_cast<std::string*>(app); }, owned);
+      }
+    }
+  }
+
+  // {"version": N, "config": {...}} when the device's config is newer than `declared`, else
+  // nullopt. Fetched on demand (device_config.get): it only runs once per uplink cycle per
+  // device, so no cache. A failure only logs — the station asks again next cycle.
+  std::optional<std::string> configReply(const std::string& deviceId, long long declared) {
+    rapidjson::Document req(rapidjson::kObjectType);
+    auto& alloc = req.GetAllocator();
+    rapidjson::Value pathParams(rapidjson::kObjectType);
+    pathParams.AddMember("id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    req.AddMember("pathParameters", pathParams, alloc);
+
+    const auto result = credentialClient_->invoke("device_config.get", req);
+    if (!result.success) {
+      logger::warn("IngestionService: device_config.get failed, config not sent",
+                   "device_id=" + deviceId + " " + result.errorMessage);
+      return std::nullopt;
+    }
+    rapidjson::Document envelope;
+    if (envelope.Parse(result.responsePayload.c_str()).HasParseError() || !envelope.IsObject()) {
+      return std::nullopt;
+    }
+    const auto* data = json::getObject(envelope, "data");
+    const auto version = data ? json::getInt(*data, "version") : std::nullopt;
+    const auto* config = data ? json::getObject(*data, "config") : nullptr;
+    if (!version || config == nullptr) {
+      logger::warn("IngestionService: device_config.get without version/config", deviceId);
+      return std::nullopt;
+    }
+    if (*version == declared) {
+      return std::nullopt;
+    }
+
+    // Triggers are stored in sensors.unit; the firmware wants its fixed point
+    // (Plano_Firmware_WeatherNode.md §4). Without a conversion nothing goes: the station keeps
+    // its config and declares the old version again on the next cycle.
+    std::unordered_map<std::string, std::string> unitBySensor;
+    if (const auto owners = snapshotOwners()) {
+      for (const auto& [sensorId, info] : *owners) {
+        unitBySensor.emplace(sensorId, info.unit);
+      }
+    }
+    const auto delivered = rdws::senml::configForFirmware(json::docToString(*config), unitBySensor);
+    if (!delivered) {
+      logger::error("IngestionService: config triggers can't be converted, config not sent",
+                    "device_id=" + deviceId + " version=" + std::to_string(*version));
+      return std::nullopt;
+    }
+    rapidjson::Document deliveredDoc;
+    deliveredDoc.Parse(delivered->c_str());
+
+    rapidjson::Document reply(rapidjson::kObjectType);
+    auto& ralloc = reply.GetAllocator();
+    reply.AddMember("version", *version, ralloc);
+    reply.AddMember("config", rapidjson::Value(deliveredDoc, ralloc), ralloc);
+    logger::info("IngestionService: sending config",
+                 "device_id=" + deviceId + " from=" + std::to_string(declared) +
+                     " to=" + std::to_string(*version));
+    return json::docToString(reply);
+  }
+
+  // Position from the pack's `lat`/`lon` records (devices without a fixed installation point,
+  // e.g. a mobile/roaming device, report it every send cycle). Fire-and-forget over the same
+  // broker connection already used for credential refresh; a failure here shouldn't block
+  // reading ingestion.
+  void reportLocation(const std::string& deviceId, double lat, double lon) {
+    if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) {
+      logger::warn("IngestionService: position out of range, ignoring",
+                   "device_id=" + deviceId + " lat=" + std::to_string(lat) +
+                       " lon=" + std::to_string(lon));
+      return;
+    }
+
+    const std::string wkt = "POINT(" + std::to_string(lon) + " " + std::to_string(lat) + ")";
 
     rapidjson::Document req(rapidjson::kObjectType);
     auto& alloc = req.GetAllocator();
@@ -275,55 +479,282 @@ private:
     }
   }
 
-  // Returns the number of readings published, or -1 on a format error (missing
-  // device_id/readings, or a reading missing required fields).
-  int handlePayload(const std::string& body) {
-    rapidjson::Document doc;
-    if (doc.Parse(body.c_str()).HasParseError() || !doc.IsObject()) {
-      logger::warn("IngestionService: malformed JSON payload", "");
-      return -1;
+  static constexpr int kFormatError = -1;
+  static constexpr int kForbidden = -2;
+  static constexpr int kUnavailable = -3;
+
+  static constexpr unsigned kContentFormatSenmlJson = 110; // application/senml+json
+
+  static bool isSenml(const coap_pdu_t* request) {
+    coap_opt_iterator_t it;
+    const coap_opt_t* opt = coap_check_option(request, COAP_OPTION_CONTENT_FORMAT, &it);
+    return opt != nullptr && coap_decode_var_bytes(coap_opt_value(opt), coap_opt_length(opt)) ==
+                                 kContentFormatSenmlJson;
+  }
+
+  // Snapshot under the lock: publishing talks to RabbitMQ and shouldn't hold it. nullopt
+  // while the cache has never loaded (caller answers kUnavailable).
+  std::optional<std::unordered_map<std::string, SensorInfo>> snapshotOwners() {
+    std::scoped_lock lock(ownersMutex_);
+    if (!ownersLoaded_) {
+      logger::warn("IngestionService: sensor owner cache not loaded yet, asking to retry", "");
+      return std::nullopt;
     }
-    const auto deviceId = json::getString(doc, "device_id");
-    const auto* readings = json::getArray(doc, "readings");
-    if (!deviceId || readings == nullptr) {
-      logger::warn("IngestionService: payload missing device_id/readings", "");
-      return -1;
+    return sensorOwners_;
+  }
+
+  // False (and logs) when the sensor isn't registered to the authenticated device.
+  static bool ownedBy(const std::unordered_map<std::string, SensorInfo>& owners,
+                      const std::string& sensorId, const std::string& deviceId) {
+    const auto owner = owners.find(sensorId);
+    if (owner != owners.end() && owner->second.deviceId == deviceId) {
+      return true;
+    }
+    logger::warn("IngestionService: sensor doesn't belong to the device, dropping reading",
+                 "device_id=" + deviceId + " sensor_id=" + sensorId + " owner=" +
+                     (owner == owners.end() ? std::string("unknown") : owner->second.deviceId));
+    return false;
+  }
+
+  static std::string readingMessage(const std::string& deviceId, const std::string& sensorId,
+                                    const std::string& timestamp, double value,
+                                    const std::string& unit, int flags) {
+    rapidjson::Document msg(rapidjson::kObjectType);
+    auto& alloc = msg.GetAllocator();
+    msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    msg.AddMember("sensor_id", rapidjson::Value(sensorId.c_str(), alloc), alloc);
+    msg.AddMember("timestamp", rapidjson::Value(timestamp.c_str(), alloc), alloc);
+    msg.AddMember("value", value, alloc);
+    msg.AddMember("unit", rapidjson::Value(unit.c_str(), alloc), alloc);
+    msg.AddMember("flags", flags, alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    msg.Accept(writer);
+    return buffer.GetString();
+  }
+
+  // All of a pack's readings in one publishBatch(): one wait for the broker's confirms instead
+  // of one per reading (per-reading confirms held the CoAP thread ~30 ms per reading on QA).
+  // False → nothing can be assumed stored: the caller answers 5.03 and the device resends.
+  bool publishReadings(const std::string& deviceId, const std::vector<std::string>& messages) {
+    if (producer_.publishBatch(messages)) {
+      return true;
+    }
+    logger::error("IngestionService: failed to publish readings to RabbitMQ",
+                  "device_id=" + deviceId + " readings=" + std::to_string(messages.size()) +
+                      " error=" + producer_.lastError());
+    return false;
+  }
+
+  // {"type": "config_span", "device_id", "version", "first_ts", "last_ts"}, on the telemetry
+  // queue. Unlike diagnostics a failure counts: see the header.
+  bool publishConfigSpan(const std::string& deviceId, long long version, double firstTime,
+                         double lastTime) {
+    rapidjson::Document msg(rapidjson::kObjectType);
+    auto& alloc = msg.GetAllocator();
+    msg.AddMember("type", "config_span", alloc);
+    msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    msg.AddMember("version", static_cast<int64_t>(version), alloc);
+    msg.AddMember("first_ts", rapidjson::Value(rdws::senml::toIso8601(firstTime).c_str(), alloc),
+                  alloc);
+    msg.AddMember("last_ts", rapidjson::Value(rdws::senml::toIso8601(lastTime).c_str(), alloc),
+                  alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    msg.Accept(writer);
+    if (telemetryProducer_.publish(buffer.GetString())) {
+      return true;
+    }
+    logger::error("IngestionService: failed to publish config span to RabbitMQ",
+                  "device_id=" + deviceId + " error=" + telemetryProducer_.lastError());
+    return false;
+  }
+
+  // One device_telemetry row per instant: {"device_id", "timestamp", "data": {name: value}}.
+  // A failed publish only logs — diagnostics never block the readings' 2.04.
+  void publishTelemetry(const std::string& deviceId, double time,
+                        const std::vector<const rdws::senml::Record*>& records) {
+    rapidjson::Document msg(rapidjson::kObjectType);
+    auto& alloc = msg.GetAllocator();
+    rapidjson::Value data(rapidjson::kObjectType);
+    const size_t prefixLen = deviceId.size() + 1; // "<device_id>/"
+    for (const auto* rec : records) {
+      rapidjson::Value key(rec->name.substr(prefixLen).c_str(), alloc);
+      rapidjson::Value value;
+      if (rec->value) {
+        // Counters (seq, boot_count, ...) stay integers in the JSONB instead of 812.0.
+        const double v = *rec->value;
+        if (std::trunc(v) == v && std::fabs(v) < 9.0e15) {
+          value.SetInt64(static_cast<int64_t>(v));
+        } else {
+          value.SetDouble(v);
+        }
+      } else if (rec->boolValue) {
+        value.SetBool(*rec->boolValue);
+      } else {
+        value.SetString(rec->stringValue->c_str(), alloc);
+      }
+      data.RemoveMember(key); // a repeated name at the same instant: last one wins
+      data.AddMember(key, value, alloc);
+    }
+    msg.AddMember("device_id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    msg.AddMember("timestamp", rapidjson::Value(rdws::senml::toIso8601(time).c_str(), alloc),
+                  alloc);
+    msg.AddMember("data", data, alloc);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    msg.Accept(writer);
+    if (!telemetryProducer_.publish(buffer.GetString())) {
+      logger::error("IngestionService: failed to publish device telemetry to RabbitMQ",
+                    "device_id=" + deviceId + " error=" + telemetryProducer_.lastError());
+    }
+  }
+
+  // SenML JSON pack (Plano_Telemetria.md). Names are bn + n with bn = "<device_id>/" (DP2):
+  // a numeric remainder is a global sensor_id (F1); anything else ("seq" included) is device
+  // diagnostics (D2), grouped by instant into device_telemetry rows (D5).
+  // Whole pack: unparseable -> kFormatError, any name outside the authenticated device ->
+  // kForbidden, any reading RabbitMQ didn't take -> kUnavailable. Per record (dropped with a
+  // log, the rest goes on): foreign sensor, no numeric value, time_unsynced or unknown fl_
+  // bits (DP3/F3), unit without a rule (DP1).
+  int handleSenml(const std::string& authDeviceId, const std::string& body,
+                  std::optional<long long>& declaredCfg) {
+    const auto now = static_cast<double>(std::time(nullptr));
+    const auto pack = rdws::senml::parse(body, now);
+    if (!pack) {
+      logger::warn("IngestionService: malformed SenML pack", pack.error());
+      return kFormatError;
     }
 
-    if (const auto* location = json::getObject(doc, "location")) {
-      reportLocation(*deviceId, *location);
+    const std::string prefix = authDeviceId + "/";
+    for (const auto& rec : *pack) {
+      if (rec.name.compare(0, prefix.size(), prefix) != 0) {
+        logger::warn("IngestionService: SenML name outside the PSK's device, rejecting",
+                     "authenticated=" + authDeviceId + " name=" + rec.name);
+        return kForbidden;
+      }
     }
 
-    int published = 0;
-    for (const auto& reading : readings->GetArray()) {
-      const auto sensorId = json::getString(reading, "sensor_id");
-      const auto timestamp = json::getString(reading, "timestamp");
-      const auto value = json::getDouble(reading, "value");
-      const auto unit = json::getString(reading, "unit");
-      if (!sensorId || !timestamp || !value) {
-        logger::warn("IngestionService: reading missing required field, skipping", "");
+    const auto owners = snapshotOwners();
+    if (!owners) {
+      return kUnavailable;
+    }
+
+    std::vector<std::string> messages;
+    int sensorRecords = 0;
+    std::optional<long long> recCfg;
+    int outOfRange = 0;
+    std::string outOfRangeExample;
+    std::optional<double> firstTime; // of the readings accepted from this pack
+    std::optional<double> lastTime;
+    std::string seq = "-";
+    std::string diagnostics;
+    std::map<double, std::vector<const rdws::senml::Record*>> telemetry;
+    // lat/lon by instant: the most recent instant carrying both becomes devices.location.
+    std::map<double, std::pair<std::optional<double>, std::optional<double>>> positions;
+    for (const auto& rec : *pack) {
+      const std::string local = rec.name.substr(prefix.size());
+      const bool numeric = !local.empty() && std::all_of(local.begin(), local.end(), [](char c) {
+        return std::isdigit(static_cast<unsigned char>(c)) != 0;
+      });
+
+      if (!numeric) {
+        if (local == "rec_cfg") {
+          if (rec.value) {
+            recCfg = static_cast<long long>(*rec.value);
+          }
+          continue; // packet metadata, not a diagnostic: never reaches device_telemetry
+        }
+        if (local == "seq") {
+          seq = rec.value ? std::to_string(static_cast<long long>(*rec.value)) : "?";
+        } else {
+          if (local == "cfg_version" && rec.value) {
+            declaredCfg = static_cast<long long>(*rec.value);
+          }
+          // Also kept in device_telemetry below: a free position history for mobile devices.
+          if (local == "lat" && rec.value) {
+            positions[rec.time].first = *rec.value;
+          } else if (local == "lon" && rec.value) {
+            positions[rec.time].second = *rec.value;
+          }
+          diagnostics += (diagnostics.empty() ? "" : ",") + local;
+        }
+        telemetry[rec.time].push_back(&rec);
         continue;
       }
 
-      rapidjson::Document msg(rapidjson::kObjectType);
-      auto& alloc = msg.GetAllocator();
-      msg.AddMember("device_id", rapidjson::Value(deviceId->c_str(), alloc), alloc);
-      msg.AddMember("sensor_id", rapidjson::Value(sensorId->c_str(), alloc), alloc);
-      msg.AddMember("timestamp", rapidjson::Value(timestamp->c_str(), alloc), alloc);
-      msg.AddMember("value", *value, alloc);
-      msg.AddMember("unit", rapidjson::Value(unit.value_or("").c_str(), alloc), alloc);
+      ++sensorRecords;
+      const std::string ctx = "device_id=" + authDeviceId + " sensor_id=" + local;
+      if (!ownedBy(*owners, local, authDeviceId)) {
+        continue;
+      }
+      if (!rec.value) {
+        logger::warn("IngestionService: SenML sensor record without numeric v, dropping", ctx);
+        continue;
+      }
+      if ((rec.flags & rdws::senml::kFlagTimeUnsynced) != 0 ||
+          (rec.flags & ~rdws::senml::kKnownFlags) != 0) {
+        logger::warn("IngestionService: SenML record unsynced or with unknown flags, dropping",
+                     ctx + " fl_=" + std::to_string(rec.flags));
+        continue;
+      }
+      const auto& sensorUnit = owners->at(local).unit;
+      const auto value = rdws::senml::toSensorUnit(*rec.value, rec.unit, sensorUnit);
+      if (!value) {
+        logger::warn("IngestionService: SenML unit has no conversion, dropping",
+                     ctx + " u=" + rec.unit + " sensor_unit=" + sensorUnit);
+        continue;
+      }
 
-      rapidjson::StringBuffer buffer;
-      rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-      msg.Accept(writer);
+      // Out of the physical range: stored with a flag rather than dropped, so a faulty sensor
+      // shows up in diagnostics; one warning per pack, with the first such reading.
+      uint16_t flags = rec.flags;
+      if (!rdws::senml::isPlausible(*value, sensorUnit)) {
+        flags |= rdws::senml::kFlagOutOfRange;
+        if (outOfRange++ == 0) {
+          outOfRangeExample = ctx + " value=" + std::to_string(*value) + " " + sensorUnit;
+        }
+      }
+      messages.push_back(readingMessage(authDeviceId, local, rdws::senml::toIso8601(rec.time),
+                                        *value, sensorUnit, flags));
+      firstTime = std::min(firstTime.value_or(rec.time), rec.time);
+      lastTime = std::max(lastTime.value_or(rec.time), rec.time);
+    }
 
-      if (producer_.publish(buffer.GetString())) {
-        ++published;
-      } else {
-        logger::error("IngestionService: failed to publish reading to RabbitMQ", "");
+    // RabbitMQ failure → 5.03 so the device resends the whole pack, telemetry included. An
+    // empty pack (diagnostics only) stored nothing, so a span there would have no timestamps.
+    const bool stored =
+        publishReadings(authDeviceId, messages) &&
+        (!recCfg || !firstTime || publishConfigSpan(authDeviceId, *recCfg, *firstTime, *lastTime));
+    const int published = stored ? static_cast<int>(messages.size()) : 0;
+    const int unpublished = stored ? 0 : static_cast<int>(messages.size());
+    if (stored) {
+      for (const auto& [time, records] : telemetry) {
+        publishTelemetry(authDeviceId, time, records);
+      }
+      for (auto it = positions.rbegin(); it != positions.rend(); ++it) {
+        if (const auto& [lat, lon] = it->second; lat && lon) {
+          reportLocation(authDeviceId, *lat, *lon);
+          break;
+        }
       }
     }
-    return published;
+
+    if (outOfRange > 0) {
+      logger::warn("IngestionService: readings outside the plausible range, flagged",
+                   "count=" + std::to_string(outOfRange) + " first: " + outOfRangeExample);
+    }
+    logger::info("IngestionService: SenML pack",
+                 "device_id=" + authDeviceId + " seq=" + seq + " records=" +
+                     std::to_string(pack->size()) + " sensor_records=" +
+                     std::to_string(sensorRecords) + " published=" + std::to_string(published) +
+                     " unpublished=" + std::to_string(unpublished) +
+                     " out_of_range=" + std::to_string(outOfRange) +
+                     " diagnostics=" + (diagnostics.empty() ? "-" : diagnostics));
+    return unpublished > 0 ? kUnavailable : published;
   }
 };
 

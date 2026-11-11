@@ -1,8 +1,14 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #include "amqp_client.h"
 
 #include <rabbitmq-c/amqp.h>
 #include <rabbitmq-c/tcp_socket.h>
 #include <rabbitmq-c/framing.h>
+
+#include <algorithm>
+#include <set>
 
 namespace rdws::amqp {
 
@@ -10,6 +16,18 @@ namespace {
 
 constexpr amqp_channel_t kChannel = 1;
 constexpr int kFrameMax = 131072;
+// How long publish() waits for the next confirm frame before giving up on the connection.
+constexpr int kConfirmTimeoutSec = 5;
+// Messages published before waiting for their confirms (bounds the acks the broker queues
+// up for us while we're still writing).
+constexpr size_t kConfirmChunk = 500;
+// Deliveries in flight per consumer. Without a limit the broker pushes the whole queue as
+// unacked at once (thousands after an outage).
+constexpr uint16_t kPrefetch = 100;
+// Bounds on connect(): the producer runs on IngestionService's single CoAP thread, so an
+// unreachable broker host must not block it for the kernel's TCP timeout (minutes).
+constexpr int kConnectTimeoutSec = 2;
+constexpr int kRpcTimeoutSec = 5;
 
 amqp_connection_state_t asConn(void* conn) {
   return static_cast<amqp_connection_state_t>(conn);
@@ -18,6 +36,19 @@ amqp_connection_state_t asConn(void* conn) {
 bool rpcOk(amqp_connection_state_t conn) {
   const amqp_rpc_reply_t reply = amqp_get_rpc_reply(conn);
   return reply.reply_type == AMQP_RESPONSE_NORMAL;
+}
+
+// TCP connect plus the AMQP handshake and later synchronous RPCs, all with timeouts.
+bool openSocket(amqp_connection_state_t conn, const std::string& host, uint16_t port) {
+  amqp_socket_t* socket = amqp_tcp_socket_new(conn);
+  if (socket == nullptr) {
+    return false;
+  }
+  struct timeval connectTimeout {kConnectTimeoutSec, 0};
+  struct timeval rpcTimeout {kRpcTimeoutSec, 0};
+  return amqp_socket_open_noblock(socket, host.c_str(), port, &connectTimeout) == AMQP_STATUS_OK &&
+         amqp_set_handshake_timeout(conn, &connectTimeout) == AMQP_STATUS_OK &&
+         amqp_set_rpc_timeout(conn, &rpcTimeout) == AMQP_STATUS_OK;
 }
 
 bool declareQueue(amqp_connection_state_t conn, const std::string& queueName) {
@@ -40,8 +71,7 @@ AmqpProducer::~AmqpProducer() { disconnect(); }
 
 bool AmqpProducer::connect() {
   amqp_connection_state_t conn = amqp_new_connection();
-  amqp_socket_t* socket = amqp_tcp_socket_new(conn);
-  if (socket == nullptr || amqp_socket_open(socket, host_.c_str(), port_) != 0) {
+  if (!openSocket(conn, host_, port_)) {
     amqp_destroy_connection(conn);
     return false;
   }
@@ -55,7 +85,12 @@ bool AmqpProducer::connect() {
   }
 
   amqp_channel_open(conn, kChannel);
-  if (!rpcOk(conn) || !declareQueue(conn, queueName_)) {
+  bool ok = rpcOk(conn) && declareQueue(conn, queueName_);
+  if (ok) {
+    amqp_confirm_select(conn, kChannel);
+    ok = rpcOk(conn);
+  }
+  if (!ok) {
     amqp_channel_close(conn, kChannel, AMQP_REPLY_SUCCESS);
     amqp_connection_close(conn, AMQP_REPLY_SUCCESS);
     amqp_destroy_connection(conn);
@@ -63,23 +98,98 @@ bool AmqpProducer::connect() {
   }
 
   conn_ = conn;
+  nextDeliveryTag_ = 1;
   return true;
 }
 
 bool AmqpProducer::publish(const std::string& body) {
-  if (conn_ == nullptr) {
+  return publishBatch({body});
+}
+
+bool AmqpProducer::publishBatch(const std::vector<std::string>& bodies) {
+  if (bodies.empty()) {
+    return true;
+  }
+  if (conn_ != nullptr && publishAll(bodies)) {
+    return true;
+  }
+  // Not connected, or a publish failed (and dropped the connection): one fresh attempt.
+  if (!connect()) {
+    lastError_ = "connect to RabbitMQ failed";
     return false;
   }
+  return publishAll(bodies);
+}
+
+bool AmqpProducer::publishAll(const std::vector<std::string>& bodies) {
+  for (size_t begin = 0; begin < bodies.size(); begin += kConfirmChunk) {
+    if (!publishChunk(bodies, begin, std::min(begin + kConfirmChunk, bodies.size()))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool AmqpProducer::publishChunk(const std::vector<std::string>& bodies, size_t begin,
+                                size_t end) {
   amqp_connection_state_t conn = asConn(conn_);
   amqp_basic_properties_t props;
   props._flags = AMQP_BASIC_DELIVERY_MODE_FLAG;
   props.delivery_mode = 2; // persistent
 
-  const int status = amqp_basic_publish(conn, kChannel, amqp_empty_bytes,
-                                        amqp_cstring_bytes(queueName_.c_str()),
-                                        /*mandatory=*/0, /*immediate=*/0, &props,
-                                        amqp_cstring_bytes(body.c_str()));
-  return status == 0;
+  const uint64_t firstTag = nextDeliveryTag_;
+  for (size_t i = begin; i < end; ++i) {
+    const int status = amqp_basic_publish(conn, kChannel, amqp_empty_bytes,
+                                          amqp_cstring_bytes(queueName_.c_str()),
+                                          /*mandatory=*/0, /*immediate=*/0, &props,
+                                          amqp_cstring_bytes(bodies[i].c_str()));
+    if (status != AMQP_STATUS_OK) {
+      dropConnection(std::string("publish failed: ") + amqp_error_string2(status));
+      return false;
+    }
+    ++nextDeliveryTag_;
+  }
+  const uint64_t lastTag = nextDeliveryTag_ - 1;
+
+  // Wait until every tag in [firstTag, lastTag] is acked. The broker may ack several at once
+  // (multiple=1 covers every tag up to delivery_tag) and, in principle, out of order.
+  std::set<uint64_t> pending;
+  for (uint64_t tag = firstTag; tag <= lastTag; ++tag) {
+    pending.insert(tag);
+  }
+  while (!pending.empty()) {
+    struct timeval timeout {kConfirmTimeoutSec, 0};
+    amqp_frame_t frame;
+    const int waited = amqp_simple_wait_frame_noblock(conn, &frame, &timeout);
+    if (waited != AMQP_STATUS_OK) {
+      dropConnection(std::string("waiting for confirm: ") + amqp_error_string2(waited));
+      return false;
+    }
+    if (frame.frame_type != AMQP_FRAME_METHOD) {
+      continue;
+    }
+    if (frame.payload.method.id == AMQP_BASIC_ACK_METHOD) {
+      const auto* ack = static_cast<const amqp_basic_ack_t*>(frame.payload.method.decoded);
+      if (ack->multiple) {
+        pending.erase(pending.begin(), pending.upper_bound(ack->delivery_tag));
+      } else {
+        pending.erase(ack->delivery_tag);
+      }
+      continue;
+    }
+    // basic.nack, or connection.close/channel.close from a broker going down.
+    dropConnection(frame.payload.method.id == AMQP_BASIC_NACK_METHOD
+                       ? "broker nacked a message"
+                       : "unexpected frame from broker");
+    return false;
+  }
+  return true;
+}
+
+void AmqpProducer::dropConnection(std::string reason) {
+  lastError_ = std::move(reason);
+  amqp_destroy_connection(asConn(conn_));
+  conn_ = nullptr;
 }
 
 void AmqpProducer::disconnect() {
@@ -104,8 +214,7 @@ AmqpConsumer::~AmqpConsumer() { disconnect(); }
 
 bool AmqpConsumer::connect() {
   amqp_connection_state_t conn = amqp_new_connection();
-  amqp_socket_t* socket = amqp_tcp_socket_new(conn);
-  if (socket == nullptr || amqp_socket_open(socket, host_.c_str(), port_) != 0) {
+  if (!openSocket(conn, host_, port_)) {
     amqp_destroy_connection(conn);
     return false;
   }
@@ -120,6 +229,12 @@ bool AmqpConsumer::connect() {
 
   amqp_channel_open(conn, kChannel);
   if (!rpcOk(conn) || !declareQueue(conn, queueName_)) {
+    amqp_destroy_connection(conn);
+    return false;
+  }
+
+  amqp_basic_qos(conn, kChannel, /*prefetch_size=*/0, kPrefetch, /*global=*/0);
+  if (!rpcOk(conn)) {
     amqp_destroy_connection(conn);
     return false;
   }
@@ -152,17 +267,40 @@ bool AmqpConsumer::consumeOne(const MessageHandler& handler, unsigned int timeou
   amqp_envelope_t envelope;
   const amqp_rpc_reply_t reply = amqp_consume_message(conn, &envelope, &timeout, 0);
   if (reply.reply_type != AMQP_RESPONSE_NORMAL) {
-    return false; // timeout, or a non-deliver frame — caller just retries
+    if (reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION &&
+        reply.library_error == AMQP_STATUS_TIMEOUT) {
+      return false;
+    }
+    // A socket error, or a frame other than a delivery (connection.close/channel.close from a
+    // broker shutting down, basic.cancel for a deleted queue): this connection won't deliver
+    // again. Before this, the caller kept calling into the dead socket, which fails at once —
+    // a busy loop at 100 % CPU that never reconnected.
+    dropConnection(reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION
+                       ? amqp_error_string2(reply.library_error)
+                       : "unexpected frame from broker");
+    return false;
   }
 
   const std::string body(static_cast<const char*>(envelope.message.body.bytes),
                          envelope.message.body.len);
-  const bool ack = handler(body);
-  if (ack) {
-    amqp_basic_ack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0);
-  }
+  const int status =
+      handler(body) == Outcome::Ack
+          ? amqp_basic_ack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0)
+          : amqp_basic_nack(conn, kChannel, envelope.delivery_tag, /*multiple=*/0, /*requeue=*/1);
   amqp_destroy_envelope(&envelope);
+  if (status != AMQP_STATUS_OK) {
+    // The broker returns the unacked delivery to the queue when the connection closes, and the
+    // writes are idempotent, so the redelivery is harmless.
+    dropConnection(std::string("ack/nack failed: ") + amqp_error_string2(status));
+  }
   return true;
+}
+
+void AmqpConsumer::dropConnection(std::string reason) {
+  lastError_ = std::move(reason);
+  amqp_destroy_connection(asConn(conn_));
+  conn_ = nullptr;
+  consuming_ = false;
 }
 
 void AmqpConsumer::disconnect() {

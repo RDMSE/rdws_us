@@ -25,13 +25,24 @@ Esse desenho desacopla a taxa de chegada dos devices (que pode ser irregular, em
 
 - Protocolo: **CoAP**, escolhido por causa do hardware low-power. CoAP roda sobre UDP, sem conexão persistente — o device acorda, envia o datagrama e volta a dormir, economizando rádio/bateria. MQTT (ex. Mosquitto) foi considerado e descartado para a entrada dos dados: exige manter uma conexão TCP com keep-alive aberta, custando mais energia do que o cenário permite.
 - Com **DTLS** obrigatório — sem isso qualquer dispositivo na rede pode injetar leituras falsas.
-- Autenticação por device: **PSK** (resolvido — `Plano_DeviceCredentials.md`), via `libcoap` com backend OpenSSL. Já implementado do lado cliente (`SensorSimulatorService`, ver abaixo); o lado servidor (`coap_context_set_psk2`/`coap_dtls_spsk_info_t`, carregando credenciais ativas do `device_credential.get_active`) ainda não existe.
+- Autenticação por device: **PSK** (resolvido — `Plano_DeviceCredentials.md`), via `libcoap` com backend OpenSSL, nos dois lados: cliente no `SensorSimulatorService` e servidor no `IngestionService`, com as credenciais ativas em cache (poll de 60 s de `device_credential.list_active`).
 - Responsabilidades:
   - Receber o payload CoAP do device.
   - Parsear para o formato interno de leitura.
-  - Validar contra `device_config` (schema esperado, ranges plausíveis) — leituras fora do schema são descartadas/logadas, não publicadas na fila.
+  - Validar: confere o dono de cada sensor e converte a unidade (leitura de sensor de outro device, ou unidade sem conversão, é descartada com log), e marca com o flag `out_of_range` (`0x4000`) a leitura fora da faixa física da unidade (pontos em aberto). A config em si é validada na edição, no `DeviceConfigService`.
   - Publicar na fila persistente.
 - Não acessa o banco diretamente — é stateless em relação à persistência.
+- **Contrato de payload e identidade: ver `Plano_Telemetria.md`.** Só SenML JSON
+  (Content-Format `110`; o JSON legado `50` foi desativado em 2026-10-30, RDWS-165; CBOR `112`
+  no futuro); device derivado da `psk_identity` do handshake (Fase 0, ✅ 2026-10-05);
+  `sensor_id` global no `n`, conferido contra o dono por cache (`sensor.list_owners`);
+  diagnóstico do device roteado para `device_telemetry`; o `2.04` traz a config inteira quando
+  o `cfg_version` declarado está atrás (D11, revisto em 2026-10-06; sem `rules_version`: as
+  regras de gatilho vão dentro da config).
+- Exposição à internet (devices reais sem Tailscale): VPS como porta de entrada pública,
+  com relay UDP para o QA no homelab e hardening da porta — ver
+  `Plano_Deployment.md` §2.2. Para NB-IoT, avaliar DTLS Connection ID (RFC 9146) no
+  servidor.
 
 ## Fila persistente
 
@@ -85,6 +96,10 @@ Resumo do que já está no código:
   validação mínima de formato, publica uma mensagem por leitura no RabbitMQ.
 - **`ReadingWriterService`**: worker puro (sem gateway/capability), consome a fila e
   grava em `sensor_readings` com ack só após o insert confirmado.
+- **Mudou desde então** (detalhes no `Plano_Telemetria.md` e na seção de vazão abaixo): o
+  payload é SenML, o `IngestionService` publica o pack inteiro em lote com publisher confirms
+  (`publishBatch`, RDWS-157) e responde `5.03` se algo não foi confirmado; diagnósticos e
+  `config_span` vão para a fila `device_telemetry`, que o mesmo writer consome.
 - Validado de ponta a ponta com serviços reais rodando localmente (Postgres, gateway,
   device/field/farm_service, RabbitMQ, `IngestionService`, `ReadingWriterService`,
   `SensorSimulatorService`): `device.create` → geração → trigger manual → handshake
@@ -93,17 +108,120 @@ Resumo do que já está no código:
 
 ## Pontos em aberto
 
-- **Validação completa contra `device_config`** (schema/faixas plausíveis) no
-  `IngestionService` — adiada nesta entrega, só validação mínima de formato
-  (`Plano_Ingestion_Implementacao.md`). `IngestionService` continua stateless quanto à
-  persistência; falta definir como um serviço stateless acessaria `device_config`
-  (provavelmente uma nova capability).
+- ✅ **Validação contra faixas plausíveis** no `IngestionService` (RDWS-174, 2026-11-10).
+  Motivo: em 2026-11-09 o HTS221 molhado da estação 12 leu 104,5 % e 131,5 % de umidade,
+  e as leituras entraram normais. Decisões:
+  - Faixas **no código, por unidade do banco** (`src/shared/senml/sensor_limits.h`), não em
+    colunas de `sensors`: são limites físicos, que mudam pouco, e o cache de owners já tem
+    a unidade. `%` vale para umidade do ar e do solo. Unidade sem faixa não é conferida.
+  - Fora da faixa, a leitura é **gravada com o flag `0x4000`** (`out_of_range`, DP3 do
+    `Plano_Telemetria.md`), não descartada nem limitada a 100 %: a evidência de sensor com
+    defeito fica no banco. Gráficos, índices e alarmes ignoram o bit; as tabelas do
+    Grafana mostram a coluna `out_of_range`.
+  - A resposta continua `2.04`: um reenvio traria o mesmo valor. O log do pack conta
+    `out_of_range=N`, com um único aviso por pack.
+- ✅ **Identidade pelo handshake** (2026-10-05) — device derivado da `psk_identity`,
+  `device_id` divergente → `4.03`, `sensor_id` de outro device descartado. Fase 0 do
+  `Plano_Telemetria.md`.
 - **Invalidação de credencial em tempo real** — `IngestionService` usa poll periódico
   (60s) em vez do bridge de `device_credential.changed` via EventBus (que exigiria
   mudança no lado do gateway, fora de escopo por ora).
-- Definir política de retry/DLQ no ReadingWriterService para mensagens que falham repetidamente.
-- Atualizar o `ENUM` de `sensors.type` em `Plano_DB_IOT_Sensors.md` com os novos tipos (bateria, solar, agregados de vento) — ver seção "Amostragem interna vs. taxa de transmissão".
-- Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger) — ver seção correspondente acima.
+- ✅ **Política de retry/DLQ no ReadingWriterService** (RDWS-157, 2026-10-28) — ver
+  "Vazão e falhas do ReadingWriterService" abaixo.
+- Novos tipos em `sensors.type` (bateria, solar, agregados de vento) — `pressure` e `co2`
+  já entraram (V9); os demais entram com o hardware (passos 5–6 do firmware). Ver seção
+  "Amostragem interna vs. taxa de transmissão".
+- ~~Formato/tabela e conjunto inicial das regras de gatilho local (edge trigger)~~ — fechado em
+  2026-10-07 (`triggers[]` dentro da config do device) e implementado no firmware em
+  2026-11-09/10 (passo 8); ver a nota na seção do edge trigger abaixo.
+
+## Vazão e falhas do ReadingWriterService (2026-10-09)
+
+Visto no primeiro uplink com intervalo de 6 h da estação real: 1080 leituras em 7 arquivos
+levaram ~10 min para sair da fila `sensor_readings` (~0,55 s por mensagem).
+
+- ✅ **Espera fixa por fila** — o loop alternava `consumeOne(..., 500)` entre
+  `sensor_readings` e `device_telemetry`. Com a fila de telemetria vazia, cada leitura
+  custava ~500 ms de espera (teto de ~2 msg/s). Agora as duas filas são consultadas com
+  timeout 0 e o loop só bloqueia 500 ms quando ambas estão vazias. O trabalho real
+  (insert + commit + ack) ficou em ~50 ms por mensagem. Confirmado no mesmo dia: 1539
+  leituras em 10 arquivos gravadas em 24,9 s (~62 msg/s, ~16 ms por insert), o mesmo tempo
+  do upload no device (~25,5 s). O writer acompanha o envio, e o gargalo do ciclo passou a
+  ser o upload da estação (~2,5 s por arquivo). O log `ReadingWriterService: queues drained`
+  (contagem e duração por rajada) registra isso a cada uplink.
+- ✅ **Falha de banco derruba o serviço** (RDWS-157) — `execCommand` lançava exceção sem
+  `catch`: o processo caía e, com o banco fora, entrava em loop de restart (o construtor do
+  `PostgreSQLDatabase` já conecta e lança). Agora a escrita que falha é classificada pelo
+  **SQLSTATE** (`DatabaseError::sqlstate()`, novo em `idatabase.h`): classes 22 (dado
+  inválido) e 23 (constraint, ex. `sensor_id` inexistente) são *poison* e vão para a
+  dead-letter; todo o resto — conexão perdida, servidor desligando, schema divergente (42),
+  desconhecido — faz `basic_nack` com requeue e **pausa o consumo**, testando o banco com
+  `SELECT 1` e backoff de 1 s a 30 s, sem limite. O backoff só zera depois de uma escrita bem
+  sucedida, para um erro que o `SELECT 1` não vê (coluna faltando) não virar retry a cada
+  segundo. O serviço também sobe sem banco e espera.
+  - **Decisão descartada:** classificar pelo `SELECT 1` depois da falha ("banco responde →
+    a mensagem é ruim"). Perdeu mensagens nos testes em dois casos: no shutdown do Postgres
+    o `SELECT 1` reconectou antes da porta fechar (1 de 3000 descartada), e com schema
+    divergente o banco responde a tudo, então *toda* mensagem seria descartada. Na dúvida,
+    esperar em vez de descartar.
+- ✅ **Dead-letter** (RDWS-157) — mensagens poison (JSON inválido, campo obrigatório
+  faltando, SQLSTATE 22/23) vão para `sensor_readings.dead` / `device_telemetry.dead`,
+  publicadas pelo próprio writer num envelope `{reason, sqlstate, error, failed_at, body}`, e
+  a original recebe ack. Se essa publicação falhar, a original volta para a fila. Sem
+  `x-dead-letter-exchange` nas filas: mudar os argumentos de uma fila durável existente faz
+  o `queue_declare` falhar com `PRECONDITION_FAILED` até recriá-la. As `.dead` não têm limite
+  nem TTL (volume esperado ~zero; uma policy do RabbitMQ resolve sem código).
+- ✅ **Sem `basic_qos`** (RDWS-157) — prefetch de 100 no `AmqpConsumer`. Com o writer parado e
+  3000 mensagens na fila: `unacked 100`, `ready 2900`; vazão inalterada.
+- ✅ **RabbitMQ fora deixava o writer zumbi** (RDWS-157) — o `consumeOne` devolvia `false`
+  tanto em timeout quanto em conexão morta; depois de um restart do broker o loop girava a
+  100 % de CPU, sem consumer e sem log. Agora qualquer retorno que não seja timeout derruba
+  a conexão (também ack/nack que falha) e o writer reconecta com backoff, inclusive na
+  partida. Validado no QA: restart do RabbitMQ sem buraco nas leituras.
+- ✅ **Publish sem confirmação no `IngestionService`** (RDWS-157) — o `AmqpProducer` só
+  escrevia no socket e nunca reconectava; depois de um restart do broker o primeiro publish
+  "dava certo" no buffer do kernel e se perdia, os seguintes falhavam, e o device recebia
+  2.04 mesmo assim e apagava o arquivo. Agora: **publisher confirms**, reconexão com uma nova
+  tentativa, timeouts de 2 s no connect/handshake e 5 s nas RPCs (o producer roda no único
+  thread CoAP), e **5.03** quando alguma leitura do pack não foi confirmada — o device
+  reenvia o pack e as duplicatas caem no `UNIQUE(sensor_id, timestamp)`.
+- ✅ **Regressão: um confirm por mensagem** (RDWS-157, 2026-10-23 a 2026-10-28) — a primeira
+  versão esperava o confirm de cada leitura, ~30 ms por fsync no disco do QA (~2 ms no
+  notebook). Um pack grande prendia o thread CoAP por minutos (um de 23 820 leituras levou
+  ~12 min); o client CoAP do simulador desiste em 10 s e, com a correção do 2.xx abaixo,
+  passou a guardar o buffer e reenviar tudo, cada vez maior (bola de neve, quase tudo
+  duplicata descartada pelo `ON CONFLICT`); e os lotes da estação real que chegavam nessas
+  janelas estouravam o timeout do firmware (5 s × 3), parando o ciclo depois de ~45 lotes —
+  ela ficou ~1 dia atrasada, sem perder dado. Corrigido com
+  `AmqpProducer::publishBatch()`: o pack inteiro é publicado em blocos de 500 e os confirms
+  esperados uma vez por bloco (o broker agrupa os fsyncs). 24 000 mensagens confirmadas em
+  0,62 s no notebook; no QA tudo chegou, inclusive o atraso da estação. **Lição:** confirm
+  síncrono por mensagem custa um fsync por mensagem — sempre em lote.
+- ✅ **Client CoAP do simulador tratava qualquer resposta como entregue** (RDWS-157) —
+  `CoapDtlsClient::sendConfirmable` só devolve `true` para 2.xx; 4.xx/5.xx mantêm o buffer
+  do simulador (`lastResponseCode()` no log). O firmware já só apaga o arquivo com 2.04.
+- ✅ **Simulador manda tudo num pack só** (RDWS-161, 2026-10-28) — o buffer inteiro ia num
+  único POST; foi o que permitiu a bola de neve. Agora, como o firmware: leituras ordenadas
+  da mais antiga para a mais nova, packs de até 200 (`kMaxReadingsPerPack`; um ciclo normal
+  de ~180 continua sendo um pack, e cada pack abre sua própria sessão DTLS), diagnósticos só
+  no primeiro, parada no primeiro pack sem 2.xx e reescrita dos buffers só com o que não foi
+  entregue. Validado no QA: com o RabbitMQ parado o primeiro pack recebeu 5.03 e o simulador
+  parou ali (`kept=933`); na volta, `readings=1311 packs=7` (~130 ms por pack de 200).
+- ✅ **Teste de ponta a ponta do 5.03** (RDWS-161, 2026-10-28) — RabbitMQ parado durante
+  envios do simulador: `unpublished=` e `failed to publish ... connect to RabbitMQ failed` no
+  ingestion, `keeping buffered ... response=5.03` no simulador, e as leituras guardadas
+  chegaram no reenvio, sem buraco no banco. Com o broker fora cada pack custa ~4 s do thread
+  CoAP (duas tentativas de conexão de 2 s); o client CoAP às vezes retransmite nesse
+  intervalo e o pack é processado duas vezes — inofensivo (5.03 e escrita idempotente).
+- ⬜ **Descarte silencioso no `ON CONFLICT`** — duplicatas somem sem log nem métrica; teria
+  mostrado a bola de neve e o atraso da estação no mesmo dia. Contar por rajada no log
+  `queues drained`.
+- **Um commit por leitura** — juntar as mensagens disponíveis numa transação (ex.: até 100,
+  ack com `multiple=1`) é o próximo ganho de vazão, se ~50 ms por mensagem não bastar.
+- **Latência ociosa assimétrica** — com as filas vazias o loop bloqueia só no socket de
+  `sensor_readings`, então telemetria que chega nesse momento espera até 500 ms. A solução
+  completa é uma conexão só com os dois consumers e um único `amqp_consume_message` que
+  separa por `consumer_tag`. Muda a API do `AmqpConsumer`; só vale se a latência importar.
 
 ## Observabilidade da fila
 
@@ -118,9 +236,9 @@ ponta a ponta. **Resolvido (2026-07-16)**: `docker-compose.qa-mq.yml` criado jun
 implementação dos dois serviços (`ingestion_service`/`reading_writer_service` em
 `docker-compose.qa-app.yml`).
 
-1. ✅ **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta — ver "Progresso de implementação" acima. Observabilidade (passos 2-3 abaixo) ainda pendente.
-2. **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
-3. **Plugar o ingestion na mesma instância**: adicionar Prometheus + RabbitMQ exporter como datasource no Grafana já existente.
+1. ✅ **Pipeline de ingestão primeiro, sem observabilidade**: simulador → IngestionService → RabbitMQ → ReadingWriterService → banco, validado ponta a ponta — ver "Progresso de implementação" acima.
+2. ✅ **Fase 11 do gateway** (Grafana + Loki + Promtail): infraestrutura única e compartilhada — não faz sentido subir uma instância de Grafana separada para o ingestion.
+3. ✅ **Plugar o ingestion na mesma instância**: o Prometheus coleta o RabbitMQ (`rabbitmq:15692`, jobs `rdws_rabbitmq_qa`/`_dev` em `infra/prometheus/`), e os logs do ingestion e do writer vão para o Loki.
 
 ## Dependência da Fase 10b do gateway (CI/CD)
 
@@ -141,6 +259,11 @@ sensor na mesma cadência da transmissão funciona bem para variáveis "lentas"
 rápido dentro do intervalo — o caso mais claro é vento, onde uma leitura pontual a cada
 transmissão perde rajadas inteiras, justamente o dado mais relevante para decisões como
 janela de pulverização.
+
+> **Revisto em 2026-09-27** (`rdws_weather_node/docs/Plano_Firmware_WeatherNode.md` §4): os
+> agregados "desde a última transmissão" foram trocados por uma **janela fixa OMM de 10 min**
+> alinhada a UTC, com rajada de 3 s, que dá a mesma série com 1 ou 24 transmissões por dia. O
+> resto desta seção (desacoplar amostragem e transmissão, média vetorial) continua valendo.
 
 **Decisão de design:** desacoplar as duas taxas.
 
@@ -182,6 +305,14 @@ ser reportada até 24h depois — tarde demais para qualquer ação do produtor.
 `Plano_Alerting.md` só avalia o que já chegou ao servidor; se o dado não chega, não tem
 o que avaliar.
 
+> **Revisto em 2026-10-07 e implementado em 2026-11-09/10** (contrato no §4 do
+> `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`): as regras vão em `triggers[]` dentro
+> da config do device (mesma versão, sem `rules_version` nem tabela própria, e não derivadas de
+> `alarm_rules`); há operadores de nível e de tendência (`fall`/`rise`); a **histerese** substitui
+> o cooldown por regra, com só um teto de envios antecipados por hora; o estado de cada regra
+> sobrevive a reset (latch); e a leitura que mudou de estado sai com a flag `trigger` (`fl_`). O
+> que segue é o desenho original, mantido pelo raciocínio.
+
 **Decisão de design:** o firmware mantém um conjunto pequeno de **regras de gatilho
 locais** — thresholds simples (sem correlação entre sinais, sem histerese sofisticada,
 sem janela deslizante — isso continua sendo responsabilidade do `AlertingService` do
@@ -213,8 +344,9 @@ regra local, o device dispara uma transmissão **imediata, fora do agendamento r
   tratamento prioritário for necessário mais adiante (não obrigatório para o MVP).
 
 **Pontos em aberto (gatilho local):**
-- Formato/tabela das regras de gatilho locais — subconjunto simplificado de
-  `alarm_rules` ou tabela própria (`edge_trigger_rules`?) mais enxuta.
+- ~~Formato/tabela das regras de gatilho locais~~ — `triggers[]` na config (2026-10-07).
 - Conjunto inicial de condições que valem gatilho local (geada é o caso óbvio; rajada de
-  vento perigosa outro) vs. o que pode esperar o ciclo regular.
-- Duração do cooldown local no firmware, e se é fixo ou configurável por device/regra.
+  vento perigosa outro) vs. o que pode esperar o ciclo regular. Ainda em aberto: hoje as
+  regras são escritas à mão por device.
+- ~~Duração do cooldown local no firmware~~ — sem cooldown: histerese + teto por hora
+  (2026-10-07).

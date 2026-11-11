@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 #include <concepts>
 #include <optional>
@@ -25,6 +28,15 @@ namespace rdws::utils::json {
 // Same as getActorSubject, but falls back to "system" instead of nullopt, so
 // updated_by is never left empty on a create()/update() call.
 [[nodiscard]] std::string getActorSubjectOrDefault(const rapidjson::Value& req);
+
+// True when AuthMiddleware injected lambdaContext.identity, i.e. the request came through
+// the HTTP gateway with an auth mode other than NONE.
+[[nodiscard]] bool hasActorIdentity(const rapidjson::Value& req);
+
+// Reads lambdaContext.identity.claims.<claim> (e.g. "role" from the JWT). Returns nullopt if
+// any level is absent.
+[[nodiscard]] std::optional<std::string> getActorClaim(const rapidjson::Value& req,
+                                                       const std::string& claim);
 
 template <typename T>
 concept JsonSettable =

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "Utils.h"
 
 std::filesystem::path rdws::loader::utils::resolveServiceConfigFilePath(int argc, char* argv[]) {

@@ -19,7 +19,8 @@ device.create --> device_credential.provision --> (chave em texto puro, uma úni
                                 v
 IngestionService/SensorSimulatorService --startup--> carrega cache em memória
                                 |
-                    device_credential.changed (EventBus) --> invalida cache pontual
+        (hoje: poll de 60 s via device_credential.list_active;
+         device_credential.changed pelo EventBus é o desenho, ainda não feito)
 ```
 
 ---
@@ -82,6 +83,10 @@ Após esse retorno, a chave nunca mais é exposta em texto puro por nenhum endpo
 
 ## 5. Consumo pelo IngestionService e pelo SensorSimulatorService
 
+> A identidade do device numa mensagem deve vir da `psk_identity` do handshake, não do
+> corpo: hoje o `device_id` do payload não é conferido contra a PSK. Fase 0 do
+> `Plano_Telemetria.md` (D4).
+
 Mantendo o princípio já registrado no `Plano_Ingestion.md` de que o `IngestionService`
 é stateless em relação à persistência:
 
@@ -95,6 +100,11 @@ Mantendo o princípio já registrado no `Plano_Ingestion.md` de que o `Ingestion
 - **Refresh**: publica/assina `device_credential.changed` no EventBus interno (mesmo
   mecanismo de `request.completed`/`metrics.snapshot`) — ao revogar/rotacionar um device,
   o `IngestionService` invalida a entrada correspondente sem restart nem polling.
+  **Implementado de outro jeito:** o `IngestionService` recarrega o cache a cada 60 s com
+  `device_credential.list_active` (que também traz o `device_id`, Fase 0 do
+  `Plano_Telemetria.md`). O `EventBus` é por processo, dentro do gateway, e o ingestion roda
+  em outro processo. O evento segue como item P3 no `Backlog.md` ("Invalidação de credencial
+  em tempo real"); até lá uma revogação leva até 60 s para valer.
 - **`SensorSimulatorService`** usa um caminho mais simples que o do `IngestionService`,
   por ser cliente (não servidor): já abre uma nova conexão por device a cada ciclo
   (passo 3 do fluxo, `Plano_SensorSimulatorService.md`) — em vez de manter cache e
@@ -161,12 +171,14 @@ na seção 5.
 
 - Nenhum bloqueante para o `IngestionService`/`SensorSimulatorService` avançarem — os
   pontos abaixo podem ser resolvidos em paralelo:
-- Definir se `device_credential.provision` roda automaticamente dentro do handler de
-  `device.create` ou como chamada separada explícita pelo operador.
+- ✅ `device_credential.provision` roda atomicamente dentro do handler de `device.create`
+  (não é capability standalone) — implementado em 2026-07.
 - Avaliar, quando a Fase 13 (`public_id`) do `Plano_Gateway_HTTP.md` sair do backlog, se
   faz sentido convergir `psk_identity` com `public_id` ou manter os dois separados.
 - Grace period na rotação, quando o hardware físico entrar em produção (chave antiga
-  ainda válida por N minutos/horas após a nova ser gerada).
+  ainda válida por N minutos/horas após a nova ser gerada). As rotas REST de
+  rotate/revoke existem desde 2026-10-05 (só `admin`); hoje a rotação derruba o device
+  até ele ser reprovisionado com `rdws psk set`.
 - Versionamento da KEK (seção 7) — adiado até virar necessidade real (comprometimento
   suspeito, política de rotação periódica, etc.).
 - TLS/mTLS no canal broker↔serviços (seção 5) — hoje aceito como confiável por estar

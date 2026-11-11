@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include "../crypto/credential_cipher.h"
@@ -18,6 +21,7 @@ struct ProvisionedCredential {
 struct ActiveCredential {
   std::string pskIdentity;
   std::string pskKeyPlaintext; // raw key bytes, decrypted just-in-time
+  std::string deviceId;        // lets IngestionService resolve the device from the DTLS session
 };
 
 class DeviceCredentialService {

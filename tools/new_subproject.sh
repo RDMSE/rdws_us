@@ -25,6 +25,11 @@ fi
 
 mkdir -p "${TESTS_DIR}"
 
+# New subprojects are services: AGPL-3.0-only, like everything outside src/shared (README, "Licença")
+SPDX_HEADER="// SPDX-FileCopyrightText: $(date +%Y) Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+"
+
 cat > "${SUB_DIR}/CMakeLists.txt" <<EOF
 # --- Biblioteca interna do subprojeto ---
 add_library(${NAME}_core
@@ -45,6 +50,7 @@ endif()
 EOF
 
 cat > "${SUB_DIR}/${NAME}.hpp" <<EOF
+${SPDX_HEADER}
 #pragma once
 
 #include <string>
@@ -57,6 +63,7 @@ std::string build_message(const std::string& input);
 EOF
 
 cat > "${SUB_DIR}/${NAME}.cpp" <<EOF
+${SPDX_HEADER}
 #include "${NAME}.hpp"
 
 namespace rdws_us::${NAME} {
@@ -73,6 +80,7 @@ std::string build_message(const std::string& input) {
 EOF
 
 cat > "${SUB_DIR}/main.cpp" <<EOF
+${SPDX_HEADER}
 #include <iostream>
 
 #include "${NAME}.hpp"
@@ -100,6 +108,7 @@ gtest_discover_tests(${NAME}_test)
 EOF
 
 cat > "${TESTS_DIR}/${NAME}_test.cpp" <<EOF
+${SPDX_HEADER}
 #include <gtest/gtest.h>
 
 #include "${NAME}.hpp"

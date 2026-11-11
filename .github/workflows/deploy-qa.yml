@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0 # tags, for scripts/rdws_version.sh
 
       - name: Generate .env.qa from environment secrets
         run: |
@@ -35,6 +36,8 @@ jobs:
           RABBITMQ_USER=${{ vars.RABBITMQ_USER }}
           RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
           EOF
+          # Version of the solution for the images' build args (README, "Versões")
+          echo "RDWS_VERSION=$(scripts/rdws_version.sh)" >> .env.qa
 
       - name: Ensure QA Postgres is up
         run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa up -d postgres
@@ -47,6 +50,20 @@ jobs:
 
       - name: Build and deploy gateway + services
         run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
+
+      - name: Deploy sensor simulators (one per devices.is_simulated)
+        run: scripts/qa_simulators.sh .env.qa
+
+      # Grafana and promtail bind-mount files from this checkout (dashboards, alert rules,
+      # promtail config). Bringing the compose up here keeps those mounts on the current
+      # runner workspace (they were stuck on an old runner's directory once). promtail mounts
+      # a single file, which the checkout replaces, so it needs a restart to see changes;
+      # Grafana rescans dashboards by itself but reads provisioned alert rules only at
+      # startup, so it's restarted too.
+      - name: Deploy observability (Grafana dashboards and alerts, promtail config)
+        run: |
+          docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
+          docker restart rdws_promtail_qa rdws_grafana_qa
 
       - name: Health check
         run: |
@@ -67,7 +84,11 @@ jobs:
       # rota nova commitada no routes.json nunca chega sozinha num gateway já deployado
       # — este passo fecha essa lacuna de forma idempotente (só cria o que falta, nunca
       # sobrescreve o que já existe).
+      # /routes exige identidade admin (RDWS-155): o script faz login com estas credenciais.
       - name: Sync routes.json into gateway
+        env:
+          RDWS_ADMIN_USER: ${{ secrets.RDWS_ADMIN_USER }}
+          RDWS_ADMIN_PASSWORD: ${{ secrets.RDWS_ADMIN_PASSWORD }}
         run: python3 scripts/sync_gateway_routes.py routes.json http://localhost:3001
 
       - name: Clean up .env.qa

@@ -29,11 +29,12 @@ Microserviços (registram capabilities, processam requests, respondem)
 | `farm_service` | `farm.list/get/create/update/delete` | CRUD de fazendas. |
 | `field_service` | `field.list/get/create/update/delete` | CRUD de campos (associados a uma fazenda). |
 | `device_service` | `device.list/get/create/update/delete` + `device_credential.get_active/rotate/revoke/list_active` (internas) | CRUD de devices (associados a um campo) + credenciais PSK por device (`device_credentials`, AES-256-GCM em repouso). As `device_credential.*` são internas — ausentes de `routes.json`, só chamáveis via `ServiceClient::invoke` por outro serviço. |
+| `device_config_service` | `device_config.get/update` | Config de cada device (`device_configurations`, 1:1 com o device, `version` controlada pelo banco). `update` é *merge patch* (RFC 7396), exposto como `PATCH /devices/{id}/config`; para `weather_station` real valida o JSON Schema estrito, os `sensor_id` de `onboard[]` e as regras de `triggers[]`. |
 | `sensor_service` | `sensor.list/get/create/update/delete` | CRUD de sensores (associados a um device). |
 | `sensor_reading_service` | `sensor_reading.list/get` | Somente leitura (append-only) — consulta de leituras por sensor/janela de tempo. |
 | `persistence_service` | — | Persistência assíncrona (bridge para eventos `request.completed`/`metrics.snapshot` publicados pelo gateway). |
-| `ingestion_service` | — (cliente puro) | Servidor CoAP/DTLS (libcoap, PSK) que recebe leituras de devices/`SensorSimulatorService`, valida formato mínimo e publica no RabbitMQ (`sensor_readings`, uma mensagem por leitura). Stateless quanto à persistência — sem conexão direta ao Postgres. |
-| `reading_writer_service` | — (worker puro) | Consome a fila `sensor_readings` e grava em `sensor_readings` (Postgres), idempotente via `UNIQUE(sensor_id, timestamp)`. Sem `ServiceClient`/capability no gateway — não expõe nada, só processa a fila. |
+| `ingestion_service` | — (cliente puro) | Servidor CoAP/DTLS (libcoap, PSK) que recebe packs SenML JSON (Content-Format 110) de devices e do `SensorSimulatorService`. Identifica o device pela PSK (`4.03` se o `bn` não bate), descarta sensores de outro device, converte unidades e publica em lote no RabbitMQ: leituras na fila `sensor_readings`, diagnósticos e `config_span` na fila `device_telemetry`. No `2.04`, devolve a config nova quando o `cfg_version` declarado está atrás (D11 do `docs/Plano_Telemetria.md`). Sem conexão direta ao Postgres. |
+| `reading_writer_service` | — (worker puro) | Consome as filas `sensor_readings` e `device_telemetry` e grava `sensor_readings` (idempotente via `UNIQUE(sensor_id, timestamp)`), `device_telemetry`, `device_config_spans` e `devices.last_seen`. Sem `ServiceClient`/capability no gateway — não expõe nada, só processa as filas. |
 | `example_service` | — | Serviço de exemplo/echo para desenvolvimento e testes manuais do broker. |
 
 Todos seguem o mesmo padrão: `App<Nome>Service.cpp` implementa a lógica, registra as capabilities no `ServiceGateway` via `ServiceClient`, e delega persistência para `src/shared/repository/` + `src/shared/database/` (PostgreSQL via libpqxx). Exceções: `ingestion_service` (`ServiceClient` só como cliente, sem capabilities próprias) e `reading_writer_service` (nem se conecta ao gateway).
@@ -52,7 +53,7 @@ CoAP/DTLS pro `ingestion_service`, útil pra testar o pipeline sem hardware real
 - **`Services/EventBus`** — pub/sub interno assíncrono (worker em background), usado para eventos internos (ex: `request.completed`, `metrics.snapshot`).
 - **`Config/GatewayConfig`** — configuração por capability (timeout, estratégia de load balancing, limites), com persistência.
 
-Ver `src/service_broker/README.md`, `SERVICE_BROKER_README.md` e `SERVICES_USAGE.md` para detalhes operacionais.
+Os schemas que o gateway confere antes de despachar estão em `src/service_broker/schemas/README.md`.
 
 ## Código compartilhado (`src/shared/`)
 
@@ -67,7 +68,7 @@ Ver `src/service_broker/README.md`, `SERVICE_BROKER_README.md` e `SERVICES_USAGE
 
 ## Modelo de dados
 
-PostgreSQL com PostGIS (geolocalização) e TimescaleDB (time-series para `sensor_readings`, particionado por mês). Hierarquia: `farms → fields → devices → device_configurations` / `sensors → sensor_readings`. Ver `docs/Plano_DB_IOT_Sensors.md`.
+PostgreSQL com PostGIS (geolocalização), com migrations Flyway em `db/migrations/` (V1–V16). Hierarquia: `farms → fields → devices → device_configurations` / `sensors → sensor_readings`. Do lado do device: `device_credentials` (PSK), `device_telemetry` (diagnóstico por envio, JSONB, retenção de 90 dias), `device_config_history` e `device_config_spans` (qual config produziu cada leitura) e a view `device_liveness`. `sensor_readings` ainda não é particionada nem usa TimescaleDB: o `docs/Plano_DB_IOT_Sensors.md` registra o desenho e por que ficou para depois.
 
 ## Ingestão de dados de sensores
 
@@ -80,9 +81,9 @@ leituras simuladas, dispara via `POST /simulate/{device_id}/trigger` — ver col
 Bruno). Ver `docs/Plano_Ingestion.md`, `docs/Plano_Ingestion_Implementacao.md` (detalhamento
 + runbook de como subir tudo localmente) e `docs/Plano_SensorSimulatorService.md`.
 
-**Pendente**: validação completa de payload contra `device_config` no `IngestionService`
-(hoje só formato mínimo) e invalidação de credencial em tempo real (hoje poll de 60s em
-vez de invalidação via evento).
+**Pendente** (com prioridade em `docs/Backlog.md`): faixas plausíveis no `IngestionService`
+(ex.: umidade acima de 100 %), invalidação de credencial em tempo real (hoje poll de 60 s em
+vez de evento) e a tabela `device_packets` para detectar pacotes perdidos pelo `seq`.
 
 ## Coleção de requisições (Bruno)
 
@@ -102,7 +103,7 @@ diferente:
 | Ciclo de vida | sempre no ar (`restart: unless-stopped`) | sob demanda — sem `restart:`, sobe só quando precisar |
 | Prometheus escrapa | `gateway:3001` via DNS interno do Compose | `host.docker.internal:3001` (gateway roda nativo no host) |
 | Promtail coleta logs | `stdout` dos containers via Docker service discovery | arquivo `logs/rdws-gateway.log` montado read-only |
-| Portas | Prometheus 9090, Loki 3100, Grafana 3300 | Prometheus 9091, Loki 3101, Grafana 3301 |
+| Portas (no host) | Prometheus 9091, Loki 3100, Grafana 3300 | Prometheus 9091, Loki 3101, Grafana 3301 |
 
 Datasources e um dashboard inicial (`RDWS Gateway — Overview`) já vêm provisionados via
 arquivo (`infra/grafana/provisioning/`) — nada pra configurar manualmente na UI do
@@ -129,10 +130,10 @@ Grafana.
 
 ### Usando em QA
 
-**Não sobe sozinha** — nem no primeiro deploy nem nos seguintes: o workflow
-`deploy-qa.yml` só sobe `docker-compose.qa-db.yml` (Postgres) e `docker-compose.qa-app.yml`
-(gateway + serviços), nunca o de observabilidade. É um passo manual, uma vez só
-(depois fica no ar com `restart: unless-stopped`):
+**Sobe a cada deploy**: o `deploy-qa.yml` roda o `up -d` do
+`docker-compose.qa-observability.yml` depois do app e reinicia o promtail e o Grafana, para os
+bind mounts (dashboards, regras de alerta, config do promtail) apontarem para o checkout atual
+do runner e os alertas provisionados serem relidos. À mão, o mesmo comando:
 
 ```bash
 docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
@@ -143,8 +144,7 @@ docker compose -f docker-compose.qa-observability.yml --env-file .env.qa up -d
 - Mesmo `.env.qa` que os outros compose de QA já usam — nenhuma variável nova.
 - Acesse via Tailscale: Grafana em `http://fedora-server:3300`, Prometheus em
   `http://fedora-server:9091`.
-- Só precisa repetir o `up -d` se derrubou manualmente ou mudou algo no compose — não a
-  cada deploy do app.
+- À mão, só se derrubou a pilha fora de um deploy.
 
 **Dica pra quem está começando com Docker**: `up -d` sobe em background; `docker compose
 -f <arquivo> ps` mostra se os containers subiram e o status; `docker compose -f
@@ -156,33 +156,23 @@ design por trás da separação dev/QA.
 
 ### Rodando o SensorSimulatorService contra o QA
 
-`sensor_simulator_service` é uma ferramenta standalone (ver tabela de microserviços
-acima) — não faz parte de nenhum `docker-compose.qa-*.yml`, então não sobe sozinho no
-deploy. Como o host QA não é necessariamente compatível com o ambiente de desenvolvimento pode não ter as libs de build (`libpqxx-dev` etc.) e o binário precisa das mesmas libs do container (Ubuntu 24.04, ABI possivelmente diferente do host QA), a forma mais simples é compilar via Docker e rodar o binário dentro de um container avulso, na
-mesma rede dos outros serviços do QA:
+`sensor_simulator_service` é uma ferramenta standalone (ver tabela de microserviços acima) e não
+faz parte de nenhum `docker-compose.qa-*.yml`. Desde 2026-10-06 quem o sobe é o
+`scripts/qa_simulators.sh`, chamado no fim do `deploy-qa.yml` ou à mão no homelab:
 
 ```bash
-# builda só o estágio builder (toolchain completo + todos os binários, incluindo o
-# do simulador — ver Dockerfile, o builder não filtra por SERVICE de propósito)
-docker build --target builder -t rdws_us-builder:qa .
-
-# uma instância por device — repete o docker run trocando --device-id e as portas
-docker run -d \
-  --network rdws_qa_default \
-  --name sim-device-<id> \
-  -e DB_HOST=postgres -e DB_PORT=5432 \
-  -e DB_USER=rdws_user -e DB_PASSWORD=<senha do .env.qa> -e DB_NAME=rdws_qa \
-  -e INGESTION_HOST=ingestion_service -e INGESTION_PORT=5684 \
-  -e SIMULATOR_CONTROL_PORT=91<id> \
-  -e SIMULATOR_DATA_DIR=/data \
-  -v ~/sim_data/device_<id>:/data \
-  -p 91<id>:91<id> \
-  --restart unless-stopped \
-  rdws_us-builder:qa \
-  /src/build/bin/sensor_simulator_service --device-id <id> --gateway tcp://gateway:8080
+scripts/qa_simulators.sh            # usa o .env.qa
 ```
 
-Duas pegadinhas reais que já bateram aqui:
+- Um container por device com `devices.is_simulated = true` no `rdws_qa`. Criar ou apagar um
+  device simulado basta para a próxima execução subir ou derrubar o container dele.
+- Porta de controle (`POST /simulate/{device_id}/trigger`) = 9100 + id, a mesma que a coleção
+  Bruno calcula.
+- Cada device guarda o buffer de leituras não enviadas num volume próprio
+  (`rdws_qa_sim_data_NN`), e os logs vão para o Loki com o label `rdws.env=qa`.
+- Detalhes (imagem, rede, variáveis) no cabeçalho do script.
+
+Duas pegadinhas que já bateram aqui, para quem rodar um container à mão:
 
 - **`DB_PORT=5432`, não `5433`** — `5433` é só o mapeamento pro host
   (`docker-compose.qa-db.yml`); dentro da rede Docker o Postgres escuta na porta padrão.
@@ -191,17 +181,11 @@ Duas pegadinhas reais que já bateram aqui:
   simulador não aponta pra lugar nenhum (gera `DTLS: coap_socket_recv: ICMP: Connection
   refused` no log, fácil de confundir com bloqueio de firewall).
 
-Cada instância precisa de um `SIMULATOR_CONTROL_PORT`/`-p` diferente (a porta do
-`POST /simulate/{device_id}/trigger`); `DB_*`/`INGESTION_*`/`--gateway` podem ser
-compartilhados entre todas. `-v` é opcional — sem ele os arquivos de buffer
-(`<device_id>_<sensor_id>.data`) ficam só dentro do container, inspecionáveis via
-`docker exec sim-device-<id> ls /src/sim_data`.
-
 Se depois de um trigger (`curl -X POST http://localhost:91<id>/simulate/<id>/trigger`)
 nada aparecer no Grafana, siga a cadeia até achar onde parou:
 
 ```bash
-docker logs sim-device-<id> --tail 30                       # simulador enviou?
+docker logs rdws_sim_device_<id>_qa --tail 30              # simulador enviou?
 docker exec rdws_rabbitmq_qa rabbitmqctl list_queues \
   name messages messages_ready messages_unacked             # chegou na fila?
 docker logs rdws_reading_writer_qa --tail 30                # consumidor gravou?
@@ -215,6 +199,9 @@ que o device triggerado está selecionado ali.
 
 ## Documentação de planejamento (`docs/`)
 
+- `Backlog.md` — pendências do backend com prioridade (o do firmware fica em `rdws_weather_node/docs/Backlog.md`).
+- `Plano_Telemetria.md` — contrato SenML com o device, diagnósticos (`device_telemetry`), config pelo `2.04` (D11) e saúde da frota.
+- `Plano_Indices_Derivados.md` — índices calculados no servidor (ponto de orvalho, `daily_weather`) e o histórico de config por leitura.
 - `Plano_API_REST.md` — endpoints/capabilities de cada microserviço e contrato de payload.
 - `Plano_DB_IOT_Sensors.md` — modelo de dados, índices, particionamento e retenção.
 - `Plano_Gateway_HTTP.md` — histórico de evolução do gateway HTTP (fases concluídas e roadmap).
@@ -280,8 +267,9 @@ auth.
 E ~10 **compounds** prontos combinando gateway + serviços pra cenários comuns — os mais
 usados:
 
-- **Gateway + All IoT Services (JWT)** — sobe o gateway (modo JWT) + todos os 7
-  microserviços de domínio de uma vez.
+- **Gateway + All IoT Services (JWT)** — sobe o gateway (modo JWT) + os 8 serviços de
+  domínio (auth, farm, field, device, device_config, sensor, sensor_reading, persistence) de
+  uma vez.
 - **Gateway + Device + Sensor Stack** — só o subconjunto device/device_config/sensor/
   sensor_reading, pra trabalhar numa área sem subir tudo.
 - **Gateway + Auth + Farm + Field**, **Gateway + Auth**, **Gateway + N Services**
@@ -316,3 +304,60 @@ Result:
 - `src/auth/main.cpp`
 - `src/auth/tests/CMakeLists.txt`
 - `src/auth/tests/auth_test.cpp`
+
+## Versões
+
+A versão da solução é a **tag git** `vMAJOR.MINOR.PATCH` (SemVer) no `main`, e é a fonte única:
+nenhum arquivo do repositório guarda o número.
+
+- **Numeração:** `v0.x` enquanto a API ainda muda; a `v1.0.0` vem depois da Fase 13 (IDOR /
+  `public_id`, `docs/Plano_Gateway_HTTP.md`), quando o contrato da API fica estável.
+- **Como a versão chega aos binários:** `scripts/rdws_version.sh` faz `git describe` só com as
+  tags SemVer (`v0.1.0`, `v0.1.0-3-g1a2b3c4` três commits depois, `-dirty` com alterações sem
+  commit, `v0.0.0-dev+g<sha>` sem tag). O CMake gera `rdws_version.h` com `rdws::kVersion`; no
+  Docker, onde não há `.git`, o CI e o deploy passam a versão como `--build-arg RDWS_VERSION`.
+  Fora do Docker, a versão é calculada quando o CMake configura: depois de um commit ou de uma
+  tag nova, rode o `cmake` de novo.
+- **Versão da API**, à parte: `rdws::kApiVersion` (hoje `1`). Só sobe quando o contrato da API
+  quebra, então clientes como o `rdws_web` dependem dela, e não de cada versão da solução.
+- **Onde ver:** `GET /status` do gateway (`version` e `apiVersion`), a versão com que cada
+  serviço se registra no gateway, o log de partida do `ReadingWriterService` e a tag das imagens
+  no GHCR.
+- **Banco:** o schema tem versão própria, a da última migration do Flyway (`db/migrations`),
+  registrada em cada entrada do `CHANGELOG.md`.
+
+### Lançar uma versão
+
+1. No `CHANGELOG.md`, renomeie a seção "Não lançado" para a versão e a data, e confira o quadro
+   de compatibilidade.
+2. Commit no `main` (via PR, como sempre).
+3. Tag anotada no commit do `main` e push da tag:
+
+   ```bash
+   git switch main && git pull
+   git tag -a v0.1.0 -m "v0.1.0"
+   git push origin v0.1.0
+   ```
+
+4. O push da tag dispara o CI (`ci.yml`), que publica as imagens no GHCR também com a tag
+   `:v0.1.0`. O deploy de QA não roda numa tag: ele já rodou no merge do mesmo commit.
+
+## Licença
+
+O projeto usa duas licenças, indicadas em cada arquivo-fonte pelo cabeçalho SPDX
+(`SPDX-License-Identifier`):
+
+| O quê | Licença | Texto |
+|---|---|---|
+| Bibliotecas compartilhadas (`src/shared/`) e o client do service broker (`src/service_broker/Services/ServiceClient.*` e `ServiceIdentity.*`) | Apache-2.0 | [`src/shared/LICENSE`](src/shared/LICENSE) |
+| Todo o resto: serviços, service broker, scripts, migrations, infra e documentação | AGPL-3.0-only | [`LICENSE`](LICENSE) |
+
+Na prática: quem roda uma versão modificada dos serviços ou do broker e a oferece pela rede
+precisa disponibilizar o código-fonte dela (AGPL). As bibliotecas compartilhadas e o client
+do broker são permissivas (Apache-2.0), para que serviços próprios possam usá-las e
+conversar com o gateway sem herdar a AGPL.
+
+O código em `src/third_party/` mantém a licença original de cada projeto (arquivos `LICENSE`
+de cada pasta).
+
+Copyright © 2026 Rafael Dias.

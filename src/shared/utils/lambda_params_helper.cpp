@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: Apache-2.0
+
 #include "lambda_params_helper.h"
 #include "json_helper.h"
 #include "logger.h"

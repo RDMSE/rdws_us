@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Rafael Dias
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //
 // DeviceConfigService — capabilities: device_config.get, device_config.update
 // Path parameter {id} refers to device_id.
@@ -11,6 +14,7 @@
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceConfigRepository.h"
+#include "../../shared/repository/SensorRepository.h"
 #include "../../shared/service/DeviceConfigService.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
@@ -20,6 +24,7 @@
 #include "../../shared/utils/validation.h"
 
 #include "../../shared/utils/logger.h"
+#include "rdws_version.h"
 
 #include <atomic>
 #include <csignal>
@@ -47,16 +52,17 @@ private:
   // DB/repo/svc — declared in dependency order
   PostgreSQLDatabase db_;
   DeviceConfigRepository repo_;
+  rdws::sensor::SensorRepository sensorRepo_;
   rdws::device_config::DeviceConfigService svc_;
 
 public:
   AppDeviceConfigService(const std::string& serviceId, const std::string& machineName,
                          std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), sensorRepo_(db_), svc_(repo_, sensorRepo_) {
     identity.machineName = machineName;
     identity.serviceName = "device_config_service";
     identity.serviceId = serviceId;
-    identity.version = "v1.0.0";
+    identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"device_config.get", "device_config.update"};
@@ -145,6 +151,7 @@ private:
       obj.set("id", cfg->id)
           .set("deviceId", cfg->deviceId)
           .setJsonOrString("config", cfg->config)
+          .set("version", cfg->version)
           .set("createdAt", cfg->createdAt);
       if (!cfg->updatedAt.empty()) {
         obj.set("updatedAt", cfg->updatedAt);
