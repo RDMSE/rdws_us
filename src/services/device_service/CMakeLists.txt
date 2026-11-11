@@ -1,6 +1,7 @@
 add_executable(device_service AppDeviceService.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/client/FieldServiceClient.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceTelemetryRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/DeviceCredentialRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceService.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/DeviceCredentialService.cpp

@@ -65,6 +65,16 @@ public:
     return *this;
   }
 
+  JsonObj& setNull(const char* key) {
+    value_.AddMember(rapidjson::StringRef(key), rapidjson::Value(), alloc_);
+    return *this;
+  }
+
+  // The value, or null when the optional is empty.
+  template <JsonSettable T> JsonObj& setOrNull(const char* key, const std::optional<T>& v) {
+    return v ? set(key, *v) : setNull(key);
+  }
+
   JsonObj& setValue(const char* key, ::rapidjson::Value&& v) {
     value_.AddMember(rapidjson::StringRef(key), v, alloc_);
     return *this;

@@ -148,6 +148,7 @@ private:
   PostgreSQLDatabase db_;
   DeviceRepository repo_;
   rdws::field::FieldServiceClient fieldValidator_;
+  rdws::device_telemetry::DeviceTelemetryRepository telemetryRepo_;
   rdws::device::DeviceService svc_;
 
   // device_credentials (Plano_DeviceCredentials.md) — same db_ connection as repo_, so
@@ -168,7 +169,8 @@ private:
 public:
   AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker,
                    const std::string& credentialEncryptionKey)
-      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), svc_(repo_, fieldValidator_),
+      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), telemetryRepo_(db_),
+        svc_(repo_, fieldValidator_, telemetryRepo_),
         credentialCipher_(credentialEncryptionKey), credentialRepo_(db_),
         credentialSvc_(credentialRepo_, credentialCipher_) {
     identity.machineName = machineName;
@@ -183,6 +185,7 @@ public:
         "device.create",
         "device.update",
         "device.delete",
+        "device.diagnostics",
         // Exposed over HTTP, admin only (see requireAdmin()).
         "device_credential.rotate",
         "device_credential.revoke",
@@ -206,6 +209,7 @@ public:
          }},
         {"device.update", handleUpdate},
         {"device.update_location", handleUpdateLocation},
+        {"device.diagnostics", handleDiagnostics},
         {"device.delete", handleDelete},
     };
     credentialHandlers_ = {
@@ -440,6 +444,39 @@ private:
   // Internal-only (not routed via HTTP/routes.json) - device_id comes in the request
   // body rather than a path param, since callers here are other services (IngestionService),
   // not the REST gateway.
+  // {"timestamp": "...Z", "data": {...}} — the latest diagnostics snapshot (cfg_version, cfg_rej,
+  // boot_count, rssi, fw_version, ...); both null when the device never sent any.
+  static rapidjson::Document handleDiagnostics(const rdws::utils::CapabilityContext& ctx,
+                                               rdws::device::DeviceService& svc) {
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(ctx.request, "id");
+    if (id.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    }
+
+    const auto result = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.diagnostics(id);
+    }();
+    if (!result.isSuccess()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+
+    auto t = ctx.profiler.scoped("json.serialize");
+    const auto& snapshot = result.getData();
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      JsonObj obj(alloc);
+      if (snapshot) {
+        obj.set("timestamp", snapshot->timestamp).setJsonOrString("data", snapshot->dataJson);
+      } else {
+        obj.setNull("timestamp").setNull("data");
+      }
+      return obj.take();
+    });
+  }
+
   static rapidjson::Document handleUpdateLocation(const rdws::utils::CapabilityContext& ctx,
                                                   rdws::device::DeviceService& svc) {
     const auto& req = ctx.request;

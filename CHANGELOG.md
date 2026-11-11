@@ -38,6 +38,12 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 ### Configuração da estação
 - Config versionada pelo banco, entregue na resposta CoAP (piggyback), com histórico
   (`device_config_history`).
+- `GET /devices/{id}/config/status`: se a versão atual roda na estação (`applied`, `pending`,
+  `rejected` ou `unknown`), a partir do último `cfg_version`/`cfg_rej` que ela declarou
+  (RDWS-180).
+- `GET /devices/{id}/diagnostics`: o snapshot de diagnóstico mais recente do device. O
+  `device_service` é o dono da leitura de `device_telemetry`; o `device_config_service` a
+  consulta pelo gateway (`DeviceDiagnosticsClient`), não pela tabela (RDWS-180).
 - `triggers[]` (edge triggers) validados no backend e convertidos para o ponto fixo do firmware
   na entrega.
 

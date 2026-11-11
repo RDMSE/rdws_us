@@ -1,0 +1,19 @@
+meta {
+  name: Get Diagnostics
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/devices/:dev/diagnostics
+  body: none
+  auth: bearer
+}
+
+params:path {
+  dev: 12
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

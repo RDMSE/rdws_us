@@ -5,9 +5,18 @@
 
 #include "../database/idatabase.h"
 
+#include <optional>
 #include <string>
 
 namespace rdws::device_telemetry {
+
+// A device's latest diagnostics snapshot: the latest device_telemetry row carrying boot_count,
+// which the firmware and the simulator send in every cycle's diagnostics (crash records and the
+// per-pack seq rows don't carry it).
+struct DiagnosticsSnapshot {
+  std::string timestamp; // ISO 8601 UTC
+  std::string dataJson;  // the row's JSONB as a JSON object
+};
 
 class IDeviceTelemetryRepository {
 public:
@@ -27,6 +36,10 @@ public:
 
   // Retention (Plano_Telemetria.md, Fase 3 R4): drops rows older than `days`.
   [[nodiscard]] virtual bool deleteOlderThan(int days) = 0;
+
+  // nullopt when the device never sent diagnostics.
+  [[nodiscard]] virtual std::optional<DiagnosticsSnapshot>
+  latestDiagnostics(const std::string& deviceId) = 0;
 };
 
 class DeviceTelemetryRepository : public IDeviceTelemetryRepository {
@@ -39,6 +52,8 @@ public:
                                       const std::string& firstTs,
                                       const std::string& lastTs) override;
   [[nodiscard]] bool deleteOlderThan(int days) override;
+  [[nodiscard]] std::optional<DiagnosticsSnapshot>
+  latestDiagnostics(const std::string& deviceId) override;
 
 private:
   rdws::database::IDatabase& db_;
