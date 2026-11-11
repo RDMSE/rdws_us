@@ -21,3 +21,10 @@ body:json {
     "timezone": "America/Sao_Paulo"
   }
 }
+
+script:post-response {
+  // Farms are addressed by their public id (UUID); Get/Update/Delete Farm use it
+  if (res.status === 201) {
+    bru.setVar("farmId", res.body.data.id);
+  }
+}
