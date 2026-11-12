@@ -3,7 +3,7 @@
 
 //
 // DeviceConfigService — capabilities: device_config.get, device_config.update
-// Path parameter {id} refers to device_id.
+// Path parameter {id} is the device's public id (UUID); the row carries a copy of it (V21).
 //
 // device_config is 1:1 with device (see Plano_DB_IOT_Sensors.md) — a default
 // empty config ('{}') is created alongside the device via a trigger in Postgres
@@ -38,7 +38,7 @@ namespace json = rdws::utils::json;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device_config;
-using rdws::utils::isNumericId;
+using rdws::utils::isUuid;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 namespace logger = rdws::utils::logger;
@@ -139,13 +139,13 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto cfg = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findByDeviceId(deviceId);
+      return svc.findByDevicePublicId(deviceId);
     }();
     if (!cfg) {
       return ResponseHelper::returnErrorDoc("Configuration not found", 404);
@@ -154,8 +154,8 @@ private:
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       JsonObj obj(alloc);
-      obj.set("id", cfg->id)
-          .set("deviceId", cfg->deviceId)
+      // The device's public id; the config row's own id is internal (the config is 1:1)
+      obj.set("deviceId", cfg->devicePublicId)
           .setJsonOrString("config", cfg->config)
           .set("version", cfg->version)
           .set("createdAt", cfg->createdAt);
@@ -178,8 +178,8 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto result = [&] {
@@ -214,8 +214,8 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     std::string configJson;

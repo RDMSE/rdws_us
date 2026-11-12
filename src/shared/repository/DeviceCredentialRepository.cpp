@@ -63,12 +63,20 @@ DeviceCredentialRepository::findActiveByDeviceId(const std::string& deviceId) {
 }
 
 std::vector<DeviceCredential> DeviceCredentialRepository::findAllActive() {
-  const std::string query = std::string(kSelectCols) + " WHERE status = 'active'";
+  // With the device's public id (same domain: device_service owns both tables), for the
+  // IngestionService cache: it sends the public id to device_config.get
+  const std::string query =
+      "SELECT c.id, c.device_id, d.public_id AS device_public_id, c.psk_identity, "
+      "encode(c.psk_key_enc, 'hex') AS psk_key_enc_hex, c.status, c.created_at, c.rotated_at, "
+      "c.revoked_at FROM device_credentials c JOIN devices d ON d.id = c.device_id "
+      "WHERE c.status = 'active'";
 
   auto rs = db_.execQuery(query, {});
   std::vector<DeviceCredential> credentials;
   while (rs->next()) {
-    credentials.push_back(credentialFromRow(*rs));
+    auto credential = credentialFromRow(*rs);
+    credential.devicePublicId = rs->getString("device_public_id");
+    credentials.push_back(std::move(credential));
   }
   return credentials;
 }

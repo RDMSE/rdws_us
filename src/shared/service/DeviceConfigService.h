@@ -33,11 +33,12 @@ public:
                       IDeclaredConfigSource& declaredSource)
       : repo_(repo), sensors_(sensors), declaredSource_(declaredSource) {}
 
-  [[nodiscard]] std::optional<DeviceConfig> findByDeviceId(const std::string& deviceId);
+  // The API addresses the config by the device's public id (V21)
+  [[nodiscard]] std::optional<DeviceConfig> findByDevicePublicId(const std::string& devicePublicId);
   // 404 when the device has no config, i.e. doesn't exist (the config is 1:1, V3); the
   // declared-config lookup's own failure (gateway down, timeout) passes through as is.
-  [[nodiscard]] rdws::types::ServiceResult<ConfigStatus> status(const std::string& deviceId);
-  [[nodiscard]] rdws::types::OperationResult update(const std::string& deviceId,
+  [[nodiscard]] rdws::types::ServiceResult<ConfigStatus> status(const std::string& devicePublicId);
+  [[nodiscard]] rdws::types::OperationResult update(const std::string& devicePublicId,
                                                     const DeviceConfigUpdate& data);
 
 private:

@@ -156,7 +156,8 @@ private:
   // Plano_Ingestion_Implementacao.md for the trade-off).
   struct CachedCredential {
     std::string key;
-    std::string deviceId;
+    std::string deviceId;       // internal: readings, telemetry and logs carry it
+    std::string devicePublicId; // what device_config.get takes (the API's device id)
     coap_bin_const_t bin{}; // .s points into `key`'s storage, kept alive by the map
   };
   std::mutex cacheMutex_;
@@ -260,6 +261,7 @@ private:
       CachedCredential cred;
       cred.key = std::string(keyBytes.begin(), keyBytes.end());
       cred.deviceId = *deviceId;
+      cred.devicePublicId = json::getString(entry, "device_public_id").value_or(std::string{});
       auto [it, inserted] = pskCache_.emplace(*identity, std::move(cred));
       it->second.bin.length = it->second.key.size();
       it->second.bin.s = reinterpret_cast<const uint8_t*>(it->second.key.data());
@@ -338,7 +340,11 @@ private:
 
   // Device bound to the DTLS session's PSK identity (Plano_Telemetria.md, Fase 0). Empty if
   // the credential left the cache (revoked/rotated) after the handshake.
-  std::string authenticatedDeviceId(coap_session_t* session) {
+  struct AuthenticatedDevice {
+    std::string id;       // internal
+    std::string publicId; // empty only if device_service didn't send it
+  };
+  AuthenticatedDevice authenticatedDevice(coap_session_t* session) {
     const coap_bin_const_t* identity = coap_session_get_psk_identity(session);
     if (identity == nullptr) {
       return {};
@@ -346,12 +352,16 @@ private:
     const std::string identityStr(reinterpret_cast<const char*>(identity->s), identity->length);
     std::scoped_lock lock(cacheMutex_);
     const auto it = pskCache_.find(identityStr);
-    return it == pskCache_.end() ? std::string{} : it->second.deviceId;
+    if (it == pskCache_.end()) {
+      return {};
+    }
+    return {.id = it->second.deviceId, .publicId = it->second.devicePublicId};
   }
 
   void onRequest(coap_resource_t* resource, coap_session_t* session, const coap_pdu_t* request,
                  const coap_string_t* query, coap_pdu_t* response) {
-    const auto deviceId = authenticatedDeviceId(session);
+    const auto device = authenticatedDevice(session);
+    const std::string& deviceId = device.id;
     if (deviceId.empty()) {
       logger::warn("IngestionService: session has no known PSK identity, rejecting", "");
       coap_pdu_set_code(response, COAP_RESPONSE_CODE_UNAUTHORIZED);
@@ -385,7 +395,7 @@ private:
     // it runs; if it's behind, this 2.04 carries the current one. Block2 when it doesn't
     // fit in one PDU — libcoap handles the follow-up block requests.
     if (result >= 0 && declaredCfg) {
-      if (auto reply = configReply(deviceId, *declaredCfg)) {
+      if (auto reply = configReply(device, *declaredCfg)) {
         auto* owned = new std::string(std::move(*reply));
         coap_add_data_large_response(
             resource, session, request, response, query, COAP_MEDIATYPE_APPLICATION_JSON, -1,
@@ -398,11 +408,17 @@ private:
   // {"version": N, "config": {...}} when the device's config is newer than `declared`, else
   // nullopt. Fetched on demand (device_config.get): it only runs once per uplink cycle per
   // device, so no cache. A failure only logs — the station asks again next cycle.
-  std::optional<std::string> configReply(const std::string& deviceId, long long declared) {
+  std::optional<std::string> configReply(const AuthenticatedDevice& device, long long declared) {
+    const std::string& deviceId = device.id; // logs keep the internal id, like the rest
+    if (device.publicId.empty()) {
+      logger::warn("IngestionService: no device public id in the credential cache, config not "
+                   "sent", "device_id=" + deviceId);
+      return std::nullopt;
+    }
     rapidjson::Document req(rapidjson::kObjectType);
     auto& alloc = req.GetAllocator();
     rapidjson::Value pathParams(rapidjson::kObjectType);
-    pathParams.AddMember("id", rapidjson::Value(deviceId.c_str(), alloc), alloc);
+    pathParams.AddMember("id", rapidjson::Value(device.publicId.c_str(), alloc), alloc);
     req.AddMember("pathParameters", pathParams, alloc);
 
     const auto result = credentialClient_->invoke("device_config.get", req);

@@ -471,17 +471,13 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    // Transitional: device_config_service (DeviceDiagnosticsClient) still sends the internal id
-    // until its table carries the device's public id. Only accepted without an HTTP caller's
-    // identity, so an API client can't use it to enumerate devices.
-    const bool internalId = isNumericId(id) && !json::hasActorIdentity(req);
-    if (!internalId && !isUuid(id)) {
+    if (!isUuid(id)) {
       return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto device = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return internalId ? svc.findById(id) : svc.findByPublicId(id);
+      return svc.findByPublicId(id);
     }();
     if (!device) {
       return ResponseHelper::returnErrorDoc("Device not found", 404);
@@ -627,6 +623,7 @@ private:
                         .set("psk_identity", credential.pskIdentity)
                         .set("psk_key", rdws::crypto::toHex(credential.pskKeyPlaintext))
                         .set("device_id", credential.deviceId)
+                        .set("device_public_id", credential.devicePublicId)
                         .take(),
                     alloc);
       }

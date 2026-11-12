@@ -142,13 +142,14 @@ std::string configState(int version, std::optional<int> declared, std::optional<
   return "pending";
 }
 
-rdws::types::ServiceResult<ConfigStatus> DeviceConfigService::status(const std::string& deviceId) {
+rdws::types::ServiceResult<ConfigStatus>
+DeviceConfigService::status(const std::string& devicePublicId) {
   using Result = rdws::types::ServiceResult<ConfigStatus>;
-  const auto config = repo_.findByDeviceId(deviceId);
+  const auto config = repo_.findByDevicePublicId(devicePublicId);
   if (!config) {
     return Result::error("Configuration not found", 404);
   }
-  const auto lookup = declaredSource_.declared(deviceId);
+  const auto lookup = declaredSource_.declared(devicePublicId); // device.diagnostics, by UUID
   if (lookup.statusCode != 200) {
     return Result::error(lookup.errorMessage, lookup.statusCode);
   }
@@ -163,16 +164,19 @@ rdws::types::ServiceResult<ConfigStatus> DeviceConfigService::status(const std::
   return Result::success(s);
 }
 
-std::optional<DeviceConfig> DeviceConfigService::findByDeviceId(const std::string& deviceId) {
-  return repo_.findByDeviceId(deviceId);
+std::optional<DeviceConfig>
+DeviceConfigService::findByDevicePublicId(const std::string& devicePublicId) {
+  return repo_.findByDevicePublicId(devicePublicId);
 }
 
-OperationResult DeviceConfigService::update(const std::string& deviceId,
+OperationResult DeviceConfigService::update(const std::string& devicePublicId,
                                             const DeviceConfigUpdate& data) {
-  const auto existing = repo_.findByDeviceId(deviceId);
+  const auto existing = repo_.findByDevicePublicId(devicePublicId);
   if (!existing) {
-    return OperationResult::error("Device config not found for device_id " + deviceId, 404);
+    return OperationResult::error("Device config not found for device_id " + devicePublicId,
+                                  404);
   }
+  const std::string& deviceId = existing->deviceId; // internal: sensors are keyed by it
 
   const std::string mergedJson = json::mergePatch(existing->config, data.configJson);
   if (const auto errors = validateConfig(*existing, mergedJson); !errors.empty()) {
