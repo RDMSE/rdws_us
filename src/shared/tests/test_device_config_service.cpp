@@ -46,16 +46,21 @@ public:
   }
 };
 
-// Sensors of device 12 as in rdws_qa: 31 temperature, 32 humidity, 33 pressure
+// Station 12's public id in these tests
+constexpr auto kStation12 = "4884a5f7-0e3a-4976-a1d6-662908f185fa";
+
+// Sensors of device 12 as in rdws_qa: 31 temperature, 32 humidity, 33 pressure. Listed by the
+// device's public id; the sensor ids themselves stay internal (station protocol).
 class FakeSensorRepo : public ISensorRepository {
 public:
-  std::vector<Sensor> findAll(const std::string& deviceId) override {
-    if (deviceId != "12") {
+  std::vector<Sensor> findAll(const std::string& devicePublicId) override {
+    if (devicePublicId != kStation12) {
       return {};
     }
     return {sensor("31", "temperature"), sensor("32", "humidity"), sensor("33", "pressure")};
   }
   std::optional<Sensor> findById(const std::string&) override { return std::nullopt; }
+  std::optional<Sensor> findByPublicId(const std::string&) override { return std::nullopt; }
   std::string create(const rdws::sensor::SensorCreate&) override { return {}; }
   bool update(const std::string&, const rdws::sensor::SensorUpdate&) override { return false; }
   bool remove(const std::string&) override { return false; }
@@ -73,6 +78,7 @@ private:
 DeviceConfig device(const std::string& type, bool simulated, const std::string& config = "{}") {
   DeviceConfig c;
   c.deviceId = "12";
+  c.devicePublicId = kStation12;
   c.config = config;
   c.version = 1;
   c.deviceType = type;
@@ -228,7 +234,9 @@ TEST(DeviceConfigService, WeatherStation_SensorOfAnotherDeviceRejected) {
   const auto result = svc.update(
       "12", {.configJson = R"({"onboard":[{"chan":"temp","sensor_id":12}]})", .updatedBy = "t"});
   EXPECT_FALSE(result.isSuccess());
-  EXPECT_NE(result.getErrorMessage().find("sensor 12 is not a sensor of device 12"),
+  // The device by its public id: the error goes back to the API client
+  EXPECT_NE(result.getErrorMessage().find(std::string("sensor 12 is not a sensor of device ") +
+                                          kStation12),
             std::string::npos)
       << result.getErrorMessage();
 }

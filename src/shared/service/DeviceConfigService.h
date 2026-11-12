@@ -47,7 +47,7 @@ private:
   IDeclaredConfigSource& declaredSource_;
 
   [[nodiscard]] static std::string checkTriggers(const std::string& mergedJson);
-  [[nodiscard]] std::string checkSensors(const std::string& deviceId,
+  [[nodiscard]] std::string checkSensors(const std::string& devicePublicId,
                                          const std::string& mergedJson);
 };
 
