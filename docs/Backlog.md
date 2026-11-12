@@ -15,6 +15,7 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 
 | Prio  | Item | Observação |
 |-------|------|---|
+| P2    | Ingestion: tentar de novo logo quando a primeira carga de credenciais falha | Num deploy, a ingestion pode subir antes do `device_service` (`No available service for capability device_credential.list_active`, visto em 2026-11-11 e 2026-11-12) e só recarrega no ciclo seguinte (`kRefreshIntervalSec`, 60 s). Nesse minuto o handshake de qualquer estação é recusado; ela não perde dados, mas atrasa até o próximo uplink (1 h com `transmissions_per_day: 24`). Correção: `refreshCredentials`/`refreshSensorOwners` dizem se carregaram, e o laço tenta a cada 5 s até carregar. Fazer logo depois do RDWS-28 |
 | P2    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2). Adiado em 2026-10-23: fazer quando a primeira estação sair da bancada (escolher Telegram, ntfy ou e-mail) |
 | P3    | Resolver `crash_pc` em arquivo e linha no servidor | Hoje é manual, com `addr2line` e o `.elf` da máquina do desenvolvedor. Depende da release por tag do firmware, que leva o `.elf` ao servidor |
 | P3    | Retenção das falhas | `crash_*` somem com a limpeza de 90 dias de `device_telemetry`; são raras e servem para comparar versões (`Plano_Telemetria.md`, pontos em aberto) |
