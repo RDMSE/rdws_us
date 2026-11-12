@@ -113,3 +113,4 @@ Origem: `docs/Plano_DeviceCredentials.md`.
 | — | Tipos novos em `sensor_type` (bateria, solar, vento, chuva, radiação); avaliar `co2` → `eco2` | Pedido pelo firmware (passos 5–6, ver o backlog dele) |
 | P3 | Simulador gerando a janela OMM (vento) | `Plano_SensorSimulatorService.md` |
 | P3 | Cenários de falha propositais no simulador (fora da faixa, perda, offline) | `Plano_SensorSimulatorService.md` |
+| P3 | `DeviceConfigRepository` lê a tabela `devices` (`JOIN` para `type` e `is_simulated`) | Leitura de outro domínio, contra a regra de cada serviço ler só as próprias tabelas. Trazer esses dois campos pelo `device_service` (capability interna ou cópia na `device_configurations`, como o `device_public_id` da Fase 13a). Achado no RDWS-28 |

@@ -17,22 +17,27 @@ public:
                 rdws::device_telemetry::IDeviceTelemetryRepository& telemetry)
       : repo_(repo), fieldValidator_(fieldValidator), telemetry_(telemetry) {}
 
-  // fieldId vazio = lista todos os devices; fieldId preenchido mas inexistente = erro
-  // (404), não lista vazia — sem isso, um field_id digitado errado silenciosamente
-  // parece "esse campo não tem nenhum device" em vez de "esse campo não existe".
+  // fieldPublicId vazio = lista todos os devices; preenchido mas inexistente = erro (404), não
+  // lista vazia — sem isso, um field_id digitado errado silenciosamente parece "esse campo não
+  // tem nenhum device" em vez de "esse campo não existe".
   [[nodiscard]] rdws::types::ServiceResult<std::vector<Device>>
-  findAll(const std::string& fieldId = {});
+  findAll(const std::string& fieldPublicId = {});
+  // By the internal id, for internal capabilities
   [[nodiscard]] std::optional<Device> findById(const std::string& id);
-  [[nodiscard]] rdws::types::ServiceResult<std::string> create(const DeviceCreate& data);
-  [[nodiscard]] rdws::types::OperationResult update(const std::string& id,
+  [[nodiscard]] std::optional<Device> findByPublicId(const std::string& publicId);
+  // data.fieldPublicId is resolved to the internal field id here; returns both new ids
+  [[nodiscard]] rdws::types::ServiceResult<DeviceIds> create(DeviceCreate data);
+  // 404 when no device has that public id
+  [[nodiscard]] rdws::types::OperationResult update(const std::string& publicId,
                                                     const DeviceUpdate& data);
+  // By the internal id (IngestionService, device.update_location)
   [[nodiscard]] rdws::types::OperationResult updateLocation(const std::string& id,
                                                             const std::string& locationWkt);
-  [[nodiscard]] rdws::types::OperationResult remove(const std::string& id);
-  // Latest diagnostics snapshot; an empty optional when the device never sent any, 404 when the
-  // device doesn't exist.
-  [[nodiscard]] rdws::types::ServiceResult<std::optional<rdws::device_telemetry::DiagnosticsSnapshot>>
-  diagnostics(const std::string& id);
+  [[nodiscard]] rdws::types::OperationResult remove(const std::string& publicId);
+  // Latest diagnostics snapshot of a device found by the caller; an empty optional when it
+  // never sent any. The handler looks the device up (404 when missing).
+  [[nodiscard]] std::optional<rdws::device_telemetry::DiagnosticsSnapshot>
+  diagnostics(const Device& device);
 
 private:
   IDeviceRepository& repo_;

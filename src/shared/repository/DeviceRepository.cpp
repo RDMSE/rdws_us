@@ -6,7 +6,7 @@
 namespace rdws::device {
 
 static constexpr auto kSelectCols =
-    "SELECT id, field_id, type, status, installation_date, "
+    "SELECT id, public_id, field_id, field_public_id, type, status, installation_date, "
     "ST_AsText(location) AS location, elevation_m, elevation_source::text AS elevation_source, "
     "is_simulated, created_at, updated_at, updated_by "
     "FROM devices";
@@ -14,7 +14,9 @@ static constexpr auto kSelectCols =
 Device DeviceRepository::deviceFromRow(rdws::database::IResultSet& rs) {
   Device d;
   d.id = rs.getString("id");
+  d.publicId = rs.getString("public_id");
   d.fieldId = rs.getString("field_id");
+  d.fieldPublicId = rs.getString("field_public_id");
   d.type = rs.getString("type");
   d.status = rs.getString("status");
   d.installationDate = rs.isNull("installation_date") ? "" : rs.getString("installation_date");
@@ -30,16 +32,16 @@ Device DeviceRepository::deviceFromRow(rdws::database::IResultSet& rs) {
   return d;
 }
 
-std::vector<Device> DeviceRepository::findAll(const std::string& fieldId) {
+std::vector<Device> DeviceRepository::findAll(const std::string& fieldPublicId) {
   std::string query = std::string(kSelectCols);
   std::vector<std::string> params = {};
 
   std::unique_ptr<rdws::database::IResultSet> rs;
-  if (fieldId.empty()) {
+  if (fieldPublicId.empty()) {
     query += " ORDER BY id";
   } else {
-    query += " WHERE field_id = $1 ORDER BY id";
-    params = {fieldId};
+    query += " WHERE field_public_id = $1 ORDER BY id";
+    params = {fieldPublicId};
   }
   rs = db_.execQuery(query, params);
   std::vector<Device> devices;
@@ -49,25 +51,32 @@ std::vector<Device> DeviceRepository::findAll(const std::string& fieldId) {
   return devices;
 }
 
-std::optional<Device> DeviceRepository::findById(const std::string& id) {
-  std::string query = std::string(kSelectCols) + " WHERE id = $1";
-  std::vector<std::string> params = {id};
-
-  auto rs = db_.execQuery(query, params);
+std::optional<Device> DeviceRepository::findOne(const std::string& column,
+                                                const std::string& value) {
+  auto rs = db_.execQuery(std::string(kSelectCols) + " WHERE " + column + " = $1", {value});
   if (!rs->next()) {
     return std::nullopt;
   }
   return deviceFromRow(*rs);
 }
 
-std::string DeviceRepository::create(const DeviceCreate& data) {
+std::optional<Device> DeviceRepository::findById(const std::string& id) {
+  return findOne("id", id);
+}
+
+std::optional<Device> DeviceRepository::findByPublicId(const std::string& publicId) {
+  return findOne("public_id", publicId);
+}
+
+DeviceIds DeviceRepository::create(const DeviceCreate& data) {
   const std::string deviceStatus = data.status.empty() ? "active" : data.status;
   const bool hasInstallationDate = !data.installationDate.empty();
 
-  std::vector<std::string> columns = {"field_id", "type", "status", "is_simulated", "updated_by"};
-  std::vector<std::string> params = {data.fieldId, data.type, deviceStatus,
+  std::vector<std::string> columns = {"field_id", "field_public_id", "type", "status",
+                                      "is_simulated", "updated_by"};
+  std::vector<std::string> params = {data.fieldId, data.fieldPublicId, data.type, deviceStatus,
                                      data.isSimulated ? "true" : "false", data.updatedBy};
-  std::vector<std::string> placeholders = {"$1", "$2", "$3", "$4", "$5"};
+  std::vector<std::string> placeholders = {"$1", "$2", "$3", "$4", "$5", "$6"};
 
   if (hasInstallationDate) {
     columns.emplace_back("installation_date");
@@ -83,16 +92,16 @@ std::string DeviceRepository::create(const DeviceCreate& data) {
   for (size_t i = 0; i < placeholders.size(); ++i) {
     query += (i > 0 ? ", " : "") + placeholders[i];
   }
-  query += ") RETURNING id";
+  query += ") RETURNING id, public_id";
 
   auto rs = db_.execQuery(query, params);
   if (!rs->next()) {
     return {};
   }
-  return rs->getString("id");
+  return {.id = rs->getString("id"), .publicId = rs->getString("public_id")};
 }
 
-bool DeviceRepository::update(const std::string& id, const DeviceUpdate& data) {
+bool DeviceRepository::update(const std::string& publicId, const DeviceUpdate& data) {
   std::vector<std::string> params = {data.type, data.status, data.updatedBy};
   std::string query = "UPDATE devices SET type=$1, status=$2, updated_at=now(), updated_by=$3";
   if (data.elevationM) {
@@ -104,9 +113,11 @@ bool DeviceRepository::update(const std::string& id, const DeviceUpdate& data) {
       query += ", elevation_m=NULL, elevation_source=NULL";
     }
   }
-  params.push_back(id);
-  query += " WHERE id=$" + std::to_string(params.size());
-  return db_.execCommand(query, params);
+  params.push_back(publicId);
+  query += " WHERE public_id=$" + std::to_string(params.size()) + " RETURNING id";
+  // execCommand can't tell "no such device" from success; RETURNING can
+  auto rs = db_.execQuery(query, params);
+  return rs->next();
 }
 
 bool DeviceRepository::updateLocation(const std::string& id, const std::string& locationWkt) {
@@ -116,10 +127,9 @@ bool DeviceRepository::updateLocation(const std::string& id, const std::string& 
   return db_.execCommand(query, params);
 }
 
-bool DeviceRepository::remove(const std::string& id) {
-  std::string query = "DELETE FROM devices WHERE id = $1";
-  std::vector<std::string> params = {id};
-  return db_.execCommand(query, params);
+bool DeviceRepository::remove(const std::string& publicId) {
+  auto rs = db_.execQuery("DELETE FROM devices WHERE public_id = $1 RETURNING id", {publicId});
+  return rs->next();
 }
 
 std::vector<SimulatedSensor>

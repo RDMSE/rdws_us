@@ -18,7 +18,7 @@ const std::string DEVICE_CREATE_SCHEMA = R"({
         "properties": {
             "field_id": {
                 "type": "string",
-                "pattern": "^[0-9]+$"
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
             },
             "type": {
                 "type": "string",
