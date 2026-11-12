@@ -9,6 +9,7 @@ DeviceConfig DeviceConfigRepository::configFromRow(rdws::database::IResultSet& r
   DeviceConfig c;
   c.id = rs.getString("id");
   c.deviceId = rs.getString("device_id");
+  c.devicePublicId = rs.getString("device_public_id");
   c.config = rs.getString("config");
   c.version = rs.getInt("version");
   c.deviceType = rs.getString("device_type");
@@ -19,18 +20,27 @@ DeviceConfig DeviceConfigRepository::configFromRow(rdws::database::IResultSet& r
   return c;
 }
 
-std::optional<DeviceConfig> DeviceConfigRepository::findByDeviceId(const std::string& deviceId) {
+std::optional<DeviceConfig> DeviceConfigRepository::findOne(const std::string& column,
+                                                        const std::string& value) {
   std::string query =
-      "SELECT dc.id, dc.device_id, dc.config::text AS config, dc.version, dc.created_at, "
-      "dc.updated_at, dc.updated_by, d.type::text AS device_type, d.is_simulated "
+      "SELECT dc.id, dc.device_id, dc.device_public_id, dc.config::text AS config, dc.version, "
+      "dc.created_at, dc.updated_at, dc.updated_by, d.type::text AS device_type, d.is_simulated "
       "FROM device_configurations dc JOIN devices d ON d.id = dc.device_id "
-      "WHERE dc.device_id = $1";
-  std::vector<std::string> params = {deviceId};
-  auto rs = db_.execQuery(query, params);
+      "WHERE dc." + column + " = $1";
+  auto rs = db_.execQuery(query, {value});
   if (!rs->next()) {
     return std::nullopt;
   }
   return configFromRow(*rs);
+}
+
+std::optional<DeviceConfig>
+DeviceConfigRepository::findByDevicePublicId(const std::string& devicePublicId) {
+  return findOne("device_public_id", devicePublicId);
+}
+
+std::optional<DeviceConfig> DeviceConfigRepository::findByDeviceId(const std::string& deviceId) {
+  return findOne("device_id", deviceId);
 }
 
 bool DeviceConfigRepository::update(const std::string& deviceId, const DeviceConfigUpdate& data) {

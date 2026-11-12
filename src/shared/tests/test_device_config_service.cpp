@@ -23,6 +23,9 @@ public:
   std::optional<DeviceConfig> stored;
   std::optional<std::string> written;
 
+  std::optional<DeviceConfig> findByDevicePublicId(const std::string& /*devicePublicId*/) override {
+    return stored;
+  }
   std::optional<DeviceConfig> findByDeviceId(const std::string& /*deviceId*/) override {
     return stored;
   }
@@ -36,7 +39,9 @@ public:
 class FakeDeclaredSource : public rdws::device_config::IDeclaredConfigSource {
 public:
   rdws::device_config::DeclaredLookup answer;
-  rdws::device_config::DeclaredLookup declared(const std::string& /*deviceId*/) override {
+  std::optional<std::string> askedFor;
+  rdws::device_config::DeclaredLookup declared(const std::string& deviceId) override {
+    askedFor = deviceId;
     return answer;
   }
 };
@@ -378,6 +383,18 @@ TEST(DeviceConfigService, Status_FromTheLatestDeclaration) {
   EXPECT_EQ(status.rejected, 24);
   EXPECT_EQ(status.declaredAt, "2026-11-11T09:00:00Z");
   EXPECT_EQ(status.state, "rejected");
+}
+
+TEST(DeviceConfigService, Status_AsksDeviceServiceByThePublicId) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false); // internal device id 12
+  FakeSensorRepo sensors;
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
+
+  constexpr auto kDevice = "4884a5f7-0e3a-4976-a1d6-662908f185fa";
+  ASSERT_TRUE(svc.status(kDevice).isSuccess());
+  EXPECT_EQ(declared.askedFor, kDevice); // device.diagnostics takes the UUID, not "12"
 }
 
 TEST(DeviceConfigService, Status_NeverDeclaredIsUnknown) {
