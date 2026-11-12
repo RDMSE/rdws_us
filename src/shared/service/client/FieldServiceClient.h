@@ -13,7 +13,7 @@ class ServiceClient;
 
 namespace rdws::field {
 
-// Validates field_id FKs by calling field_service's internal "field.ref" capability through
+// Resolves field public ids by calling field_service's internal "field.ref" capability through
 // the gateway (ServiceClient::invoke), instead of reaching into field_service's own
 // repository/DB in-process. See backlog "chamada síncrona entre serviços via Gateway"
 // in docs/Plano_Gateway_HTTP.md.
@@ -25,7 +25,7 @@ public:
   explicit FieldServiceClient(const std::unique_ptr<servicegateway::ServiceClient>& client)
       : client_(client) {}
 
-  [[nodiscard]] bool exists(const std::string& fieldId) override;
+  [[nodiscard]] FieldValidation resolve(const std::string& fieldPublicId) override;
 
 private:
   const std::unique_ptr<servicegateway::ServiceClient>& client_;

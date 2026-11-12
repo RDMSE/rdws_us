@@ -9,7 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 1 | V19 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| Não lançado | 1 | V20 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
@@ -30,13 +30,15 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
 
 ### Segurança
-- Farms e fields endereçados pelo `public_id` (UUID) em vez do id sequencial, que permitia
-  enumerar todos: o `id` nas respostas e nos paths (`/farms/{id}`, `/fields/{id}`) e o
-  `farm_id` dos fields (corpo, filtro `?farm_id=` e resposta) agora são UUIDs, e um id numérico
-  responde `400`. `PUT` e `DELETE` de um recurso inexistente respondem `404` (antes, sucesso).
-  O field guarda o `public_id` da farm (`fields.farm_public_id`, FK composta com o `farm_id`),
-  para o `field_service` não ler a tabela `farms`. Fase 13a; devices e sensors seguem
-  ([RDWS-28]).
+- Farms, fields e devices endereçados pelo `public_id` (UUID) em vez do id sequencial, que
+  permitia enumerar todos: o `id` nas respostas e nos paths (`/farms/{id}`, `/fields/{id}`,
+  `/devices/{id}`, inclusive `diagnostics` e `credential/rotate|revoke`) e as referências ao pai
+  (`farm_id` dos fields, `field_id` dos devices: corpo, filtro e resposta) agora são UUIDs, e um
+  id numérico responde `400`. `PUT` e `DELETE` de um recurso inexistente respondem `404` (antes,
+  sucesso). O filho guarda o `public_id` do pai (`fields.farm_public_id`,
+  `devices.field_public_id`, FK composta com o id interno), para nenhum serviço ler a tabela de
+  outro. A estação não muda: ela se identifica pelo `psk_identity`. Fase 13a; a config do device
+  e os sensors seguem ([RDWS-28]).
 - `POST /invoke/{capability}` só encaminha capabilities expostas por uma regra de rota; antes,
   qualquer token válido chamava capabilities só de serviço, como as que devolvem as chaves PSK
   ativas (`device_credential.get_active`/`list_active`). Essas duas também recusam (`403`) uma
