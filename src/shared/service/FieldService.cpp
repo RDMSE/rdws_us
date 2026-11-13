@@ -5,36 +5,47 @@
 
 namespace rdws::field {
 
+using rdws::types::OperationResult;
+using rdws::types::OperationStatus;
 using rdws::types::ServiceResult;
 
-ServiceResult<std::vector<Field>> FieldService::findAll(const std::string& farmId) {
-  if (!farmId.empty()) {
-    if (const auto validation = farmValidator_.exists(farmId); !validation.found) {
-      return ServiceResult<std::vector<Field>>::error(
-          validation.statusCode == 404 ? "Farm not found for id " + farmId
-                                        : "Farm validation failed for id " + farmId + ": " +
-                                              validation.errorMessage,
-          validation.statusCode);
+rdws::farm::FarmValidation FieldService::resolveFarm(const std::string& farmPublicId) {
+  auto validation = farmValidator_.resolve(farmPublicId);
+  if (!validation.found) {
+    validation.errorMessage = validation.statusCode == 404
+                                  ? "Farm not found for id " + farmPublicId
+                                  : "Farm validation failed for id " + farmPublicId + ": " +
+                                        validation.errorMessage;
+  }
+  return validation;
+}
+
+ServiceResult<std::vector<Field>> FieldService::findAll(const std::string& farmPublicId) {
+  if (!farmPublicId.empty()) {
+    if (const auto farm = resolveFarm(farmPublicId); !farm.found) {
+      return ServiceResult<std::vector<Field>>::error(farm.errorMessage, farm.statusCode);
     }
   }
-  return ServiceResult<std::vector<Field>>::success(repo_.findAll(farmId));
+  return ServiceResult<std::vector<Field>>::success(repo_.findAll(farmPublicId));
 }
 
 std::optional<Field> FieldService::findById(const std::string& id) {
   return repo_.findById(id);
 }
 
-ServiceResult<std::string> FieldService::create(const FieldCreate& data) {
-  if (data.farmId.empty()) {
+std::optional<Field> FieldService::findByPublicId(const std::string& publicId) {
+  return repo_.findByPublicId(publicId);
+}
+
+ServiceResult<std::string> FieldService::create(FieldCreate data) {
+  if (data.farmPublicId.empty()) {
     return ServiceResult<std::string>::error("Missing field: farm_id", 400);
   }
-  if (const auto validation = farmValidator_.exists(data.farmId); !validation.found) {
-    return ServiceResult<std::string>::error(
-        validation.statusCode == 404 ? "Farm not found for id " + data.farmId
-                                      : "Farm validation failed for id " + data.farmId + ": " +
-                                            validation.errorMessage,
-        validation.statusCode);
+  const auto farm = resolveFarm(data.farmPublicId);
+  if (!farm.found) {
+    return ServiceResult<std::string>::error(farm.errorMessage, farm.statusCode);
   }
+  data.farmId = farm.id;
   const std::string id = repo_.create(data);
   if (id.empty()) {
     return ServiceResult<std::string>::error("Failed to create field", 500);
@@ -42,12 +53,15 @@ ServiceResult<std::string> FieldService::create(const FieldCreate& data) {
   return ServiceResult<std::string>::success(id, 201);
 }
 
-bool FieldService::update(const std::string& id, const FieldUpdate& data) {
-  return repo_.update(id, data);
+OperationResult FieldService::update(const std::string& publicId, const FieldUpdate& data) {
+  if (!repo_.update(publicId, data)) {
+    return OperationResult::error("Field not found", 404);
+  }
+  return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});
 }
 
-bool FieldService::remove(const std::string& id) {
-  return repo_.remove(id);
+bool FieldService::remove(const std::string& publicId) {
+  return repo_.remove(publicId);
 }
 
 } // namespace rdws::field

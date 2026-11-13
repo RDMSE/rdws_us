@@ -13,7 +13,7 @@ class ServiceClient;
 
 namespace rdws::farm {
 
-// Validates farm_id FKs by calling farm_service's "farm.get" capability through
+// Resolves farm public ids by calling farm_service's internal "farm.ref" capability through
 // the gateway (ServiceClient::invoke), instead of reaching into farm_service's own
 // repository/DB in-process. Mirrors rdws::field::FieldServiceClient.
 //
@@ -24,7 +24,7 @@ public:
   explicit FarmServiceClient(const std::unique_ptr<servicegateway::ServiceClient>& client)
       : client_(client) {}
 
-  [[nodiscard]] FarmValidation exists(const std::string& farmId) override;
+  [[nodiscard]] FarmValidation resolve(const std::string& farmPublicId) override;
 
 private:
   const std::unique_ptr<servicegateway::ServiceClient>& client_;

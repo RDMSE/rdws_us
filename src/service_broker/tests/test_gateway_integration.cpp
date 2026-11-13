@@ -613,3 +613,86 @@ TEST_F(GatewayIntegrationTest, HandlerCallingInvoke_DoesNotDeadlockOwnMessageLoo
   ASSERT_FALSE(resp.HasParseError());
   EXPECT_TRUE(json::getBool(resp, "innerSuccess").value_or(false));
 }
+
+// ---------------------------------------------------------------------------
+// The service answers before anyone waits: the response must not be lost
+// ---------------------------------------------------------------------------
+// HttpGateway calls sendRequest() and only then waitForResponse(). A fast service can answer in
+// between; the gateway used to take "no waiter yet" for a fire-and-forget request and erase it,
+// so waitForResponse() returned 404 "Request not found" for a request that succeeded. Forced
+// here by waiting for the response to be processed before calling waitForResponse().
+
+namespace {
+
+// Polls until the gateway has processed the response for `requestId`: the request is either
+// COMPLETED or already gone (erased). Returns false on timeout.
+bool waitUntilResponseProcessed(const ServiceGateway& gw, const std::string& requestId) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  while (std::chrono::steady_clock::now() < deadline) {
+    const rapidjson::Document status = gw.getRequestStatus(requestId);
+    if (!json::getBool(status, "found").value_or(false) ||
+        json::getString(status, "status").value_or("") == "completed") {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  return false;
+}
+
+rapidjson::Document okResponse(const rapidjson::Document&) {
+  rapidjson::Document resp;
+  resp.SetObject();
+  resp.AddMember("ok", true, resp.GetAllocator());
+  return resp;
+}
+
+} // namespace
+
+TEST_F(GatewayIntegrationTest, ResponseBeforeWaiter_StillCollected) {
+  const std::string sock = "/tmp/rdws_gw_integ_184a.sock";
+  ASSERT_TRUE(startGateway(19211, sock)) << "Gateway failed to start";
+  startClient(makeIdentity("integ_fast_001", {"fast"}), "unix://" + sock);
+  client->setRequestHandler(okResponse);
+  ASSERT_TRUE(waitForRegistration(*gw)) << "Service did not register in time";
+
+  rapidjson::Document payload;
+  payload.SetObject();
+  payload.AddMember("capability", "fast", payload.GetAllocator());
+  const std::string requestId = gw->sendRequest("fast", payload);
+  ASSERT_FALSE(requestId.empty());
+
+  ASSERT_TRUE(waitUntilResponseProcessed(*gw, requestId));
+  const PendingRequest result = gw->waitForResponse(requestId, std::chrono::milliseconds(1000));
+
+  EXPECT_EQ(result.state, RequestState::COMPLETED) << result.errorMessage;
+  EXPECT_EQ(result.statusCode, 200);
+  EXPECT_FALSE(result.responsePayload.empty());
+  // Collected once: the slot is gone afterwards
+  EXPECT_FALSE(json::getBool(gw->getRequestStatus(requestId), "found").value_or(true));
+}
+
+// Fire-and-forget requests (the persistence bridges) are still reclaimed as soon as the
+// response arrives, without waiting for cleanupExpiredRequests()'s retention window.
+TEST_F(GatewayIntegrationTest, FireAndForget_ReclaimedOnResponse) {
+  const std::string sock = "/tmp/rdws_gw_integ_184b.sock";
+  ASSERT_TRUE(startGateway(19212, sock)) << "Gateway failed to start";
+  startClient(makeIdentity("integ_ff_001", {"ff"}), "unix://" + sock);
+  client->setRequestHandler(okResponse);
+  ASSERT_TRUE(waitForRegistration(*gw)) << "Service did not register in time";
+
+  rapidjson::Document payload;
+  payload.SetObject();
+  payload.AddMember("capability", "ff", payload.GetAllocator());
+  const std::string requestId = gw->sendFireAndForget("ff", payload);
+  ASSERT_FALSE(requestId.empty());
+
+  // Not "completed and kept": gone once processed
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  bool gone = false;
+  while (!gone && std::chrono::steady_clock::now() < deadline) {
+    gone = !json::getBool(gw->getRequestStatus(requestId), "found").value_or(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_TRUE(gone);
+}
+

@@ -15,6 +15,7 @@ namespace rdws::device {
 struct DeviceCredential {
   std::string id;
   std::string deviceId;
+  std::string devicePublicId; // only filled by findAllActive
   std::string pskIdentity;
   std::vector<uint8_t> pskKeyEnc; // nonce || ciphertext || tag (see rdws::crypto::CredentialCipher)
   std::string status;             // "active" | "revoked"

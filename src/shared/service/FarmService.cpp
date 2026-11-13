@@ -13,16 +13,44 @@ std::optional<Farm> FarmService::findById(const std::string& id) {
   return repo_.findById(id);
 }
 
-std::string FarmService::create(const FarmCreate& data) {
-  return repo_.create(data);
+std::optional<Farm> FarmService::findByPublicId(const std::string& publicId) {
+  return repo_.findByPublicId(publicId);
 }
 
-bool FarmService::update(const std::string& id, const FarmUpdate& data) {
-  return repo_.update(id, data);
+std::string FarmService::checkTimezone(const std::string& timezone) {
+  if (timezone.empty() || repo_.isKnownTimezone(timezone)) {
+    return {};
+  }
+  return "Unknown timezone: " + timezone + " (use an IANA name, e.g. America/Sao_Paulo)";
 }
 
-bool FarmService::remove(const std::string& id) {
-  return repo_.remove(id);
+rdws::types::ServiceResult<std::string> FarmService::create(const FarmCreate& data) {
+  using Result = rdws::types::ServiceResult<std::string>;
+  if (const auto error = checkTimezone(data.timezone); !error.empty()) {
+    return Result::error(error, 400);
+  }
+  const std::string id = repo_.create(data);
+  if (id.empty()) {
+    return Result::error("Failed to create farm", 500);
+  }
+  return Result::success(id, 201);
+}
+
+rdws::types::OperationResult FarmService::update(const std::string& publicId,
+                                                const FarmUpdate& data) {
+  using rdws::types::OperationResult;
+  using rdws::types::OperationStatus;
+  if (const auto error = checkTimezone(data.timezone); !error.empty()) {
+    return OperationResult::error(error, 400);
+  }
+  if (!repo_.update(publicId, data)) {
+    return OperationResult::error("Farm not found", 404);
+  }
+  return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});
+}
+
+bool FarmService::remove(const std::string& publicId) {
+  return repo_.remove(publicId);
 }
 
 } // namespace rdws::farm

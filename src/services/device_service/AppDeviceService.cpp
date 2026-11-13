@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 //
-// DeviceService — capabilities: device.list, device.get, device.create, device.update,
+// DeviceService — the API addresses a device, and its field, by public id (UUID); the internal
+// ids stay in the backend (device_telemetry, credentials and the internal capabilities use them).
+// Capabilities: device.list, device.get, device.create, device.update,
 // device.delete, device_credential.rotate/revoke (admin only, POST
 // /devices/{id}/credential/rotate|revoke — Plano_API_REST.md), plus internal-only
-// device_credential.get_active/list_active (not present in routes.json — only reachable via
-// ServiceClient::invoke, never HTTP; see Plano_DeviceCredentials.md). device_credential.provision is not a standalone
-// capability — it only runs atomically inside handleCreate (device.create).
+// device_credential.get_active/list_active, which return PSK keys: no route in routes.json, so
+// the gateway's HTTP /invoke refuses them (404), and the handlers also refuse any request that
+// carries an HTTP caller's identity (403), in case a rule is ever added for them. Services reach
+// them through ServiceClient::invoke (Plano_DeviceCredentials.md). device_credential.provision
+// is not a standalone capability — it only runs atomically inside handleCreate (device.create).
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
@@ -40,6 +44,7 @@
 #include <regex>
 #include <string>
 #include <utility>
+#include <variant>
 
 namespace json = rdws::utils::json;
 namespace logger = rdws::utils::logger;
@@ -47,6 +52,7 @@ using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device;
 using rdws::utils::isNumericId;
+using rdws::utils::isUuid;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 
@@ -104,8 +110,8 @@ bool isValidInstallationDate(const std::string& value) {
 
 rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorType& alloc) {
   JsonObj obj(alloc);
-  obj.set("id", d.id)
-      .set("field_id", d.fieldId)
+  obj.set("id", d.publicId)
+      .set("field_id", d.fieldPublicId)
       .set("type", d.type)
       .set("status", d.status)
       .set("is_simulated", d.isSimulated);
@@ -115,6 +121,9 @@ rapidjson::Value deviceToJson(const Device& d, rapidjson::Document::AllocatorTyp
   if (!d.location.empty()) {
     obj.set("location", d.location);
   }
+  // Always present (null when unknown): the derived indices read them (V17)
+  obj.setOrNull("elevation_m", d.elevationM)
+      .setOrNull("elevation_source", d.elevationSource);
   obj.set("created_at", d.createdAt);
   if (!d.updatedAt.empty()) {
     obj.set("updated_at", d.updatedAt);
@@ -148,6 +157,7 @@ private:
   PostgreSQLDatabase db_;
   DeviceRepository repo_;
   rdws::field::FieldServiceClient fieldValidator_;
+  rdws::device_telemetry::DeviceTelemetryRepository telemetryRepo_;
   rdws::device::DeviceService svc_;
 
   // device_credentials (Plano_DeviceCredentials.md) — same db_ connection as repo_, so
@@ -168,7 +178,8 @@ private:
 public:
   AppDeviceService(const std::string& serviceId, const std::string& machineName, std::string broker,
                    const std::string& credentialEncryptionKey)
-      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), svc_(repo_, fieldValidator_),
+      : gatewayAddress(std::move(broker)), repo_(db_), fieldValidator_(client), telemetryRepo_(db_),
+        svc_(repo_, fieldValidator_, telemetryRepo_),
         credentialCipher_(credentialEncryptionKey), credentialRepo_(db_),
         credentialSvc_(credentialRepo_, credentialCipher_) {
     identity.machineName = machineName;
@@ -183,6 +194,7 @@ public:
         "device.create",
         "device.update",
         "device.delete",
+        "device.diagnostics",
         // Exposed over HTTP, admin only (see requireAdmin()).
         "device_credential.rotate",
         "device_credential.revoke",
@@ -195,6 +207,9 @@ public:
         // reports device position per payload (Plano_Ingestion.md) and shouldn't need
         // type/status just to do that - device.update requires both, this doesn't.
         "device.update_location",
+        // Internal-only: both ids of a device, for services that receive a device_id (UUID)
+        // and need the internal one for their FK (sensor_service, DeviceServiceClient).
+        "device.ref",
     };
 
     deviceHandlers_ = {
@@ -206,12 +221,20 @@ public:
          }},
         {"device.update", handleUpdate},
         {"device.update_location", handleUpdateLocation},
+        {"device.diagnostics", handleDiagnostics},
         {"device.delete", handleDelete},
+        {"device.ref", handleRef},
     };
     credentialHandlers_ = {
         {"device_credential.get_active", handleCredentialGetActive},
-        {"device_credential.rotate", handleCredentialRotate},
-        {"device_credential.revoke", handleCredentialRevoke},
+        {"device_credential.rotate", [this](const rdws::utils::CapabilityContext& ctx,
+                                            rdws::device::DeviceCredentialService& svc) {
+           return handleCredentialRotate(ctx, svc);
+         }},
+        {"device_credential.revoke", [this](const rdws::utils::CapabilityContext& ctx,
+                                            rdws::device::DeviceCredentialService& svc) {
+           return handleCredentialRevoke(ctx, svc);
+         }},
         {"device_credential.list_active", handleCredentialListActive},
     };
   }
@@ -273,8 +296,8 @@ private:
     const auto& req = ctx.request;
     const std::string fieldId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "field_id");
-    if (!fieldId.empty() && !isNumericId(fieldId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric", 400);
+    if (!fieldId.empty() && !isUuid(fieldId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be a UUID", 400);
     }
 
     const auto result = [&] {
@@ -303,13 +326,13 @@ private:
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
 
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto device = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findById(id);
+      return svc.findByPublicId(id);
     }();
     if (!device) {
       return ResponseHelper::returnErrorDoc("Device not found", 404);
@@ -333,8 +356,8 @@ private:
     if (fieldId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: field_id", 400);
     }
-    if (!isNumericId(fieldId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be numeric", 400);
+    if (!isUuid(fieldId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: field_id must be a UUID", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
@@ -345,7 +368,7 @@ private:
       return ResponseHelper::returnErrorDoc(
           "Invalid field: installation_date must be an ISO 8601 date or timestamp", 400);
     }
-    const DeviceCreate data{.fieldId = fieldId,
+    const DeviceCreate data{.fieldPublicId = fieldId,
                             .type = type,
                             .status = status,
                             .installationDate = installationDate,
@@ -383,7 +406,7 @@ private:
 
     const auto provisioned = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return credentialSvc_.provision(result.getData());
+      return credentialSvc_.provision(result.getData().id); // keyed by the internal id
     }();
     if (provisioned.isError()) {
       return ResponseHelper::returnErrorDoc(
@@ -397,7 +420,7 @@ private:
     return ResponseHelper::returnDataDoc(
         [&](auto& alloc) {
           return JsonObj(alloc)
-              .set("id", result.getData())
+              .set("id", result.getData().publicId)
               .set("psk_identity", provisioned.getData().pskIdentity)
               .set("psk_key", rdws::crypto::toHex(provisioned.getData().pskKeyPlaintext))
               .take();
@@ -415,8 +438,8 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
@@ -425,16 +448,59 @@ private:
       return ResponseHelper::returnErrorDoc("Missing field: status", 400);
     }
 
+    // elevation_m: absent = keep, null = clear, a number = set with source "manual" (D7)
     DeviceUpdate data{
         .type = type,
         .status = status,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
+    if (const auto elevation = req.FindMember("elevation_m"); elevation != req.MemberEnd()) {
+      data.elevationM = elevation->value.IsNumber()
+                            ? std::optional<double>(elevation->value.GetDouble())
+                            : std::nullopt;
+    }
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.update(id, data);
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc()
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+  }
+
+  // {"timestamp": "...Z", "data": {...}} — the latest diagnostics snapshot (cfg_version, cfg_rej,
+  // boot_count, rssi, fw_version, ...); both null when the device never sent any.
+  static rapidjson::Document handleDiagnostics(const rdws::utils::CapabilityContext& ctx,
+                                               rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
+    const std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
+    if (id.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
+    }
+
+    const auto device = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.findByPublicId(id);
+    }();
+    if (!device) {
+      return ResponseHelper::returnErrorDoc("Device not found", 404);
+    }
+    const auto snapshot = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.diagnostics(*device);
+    }();
+
+    auto t = ctx.profiler.scoped("json.serialize");
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      JsonObj obj(alloc);
+      if (snapshot) {
+        obj.set("timestamp", snapshot->timestamp).setJsonOrString("data", snapshot->dataJson);
+      } else {
+        obj.setNull("timestamp").setNull("data");
+      }
+      return obj.take();
+    });
   }
 
   // Internal-only (not routed via HTTP/routes.json) - device_id comes in the request
@@ -467,8 +533,8 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     auto t = ctx.profiler.scoped("db.query");
@@ -478,12 +544,53 @@ private:
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
+  // Internal: both ids of a device (and of its field), by the internal "id" or by "public_id".
+  // No routing rule exposes it (so HTTP /invoke refuses it), and an HTTP caller's identity is
+  // refused here too, so internal ids can't leak to a client.
+  static rapidjson::Document handleRef(const rdws::utils::CapabilityContext& ctx,
+                                       rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
+    if (json::hasActorIdentity(req)) {
+      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
+    }
+    const std::string id = json::getString(req, "id").value_or(std::string{});
+    const std::string publicId = json::getString(req, "public_id").value_or(std::string{});
+    if (id.empty() == publicId.empty()) {
+      return ResponseHelper::returnErrorDoc("Give exactly one of: id, public_id", 400);
+    }
+    if (!id.empty() && !isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: id must be numeric", 400);
+    }
+    if (!publicId.empty() && !isUuid(publicId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: public_id must be a UUID", 400);
+    }
+
+    const auto device = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return id.empty() ? svc.findByPublicId(publicId) : svc.findById(id);
+    }();
+    if (!device) {
+      return ResponseHelper::returnErrorDoc("Device not found", 404);
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      return JsonObj(alloc)
+          .set("id", device->id)
+          .set("public_id", device->publicId)
+          .set("field_id", device->fieldId)
+          .set("field_public_id", device->fieldPublicId)
+          .take();
+    });
+  }
+
   // ─── device_credential.* — internal only, never routed via HTTP ──────────────
 
   static rapidjson::Document
   handleCredentialGetActive(const rdws::utils::CapabilityContext& ctx,
                             rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
+    if (auto denied = requireInternal(req)) {
+      return std::move(*denied);
+    }
     const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
     if (deviceId.empty() || !isNumericId(deviceId)) {
       return ResponseHelper::returnErrorDoc("Missing/invalid field: device_id", 400);
@@ -512,11 +619,30 @@ private:
     return std::nullopt;
   }
 
-  // HTTP routes carry the id in the path (/devices/{id}/credential/...); internal invokes
-  // send it as a device_id body field.
-  static std::string credentialDeviceId(const rapidjson::Document& req) {
-    std::string id = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
-    return id.empty() ? json::getString(req, "device_id").value_or(std::string{}) : id;
+  // Service-only capabilities (the active PSK keys): the gateway injects an identity into every
+  // authenticated HTTP request, and a service's ServiceClient::invoke carries none. So any
+  // identity here means the request came from an HTTP client.
+  static std::optional<rapidjson::Document> requireInternal(const rapidjson::Document& req) {
+    if (json::hasActorIdentity(req)) {
+      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
+    }
+    return std::nullopt;
+  }
+
+  // The device of /devices/{id}/credential/...: the path carries its public id, the credential
+  // table is keyed by the internal one (same domain, so device_service translates it itself).
+  // The internal id, or the error response.
+  [[nodiscard]] std::variant<std::string, rapidjson::Document>
+  credentialDeviceId(const rapidjson::Document& req) {
+    const std::string publicId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
+    if (publicId.empty() || !isUuid(publicId)) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid device id: must be a UUID", 400);
+    }
+    const auto device = svc_.findByPublicId(publicId);
+    if (!device) {
+      return ResponseHelper::returnErrorDoc("Device not found", 404);
+    }
+    return device->id;
   }
 
   // Bulk fetch — no device_id filter, returns every active credential. Used by
@@ -524,6 +650,9 @@ private:
   static rapidjson::Document
   handleCredentialListActive(const rdws::utils::CapabilityContext& ctx,
                              rdws::device::DeviceCredentialService& svc) {
+    if (auto denied = requireInternal(ctx.request)) {
+      return std::move(*denied);
+    }
     auto t = ctx.profiler.scoped("db.query");
     const auto result = svc.listActive();
     if (result.isError()) {
@@ -536,6 +665,7 @@ private:
                         .set("psk_identity", credential.pskIdentity)
                         .set("psk_key", rdws::crypto::toHex(credential.pskKeyPlaintext))
                         .set("device_id", credential.deviceId)
+                        .set("device_public_id", credential.devicePublicId)
                         .take(),
                     alloc);
       }
@@ -543,17 +673,18 @@ private:
     });
   }
 
-  static rapidjson::Document
+  [[nodiscard]] rapidjson::Document
   handleCredentialRotate(const rdws::utils::CapabilityContext& ctx,
                          rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
     if (auto denied = requireAdmin(req)) {
       return std::move(*denied);
     }
-    const std::string deviceId = credentialDeviceId(req);
-    if (deviceId.empty() || !isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Missing/invalid device id", 400);
+    auto resolved = credentialDeviceId(req);
+    if (auto* error = std::get_if<rapidjson::Document>(&resolved)) {
+      return std::move(*error);
     }
+    const std::string deviceId = std::get<std::string>(resolved);
     logger::info("device_credential.rotate",
                  "device_id=" + deviceId + " by=" + json::getActorSubjectOrDefault(req));
 
@@ -570,17 +701,18 @@ private:
     });
   }
 
-  static rapidjson::Document
+  [[nodiscard]] rapidjson::Document
   handleCredentialRevoke(const rdws::utils::CapabilityContext& ctx,
                          rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
     if (auto denied = requireAdmin(req)) {
       return std::move(*denied);
     }
-    const std::string deviceId = credentialDeviceId(req);
-    if (deviceId.empty() || !isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Missing/invalid device id", 400);
+    auto resolved = credentialDeviceId(req);
+    if (auto* error = std::get_if<rapidjson::Document>(&resolved)) {
+      return std::move(*error);
     }
+    const std::string deviceId = std::get<std::string>(resolved);
     logger::info("device_credential.revoke",
                  "device_id=" + deviceId + " by=" + json::getActorSubjectOrDefault(req));
 

@@ -97,7 +97,7 @@ std::string DeviceConfigService::checkTriggers(const std::string& mergedJson) {
 // Without it, a swapped id is accepted and the station's readings are then dropped by the
 // IngestionService (the SenML unit doesn't convert to the sensor's unit) — silently, from
 // the operator's point of view. Runs after the schema check, so the shape is known.
-std::string DeviceConfigService::checkSensors(const std::string& deviceId,
+std::string DeviceConfigService::checkSensors(const std::string& devicePublicId,
                                               const std::string& mergedJson) {
   rapidjson::Document doc;
   doc.Parse(mergedJson.c_str());
@@ -107,7 +107,7 @@ std::string DeviceConfigService::checkSensors(const std::string& deviceId,
   }
 
   std::unordered_map<std::string, std::string> typeById;
-  for (const auto& s : sensors_.findAll(deviceId)) {
+  for (const auto& s : sensors_.findAll(devicePublicId)) {
     typeById.emplace(s.id, s.type);
   }
 
@@ -120,7 +120,7 @@ std::string DeviceConfigService::checkSensors(const std::string& deviceId,
     const auto sensor = typeById.find(sensorId);
     if (sensor == typeById.end()) {
       errors += (errors.empty() ? "" : "; ") + where + "sensor " + sensorId +
-                " is not a sensor of device " + deviceId;
+                " is not a sensor of device " + devicePublicId;
     } else if (sensor->second != kChannelSensorType.at(chan)) {
       errors += (errors.empty() ? "" : "; ") + where + "sensor " + sensorId + " is " +
                 sensor->second + ", chan " + chan + " needs " + kChannelSensorType.at(chan);
@@ -129,15 +129,52 @@ std::string DeviceConfigService::checkSensors(const std::string& deviceId,
   return errors;
 }
 
-std::optional<DeviceConfig> DeviceConfigService::findByDeviceId(const std::string& deviceId) {
-  return repo_.findByDeviceId(deviceId);
+std::string configState(int version, std::optional<int> declared, std::optional<int> rejected) {
+  if (!declared) {
+    return "unknown";
+  }
+  if (*declared == version) {
+    return "applied";
+  }
+  if (rejected && *rejected == version) {
+    return "rejected";
+  }
+  return "pending";
 }
 
-OperationResult DeviceConfigService::update(const std::string& deviceId,
+rdws::types::ServiceResult<ConfigStatus>
+DeviceConfigService::status(const std::string& devicePublicId) {
+  using Result = rdws::types::ServiceResult<ConfigStatus>;
+  const auto config = repo_.findByDevicePublicId(devicePublicId);
+  if (!config) {
+    return Result::error("Configuration not found", 404);
+  }
+  const auto lookup = declaredSource_.declared(devicePublicId); // device.diagnostics, by UUID
+  if (lookup.statusCode != 200) {
+    return Result::error(lookup.errorMessage, lookup.statusCode);
+  }
+  ConfigStatus s;
+  s.version = config->version;
+  if (lookup.declared) {
+    s.declared = lookup.declared->declared;
+    s.rejected = lookup.declared->rejected;
+    s.declaredAt = lookup.declared->declaredAt;
+  }
+  s.state = configState(s.version, s.declared, s.rejected);
+  return Result::success(s);
+}
+
+std::optional<DeviceConfig>
+DeviceConfigService::findByDevicePublicId(const std::string& devicePublicId) {
+  return repo_.findByDevicePublicId(devicePublicId);
+}
+
+OperationResult DeviceConfigService::update(const std::string& devicePublicId,
                                             const DeviceConfigUpdate& data) {
-  const auto existing = repo_.findByDeviceId(deviceId);
+  const auto existing = repo_.findByDevicePublicId(devicePublicId);
   if (!existing) {
-    return OperationResult::error("Device config not found for device_id " + deviceId, 404);
+    return OperationResult::error("Device config not found for device_id " + devicePublicId,
+                                  404);
   }
 
   const std::string mergedJson = json::mergePatch(existing->config, data.configJson);
@@ -145,7 +182,8 @@ OperationResult DeviceConfigService::update(const std::string& deviceId,
     return OperationResult::error("Invalid weather_station config: " + errors, 400);
   }
   if (existing->deviceType == "weather_station" && !existing->isSimulated) {
-    if (const auto errors = checkSensors(deviceId, mergedJson); !errors.empty()) {
+    // The device's sensors, listed by its public id; their ids stay internal (station protocol)
+    if (const auto errors = checkSensors(existing->devicePublicId, mergedJson); !errors.empty()) {
       return OperationResult::error("Invalid weather_station config: " + errors, 400);
     }
     if (const auto errors = checkTriggers(mergedJson); !errors.empty()) {
@@ -155,7 +193,7 @@ OperationResult DeviceConfigService::update(const std::string& deviceId,
 
   // execCommand only reflects failure in SQL/connection error — not in "0 rows affected" —
   // that's why the existence check above ensures the correct 404.
-  if (!repo_.update(deviceId, {mergedJson, data.updatedBy})) {
+  if (!repo_.update(existing->deviceId, {mergedJson, data.updatedBy})) {
     return OperationResult::error("Failed to update device config", 500);
   }
   return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});

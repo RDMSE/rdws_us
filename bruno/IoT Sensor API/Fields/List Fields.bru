@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/fields?farm_id=2
+  url: {{baseUrl}}/fields?farm_id={{farmId}}
   body: none
   auth: bearer
 }
 
 params:query {
-  farm_id: 2
+  farm_id: {{farmId}}
 }
 
 auth:bearer {

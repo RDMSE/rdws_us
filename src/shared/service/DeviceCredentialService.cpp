@@ -49,7 +49,8 @@ ServiceResult<std::vector<ActiveCredential>> DeviceCredentialService::listActive
   result.reserve(credentials.size());
   for (const auto& credential : credentials) {
     result.push_back(
-        {credential.pskIdentity, cipher_.decrypt(credential.pskKeyEnc), credential.deviceId});
+        {credential.pskIdentity, cipher_.decrypt(credential.pskKeyEnc), credential.deviceId,
+         credential.devicePublicId});
   }
   return ServiceResult<std::vector<ActiveCredential>>::success(std::move(result));
 }

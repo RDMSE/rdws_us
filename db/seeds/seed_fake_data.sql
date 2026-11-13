@@ -10,31 +10,43 @@ INSERT INTO farms (name, location) VALUES
 
 -- ─── fields ───────────────────────────────────────────────────────────────────
 
-INSERT INTO fields (farm_id, name, area) VALUES
-    (1, 'Talhão A', 45.5000),
-    (1, 'Talhão B', 32.2500),
-    (2, 'Setor Norte', 78.0000),
-    (2, 'Setor Sul',   61.7500),
-    (3, 'Parcela 01',  20.0000),
-    (3, 'Parcela 02',  25.3000);
+-- Each child row also stores its parent's public id (V19-V22), copied from the parent here
+INSERT INTO fields (farm_id, farm_public_id, name, area)
+SELECT v.farm_id, f.public_id, v.name, v.area
+FROM (VALUES
+    (1, 1, 'Talhão A', 45.5000),
+    (2, 1, 'Talhão B', 32.2500),
+    (3, 2, 'Setor Norte', 78.0000),
+    (4, 2, 'Setor Sul',   61.7500),
+    (5, 3, 'Parcela 01',  20.0000),
+    (6, 3, 'Parcela 02',  25.3000)
+) AS v(n, farm_id, name, area)
+JOIN farms f ON f.id = v.farm_id
+ORDER BY v.n; -- ids in the listed order
 
 -- ─── devices ──────────────────────────────────────────────────────────────────
 
-INSERT INTO devices (field_id, type, status, installation_date) VALUES
-    (1, 'weather_station', 'active',      now() - interval '6 months'),
-    (1, 'single_sensor',   'active',      now() - interval '3 months'),
-    (2, 'single_sensor',   'active',      now() - interval '4 months'),
-    (3, 'weather_station', 'active',      now() - interval '2 months'),
-    (3, 'single_sensor',   'maintenance', now() - interval '5 months'),
-    (4, 'single_sensor',   'active',      now() - interval '1 month'),
-    (5, 'gateway',         'active',      now() - interval '8 months'),
-    (6, 'single_sensor',   'inactive',    now() - interval '1 year');
+INSERT INTO devices (field_id, field_public_id, type, status, installation_date)
+SELECT v.field_id, f.public_id, v.type::device_type, v.status::device_status, v.installed
+FROM (VALUES
+    (1, 1, 'weather_station', 'active',      now() - interval '6 months'),
+    (2, 1, 'single_sensor',   'active',      now() - interval '3 months'),
+    (3, 2, 'single_sensor',   'active',      now() - interval '4 months'),
+    (4, 3, 'weather_station', 'active',      now() - interval '2 months'),
+    (5, 3, 'single_sensor',   'maintenance', now() - interval '5 months'),
+    (6, 4, 'single_sensor',   'active',      now() - interval '1 month'),
+    (7, 5, 'gateway',         'active',      now() - interval '8 months'),
+    (8, 6, 'single_sensor',   'inactive',    now() - interval '1 year')
+) AS v(n, field_id, type, status, installed)
+JOIN fields f ON f.id = v.field_id
+ORDER BY v.n; -- ids in the listed order: the configs below rely on them
 
 -- ─── device_configurations ────────────────────────────────────────────────────
 
--- device_configurations already exists (empty) for every device via trigger
--- (V3__device_config_one_to_one.sql) — ON CONFLICT performs an upsert instead of a plain INSERT.
-INSERT INTO device_configurations (device_id, config) VALUES
+-- device_configurations already exists (empty, with the device's public id) for every device via
+-- the trigger (V3, V21): only the config is set here.
+UPDATE device_configurations dc SET config = v.config::jsonb
+FROM (VALUES
     (1, '{"sampling_interval_s": 60, "report_interval_s": 300, "alerts": {"temp_max": 40, "humidity_min": 20}}'),
     (2, '{"sampling_interval_s": 30, "report_interval_s": 120}'),
     (3, '{"sampling_interval_s": 30, "report_interval_s": 120}'),
@@ -43,29 +55,35 @@ INSERT INTO device_configurations (device_id, config) VALUES
     (6, '{"sampling_interval_s": 15, "report_interval_s": 60}'),
     (7, '{"mode": "bridge", "max_devices": 16}'),
     (8, '{"sampling_interval_s": 120, "report_interval_s": 600}')
-ON CONFLICT (device_id) DO UPDATE SET config = EXCLUDED.config;
+) AS v(device_id, config)
+WHERE dc.device_id = v.device_id;
 
 -- ─── sensors ──────────────────────────────────────────────────────────────────
 
-INSERT INTO sensors (device_id, type, unit) VALUES
+INSERT INTO sensors (device_id, device_public_id, type, unit)
+SELECT v.device_id, d.public_id, v.type::sensor_type, v.unit
+FROM (VALUES
     -- device 1 (weather_station) — multiple sensors
-    (1, 'temperature', '°C'),
-    (1, 'humidity',    '%'),
-    (1, 'luminosity',  'lux'),
+    (1, 1, 'temperature', '°C'),
+    (2, 1, 'humidity',    '%'),
+    (3, 1, 'luminosity',  'lux'),
     -- device 2
-    (2, 'moisture',    '%'),
+    (4, 2, 'moisture',    '%'),
     -- device 3
-    (3, 'moisture',    '%'),
-    (3, 'ph',          'pH'),
+    (5, 3, 'moisture',    '%'),
+    (6, 3, 'ph',          'pH'),
     -- device 4 (weather_station)
-    (4, 'temperature', '°C'),
-    (4, 'humidity',    '%'),
+    (7, 4, 'temperature', '°C'),
+    (8, 4, 'humidity',    '%'),
     -- device 5 (under maintenance)
-    (5, 'temperature', '°C'),
+    (9, 5, 'temperature', '°C'),
     -- device 6
-    (6, 'moisture',    '%'),
+    (10, 6, 'moisture',    '%'),
     -- device 8 (inactive)
-    (8, 'temperature', '°C');
+    (11, 8, 'temperature', '°C')
+) AS v(n, device_id, type, unit)
+JOIN devices d ON d.id = v.device_id
+ORDER BY v.n;
 
 -- ─── sensor_readings ─────────────────────────────────────────────────────────
 -- Generates ~48 readings per active sensor (last 24h, every 30min)

@@ -87,7 +87,7 @@ static rapidjson::Document parseBody(const std::string& body) {
 // ── Fixture ───────────────────────────────────────────────────────────────────
 
 // TCP broker ports: 18300–18309
-// HTTP gateway ports: 19300–19310
+// HTTP gateway ports: 19300–19311
 // Socket paths:      /tmp/rdws_e2e_N.sock
 
 class HttpE2ETest : public ::testing::Test {
@@ -136,6 +136,15 @@ protected:
     svcThread = std::thread([this]() { svc->run(); });
   }
 
+  // HTTP /invoke only forwards capabilities some routing rule exposes (default-deny)
+  void expose(const std::string& capability) {
+    RoutingRule rule;
+    rule.inputCapability = capability;
+    rule.outputCapability = capability;
+    rule.name = "e2e-expose-" + capability;
+    gw->getEventRouter().addRule(std::move(rule));
+  }
+
   httplib::Result httpGet(const std::string& path) {
     httplib::Client cli("127.0.0.1", httpPort);
     return cli.Get(path.c_str());
@@ -174,13 +183,15 @@ TEST_F(HttpE2ETest, ObservabilityEndpoints_ReturnOk) {
   const auto version = json::getString(status, "version");
   ASSERT_TRUE(version.has_value());
   EXPECT_EQ(version->rfind('v', 0), 0u) << *version;
-  EXPECT_EQ(json::getInt(status, "apiVersion"), 1);
+  EXPECT_EQ(json::getInt(status, "apiVersion"), 2); // public ids (UUID) in the API
 }
 
 // ── Scenario 2: Invoke with no backend service → 503 ─────────────────────────
 
 TEST_F(HttpE2ETest, InvokeNoService_Returns503) {
   ASSERT_TRUE(startStack(19301, "/tmp/rdws_e2e_2.sock"));
+
+  expose("unknown-cap");
 
   auto res = httpPost("/invoke/unknown-cap", R"({"message":"hello"})");
   ASSERT_TRUE(res);
@@ -211,6 +222,8 @@ TEST_F(HttpE2ETest, EchoService_Returns200WithPayload) {
                    });
 
   ASSERT_TRUE(waitForRegistration(*gw));
+
+  expose("echo-e2e");
 
   auto res = httpPost("/invoke/echo-e2e", R"({"message":"world"})");
   ASSERT_TRUE(res);
@@ -245,6 +258,8 @@ TEST_F(HttpE2ETest, SlowService_Timeout_Returns504) {
                    });
 
   ASSERT_TRUE(waitForRegistration(*gw));
+
+  expose("slow-e2e");
 
   auto res = httpPost("/invoke/slow-e2e", "{}");
   ASSERT_TRUE(res);
@@ -298,6 +313,7 @@ TEST_F(HttpE2ETest, Auth_ValidApiKey_RequestProceeds) {
   ASSERT_TRUE(waitForRegistration(*gw));
 
   httplib::Headers headers = {{"X-API-Key", "secret-key-abc"}};
+  expose("auth-echo");
   auto res = httpPostWithHeader("/invoke/auth-echo", "{}", headers);
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 200);
@@ -329,6 +345,7 @@ TEST_F(HttpE2ETest, SchemaValidation_MissingRequiredField_Returns400) {
   ASSERT_TRUE(waitForRegistration(*gw));
 
   // Missing required "name".
+  expose("farm.create");
   auto res = httpPost("/invoke/farm.create", R"({"location":{"lat":1.0,"lng":2.0}})");
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 400);
@@ -363,6 +380,8 @@ TEST_F(HttpE2ETest, SchemaValidation_DeviceConfigMissingConfig_Returns400) {
 
   ASSERT_TRUE(waitForHttp(19307));
 
+  expose("device_config.update");
+
   auto res = httpPost("/invoke/device_config.update", "{}");
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 400);
@@ -389,6 +408,8 @@ TEST_F(HttpE2ETest, SchemaValidation_ValidPayload_ReachesBackend) {
                    });
 
   ASSERT_TRUE(waitForRegistration(*gw));
+
+  expose("farm.create");
 
   auto res = httpPost("/invoke/farm.create", R"({"name":"Fazenda X"})");
   ASSERT_TRUE(res);
@@ -444,6 +465,40 @@ TEST_F(HttpE2ETest, EventRouter_RedirectsCapability_ServiceResponds) {
   const auto routedValue = json::getBool(doc, "routed");
   ASSERT_TRUE(routedValue.has_value());
   EXPECT_TRUE(routedValue.value());
+}
+
+// ── /invoke is default-deny: a registered capability no rule exposes → 404 ─────
+// A service-only capability (like the credential lookups, which return PSK keys) must not be
+// reachable over HTTP just because a service registered it.
+
+TEST_F(HttpE2ETest, Invoke_UnexposedCapability_Returns404) {
+  ASSERT_TRUE(startStack(19311, "/tmp/rdws_e2e_12.sock"));
+
+  bool backendCalled = false;
+  startMockService(makeIdentity("e2e_internal", {"internal-cap"}), "unix:///tmp/rdws_e2e_12.sock",
+                   [&backendCalled](const rapidjson::Document&) -> rapidjson::Document {
+                     backendCalled = true;
+                     rapidjson::Document resp;
+                     resp.SetObject();
+                     return resp;
+                   });
+  ASSERT_TRUE(waitForRegistration(*gw));
+
+  auto res = httpPost("/invoke/internal-cap", "{}");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 404);
+  EXPECT_FALSE(backendCalled);
+
+  // A disabled rule doesn't expose it either
+  RoutingRule rule;
+  rule.inputCapability = "internal-cap";
+  rule.outputCapability = "internal-cap";
+  rule.enabled = false;
+  gw->getEventRouter().addRule(std::move(rule));
+  res = httpPost("/invoke/internal-cap", "{}");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 404);
+  EXPECT_FALSE(backendCalled);
 }
 
 // ── Scenario 9: Admin endpoints require an admin identity ──────────────────────

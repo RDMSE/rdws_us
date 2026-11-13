@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/devices?field_id=1
+  url: {{baseUrl}}/devices?field_id={{fieldId}}
   body: none
   auth: bearer
 }
 
 params:query {
-  field_id: 1
+  field_id: {{fieldId}}
 }
 
 auth:bearer {

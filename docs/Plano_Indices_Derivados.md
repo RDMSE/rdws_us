@@ -362,7 +362,8 @@ Overview ou como um dashboard próprio por fazenda.
 
 ## Ordem de implementação
 
-1. ⬜ Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source`.
+1. ✅ Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source` (V17,
+   RDWS-182; fuso validado contra o `pg_timezone_names`, altitude pela API como `manual`).
    - ✅ 1a. D1.1: `device_config_history` (V15) + `device_config_spans` (V16); spans via
      `IngestionService` e `ReadingWriterService`; `rec_cfg` no encoder do firmware.
 2. ⬜ Funções SQL puras (`es`, `dewpoint`, `vpd`, `wet_bulb`, `slp`, `ra`, `et0_hs`,

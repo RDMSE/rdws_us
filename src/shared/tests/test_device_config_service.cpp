@@ -23,6 +23,9 @@ public:
   std::optional<DeviceConfig> stored;
   std::optional<std::string> written;
 
+  std::optional<DeviceConfig> findByDevicePublicId(const std::string& /*devicePublicId*/) override {
+    return stored;
+  }
   std::optional<DeviceConfig> findByDeviceId(const std::string& /*deviceId*/) override {
     return stored;
   }
@@ -32,16 +35,32 @@ public:
   }
 };
 
-// Sensors of device 12 as in rdws_qa: 31 temperature, 32 humidity, 33 pressure
+// What device_service would answer through the gateway (device.diagnostics)
+class FakeDeclaredSource : public rdws::device_config::IDeclaredConfigSource {
+public:
+  rdws::device_config::DeclaredLookup answer;
+  std::optional<std::string> askedFor;
+  rdws::device_config::DeclaredLookup declared(const std::string& deviceId) override {
+    askedFor = deviceId;
+    return answer;
+  }
+};
+
+// Station 12's public id in these tests
+constexpr auto kStation12 = "4884a5f7-0e3a-4976-a1d6-662908f185fa";
+
+// Sensors of device 12 as in rdws_qa: 31 temperature, 32 humidity, 33 pressure. Listed by the
+// device's public id; the sensor ids themselves stay internal (station protocol).
 class FakeSensorRepo : public ISensorRepository {
 public:
-  std::vector<Sensor> findAll(const std::string& deviceId) override {
-    if (deviceId != "12") {
+  std::vector<Sensor> findAll(const std::string& devicePublicId) override {
+    if (devicePublicId != kStation12) {
       return {};
     }
     return {sensor("31", "temperature"), sensor("32", "humidity"), sensor("33", "pressure")};
   }
   std::optional<Sensor> findById(const std::string&) override { return std::nullopt; }
+  std::optional<Sensor> findByPublicId(const std::string&) override { return std::nullopt; }
   std::string create(const rdws::sensor::SensorCreate&) override { return {}; }
   bool update(const std::string&, const rdws::sensor::SensorUpdate&) override { return false; }
   bool remove(const std::string&) override { return false; }
@@ -59,6 +78,7 @@ private:
 DeviceConfig device(const std::string& type, bool simulated, const std::string& config = "{}") {
   DeviceConfig c;
   c.deviceId = "12";
+  c.devicePublicId = kStation12;
   c.config = config;
   c.version = 1;
   c.deviceType = type;
@@ -72,7 +92,8 @@ TEST(DeviceConfigService, WeatherStation_ValidConfigIsStored) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   const auto result = svc.update(
       "12", {.configJson = R"({"agg_window_s":600,"onboard":[
@@ -87,7 +108,8 @@ TEST(DeviceConfigService, WeatherStation_UnknownKeyRejected) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   const auto result =
       svc.update("12", {.configJson = R"({"agg_windows":600})", .updatedBy = "test"});
@@ -103,7 +125,8 @@ TEST(DeviceConfigService, WeatherStation_ValidatesTheMergedResult) {
   // key still yields an invalid merged config, so it's rejected.
   repo.stored = device("weather_station", false, R"({"bogus":1})");
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   EXPECT_FALSE(svc.update("12", {.configJson = R"({"agg_window_s":600})", .updatedBy = "t"})
                    .isSuccess());
@@ -116,7 +139,8 @@ TEST(DeviceConfigService, WeatherStation_OutOfRangeRejected) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   EXPECT_FALSE(svc.update("12", {.configJson = R"({"agg_window_s":5})", .updatedBy = "t"})
                    .isSuccess());
@@ -129,7 +153,8 @@ TEST(DeviceConfigService, SimulatedWeatherStation_NotValidated) {
   FakeRepo repo;
   repo.stored = device("weather_station", true);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   EXPECT_TRUE(svc.update("9", {.configJson = R"({"sampling_interval_s":30})", .updatedBy = "t"})
                   .isSuccess());
@@ -139,7 +164,8 @@ TEST(DeviceConfigService, OtherTypes_NotValidated) {
   FakeRepo repo;
   repo.stored = device("single_sensor", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   EXPECT_TRUE(svc.update("5", {.configJson = R"({"anything":true})", .updatedBy = "t"})
                   .isSuccess());
@@ -149,7 +175,8 @@ TEST(DeviceConfigService, WeatherStation_ChipNameNotAccepted) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   // onboard[] names the quantity only; the chip is a firmware detail
   EXPECT_FALSE(svc.update("12", {.configJson = R"({"onboard":[{"source":"hts221",
@@ -162,7 +189,8 @@ TEST(DeviceConfigService, WeatherStation_EnabledFlag) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   EXPECT_TRUE(svc.update("12", {.configJson = R"({"onboard":[
                                   {"chan":"temp","sensor_id":31,"enabled":false},
@@ -179,7 +207,8 @@ TEST(DeviceConfigService, WeatherStation_SwappedSensorIdsRejected) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   // press -> 32 (humidity) and humidity -> 33 (pressure): the mix-up seen in QA
   const auto result = svc.update("12", {.configJson = R"({"onboard":[
@@ -199,12 +228,15 @@ TEST(DeviceConfigService, WeatherStation_SensorOfAnotherDeviceRejected) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   const auto result = svc.update(
       "12", {.configJson = R"({"onboard":[{"chan":"temp","sensor_id":12}]})", .updatedBy = "t"});
   EXPECT_FALSE(result.isSuccess());
-  EXPECT_NE(result.getErrorMessage().find("sensor 12 is not a sensor of device 12"),
+  // The device by its public id: the error goes back to the API client
+  EXPECT_NE(result.getErrorMessage().find(std::string("sensor 12 is not a sensor of device ") +
+                                          kStation12),
             std::string::npos)
       << result.getErrorMessage();
 }
@@ -213,7 +245,8 @@ TEST(DeviceConfigService, WeatherStation_DisabledChannelStillChecked) {
   FakeRepo repo;
   repo.stored = device("weather_station", false);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
 
   // a disabled channel keeps its sensor_id for later, so it must be right too
   EXPECT_FALSE(svc.update("12", {.configJson = R"({"onboard":[
@@ -234,7 +267,8 @@ bool acceptsTriggers(const std::string& triggers, std::string* error = nullptr,
   FakeRepo repo;
   repo.stored = device("weather_station", false, base);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
   const auto result =
       svc.update("12", {.configJson = R"({"triggers":)" + triggers + "}", .updatedBy = "t"});
   if (error != nullptr) {
@@ -305,7 +339,8 @@ TEST(DeviceConfigService, Triggers_ChangingTheWindowRevalidatesStoredRules) {
                        R"({"agg_window_s":600,"onboard":[{"chan":"temp","sensor_id":31}],)"
                        R"("triggers":[{"chan":"temp","op":"fall","thr":2,"win_s":1200}]})");
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
   EXPECT_FALSE(
       svc.update("12", {.configJson = R"({"agg_window_s":900})", .updatedBy = "t"}).isSuccess());
   EXPECT_FALSE(repo.written.has_value());
@@ -317,7 +352,94 @@ TEST(DeviceConfigService, SimulatedStation_TriggersNotValidated) {
   FakeRepo repo;
   repo.stored = device("weather_station", true);
   FakeSensorRepo sensors;
-  DeviceConfigService svc(repo, sensors);
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
   EXPECT_TRUE(
       svc.update("12", {.configJson = R"({"triggers":"anything"})", .updatedBy = "t"}).isSuccess());
+}
+
+// ─── Config status (GET /devices/{id}/config/status) ─────────────────────────
+
+TEST(ConfigState, FourStates) {
+  using rdws::device_config::configState;
+  EXPECT_EQ(configState(24, std::nullopt, std::nullopt), "unknown");
+  EXPECT_EQ(configState(24, 24, std::nullopt), "applied");
+  EXPECT_EQ(configState(24, 23, 24), "rejected");
+  EXPECT_EQ(configState(24, 23, std::nullopt), "pending");
+}
+
+// cfg_rej names the version it refused: an older refusal doesn't reject the current one.
+TEST(ConfigState, OlderRejectionMeansPending) {
+  EXPECT_EQ(rdws::device_config::configState(25, 23, 24), "pending");
+}
+
+TEST(DeviceConfigService, Status_FromTheLatestDeclaration) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false);
+  repo.stored->version = 24;
+  FakeSensorRepo sensors;
+  FakeDeclaredSource declared;
+  declared.answer.declared = rdws::device_config::DeclaredConfig{
+      .declared = 23, .rejected = 24, .declaredAt = "2026-11-11T09:00:00Z"};
+  DeviceConfigService svc(repo, sensors, declared);
+
+  const auto result = svc.status("12");
+  ASSERT_TRUE(result.isSuccess());
+  const auto& status = result.getData();
+  EXPECT_EQ(status.version, 24);
+  EXPECT_EQ(status.declared, 23);
+  EXPECT_EQ(status.rejected, 24);
+  EXPECT_EQ(status.declaredAt, "2026-11-11T09:00:00Z");
+  EXPECT_EQ(status.state, "rejected");
+}
+
+TEST(DeviceConfigService, Status_AsksDeviceServiceByThePublicId) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false); // internal device id 12
+  FakeSensorRepo sensors;
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
+
+  constexpr auto kDevice = "4884a5f7-0e3a-4976-a1d6-662908f185fa";
+  ASSERT_TRUE(svc.status(kDevice).isSuccess());
+  EXPECT_EQ(declared.askedFor, kDevice); // device.diagnostics takes the UUID, not "12"
+}
+
+TEST(DeviceConfigService, Status_NeverDeclaredIsUnknown) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", true);
+  FakeSensorRepo sensors;
+  FakeDeclaredSource declared; // 200, nothing declared
+  DeviceConfigService svc(repo, sensors, declared);
+
+  const auto result = svc.status("12");
+  ASSERT_TRUE(result.isSuccess());
+  EXPECT_FALSE(result.getData().declared.has_value());
+  EXPECT_TRUE(result.getData().declaredAt.empty());
+  EXPECT_EQ(result.getData().state, "unknown");
+}
+
+TEST(DeviceConfigService, Status_UnknownDeviceIs404) {
+  FakeRepo repo; // no stored config
+  FakeSensorRepo sensors;
+  FakeDeclaredSource declared;
+  DeviceConfigService svc(repo, sensors, declared);
+  const auto result = svc.status("999");
+  EXPECT_FALSE(result.isSuccess());
+  EXPECT_EQ(result.getStatusCode(), 404);
+}
+
+// Gateway down or timeout must not read as "never declared"
+TEST(DeviceConfigService, Status_LookupFailurePassesThrough) {
+  FakeRepo repo;
+  repo.stored = device("weather_station", false);
+  FakeSensorRepo sensors;
+  FakeDeclaredSource declared;
+  declared.answer.statusCode = 503;
+  declared.answer.errorMessage = "Not connected to gateway";
+  DeviceConfigService svc(repo, sensors, declared);
+
+  const auto result = svc.status("12");
+  EXPECT_FALSE(result.isSuccess());
+  EXPECT_EQ(result.getStatusCode(), 503);
 }

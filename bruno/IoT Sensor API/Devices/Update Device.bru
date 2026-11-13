@@ -11,7 +11,7 @@ put {
 }
 
 params:path {
-  devId: 1
+  devId: {{deviceId}}
 }
 
 auth:bearer {
@@ -20,7 +20,8 @@ auth:bearer {
 
 body:json {
   {
+    "type": "weather_station",
     "status": "maintenance",
-    "location": "POINT(-47.9292 -15.7801)"
+    "elevation_m": 812.4
   }
 }

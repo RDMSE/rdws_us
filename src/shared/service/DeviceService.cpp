@@ -9,39 +9,54 @@ using rdws::types::OperationResult;
 using rdws::types::OperationStatus;
 using rdws::types::ServiceResult;
 
-ServiceResult<std::vector<Device>> DeviceService::findAll(const std::string& fieldId) {
-  if (!fieldId.empty() && !fieldValidator_.exists(fieldId)) {
-    return ServiceResult<std::vector<Device>>::error("Field not found for id " + fieldId, 404);
+namespace {
+
+std::string fieldError(const rdws::field::FieldValidation& v, const std::string& fieldPublicId) {
+  return v.statusCode == 404
+             ? "Field not found for id " + fieldPublicId
+             : "Field validation failed for id " + fieldPublicId + ": " + v.errorMessage;
+}
+
+} // namespace
+
+ServiceResult<std::vector<Device>> DeviceService::findAll(const std::string& fieldPublicId) {
+  if (!fieldPublicId.empty()) {
+    if (const auto field = fieldValidator_.resolve(fieldPublicId); !field.found) {
+      return ServiceResult<std::vector<Device>>::error(fieldError(field, fieldPublicId),
+                                                       field.statusCode);
+    }
   }
-  return ServiceResult<std::vector<Device>>::success(repo_.findAll(fieldId));
+  return ServiceResult<std::vector<Device>>::success(repo_.findAll(fieldPublicId));
 }
 
 std::optional<Device> DeviceService::findById(const std::string& id) {
   return repo_.findById(id);
 }
 
-ServiceResult<std::string> DeviceService::create(const DeviceCreate& data) {
-  if (data.fieldId.empty()) {
-    return ServiceResult<std::string>::error("Missing field: field_id", 400);
-  }
-  if (!fieldValidator_.exists(data.fieldId)) {
-    return ServiceResult<std::string>::error("Field not found for id " + data.fieldId, 404);
-  }
-  const std::string id = repo_.create(data);
-  if (id.empty()) {
-    return ServiceResult<std::string>::error("Failed to create device", 500);
-  }
-  return ServiceResult<std::string>::success(id, 201);
+std::optional<Device> DeviceService::findByPublicId(const std::string& publicId) {
+  return repo_.findByPublicId(publicId);
 }
 
-OperationResult DeviceService::update(const std::string& id, const DeviceUpdate& data) {
-  if (!repo_.findById(id)) {
-    return OperationResult::error("Device not found for id " + id, 404);
+ServiceResult<DeviceIds> DeviceService::create(DeviceCreate data) {
+  if (data.fieldPublicId.empty()) {
+    return ServiceResult<DeviceIds>::error("Missing field: field_id", 400);
   }
-  // execCommand só reflete falha em erro de SQL/conexão — não em "0 linhas afetadas" —
-  // por isso a checagem de existência acima é o que garante o 404 correto.
-  if (!repo_.update(id, data)) {
-    return OperationResult::error("Failed to update device", 500);
+  const auto field = fieldValidator_.resolve(data.fieldPublicId);
+  if (!field.found) {
+    return ServiceResult<DeviceIds>::error(fieldError(field, data.fieldPublicId),
+                                           field.statusCode);
+  }
+  data.fieldId = field.id;
+  auto ids = repo_.create(data);
+  if (ids.id.empty()) {
+    return ServiceResult<DeviceIds>::error("Failed to create device", 500);
+  }
+  return ServiceResult<DeviceIds>::success(std::move(ids), 201);
+}
+
+OperationResult DeviceService::update(const std::string& publicId, const DeviceUpdate& data) {
+  if (!repo_.update(publicId, data)) {
+    return OperationResult::error("Device not found for id " + publicId, 404);
   }
   return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});
 }
@@ -57,14 +72,16 @@ OperationResult DeviceService::updateLocation(const std::string& id,
   return OperationResult::success(OperationStatus{.ok = true, .message = "Updated"});
 }
 
-OperationResult DeviceService::remove(const std::string& id) {
-  if (!repo_.findById(id)) {
-    return OperationResult::error("Device not found for id " + id, 404);
-  }
-  if (!repo_.remove(id)) {
-    return OperationResult::error("Failed to delete device", 500);
+OperationResult DeviceService::remove(const std::string& publicId) {
+  if (!repo_.remove(publicId)) {
+    return OperationResult::error("Device not found for id " + publicId, 404);
   }
   return OperationResult::success(OperationStatus{.ok = true, .message = "Deleted"});
+}
+
+std::optional<rdws::device_telemetry::DiagnosticsSnapshot>
+DeviceService::diagnostics(const Device& device) {
+  return telemetry_.latestDiagnostics(device.id); // device_telemetry is keyed by the internal id
 }
 
 } // namespace rdws::device

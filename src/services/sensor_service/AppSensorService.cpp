@@ -4,13 +4,16 @@
 //
 // SensorService — capabilities: sensor.list, sensor.get, sensor.create, sensor.update,
 // sensor.delete, plus internal-only sensor.list_owners (not in routes.json; IngestionService's
-// sensor_id -> {device_id, unit} cache, Plano_Telemetria.md Fase 0/DP1)
+// sensor_id -> {device_id, unit} cache, Plano_Telemetria.md Fase 0/DP1) and sensor.ref. The API
+// addresses a sensor, and its device, by public id (UUID); the internal ids stay in the backend
+// and in the station protocol (SenML names, the config's onboard[].sensor_id).
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/SensorRepository.h"
 #include "../../shared/service/SensorService.h"
+#include "../../shared/service/client/DeviceServiceClient.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/capability_router.h"
@@ -32,6 +35,7 @@ using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor;
 using rdws::utils::isNumericId;
+using rdws::utils::isUuid;
 using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 namespace json = rdws::utils::json;
@@ -40,8 +44,8 @@ namespace {
 
 rapidjson::Value sensorToJson(const Sensor& s, rapidjson::Document::AllocatorType& alloc) {
   json::JsonObj obj(alloc);
-  obj.set("id", s.id)
-      .set("device_id", s.deviceId)
+  obj.set("id", s.publicId)
+      .set("device_id", s.devicePublicId)
       .set("type", s.type)
       .set("unit", s.unit)
       .set("created_at", s.createdAt);
@@ -66,14 +70,17 @@ private:
   std::string gatewayAddress;
   std::atomic<bool> running{false};
 
-  // DB/repo/svc — declared in dependency order
+  // DB/repo/svc — declared in dependency order. deviceValidator_ binds to `client` (still unset
+  // at this point) and resolves device_id UUIDs via device_service through the gateway.
   PostgreSQLDatabase db_;
   SensorRepository repo_;
+  rdws::device::DeviceServiceClient deviceValidator_;
   rdws::sensor::SensorService svc_;
 
 public:
   AppSensorService(const std::string& serviceId, const std::string& machineName, std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), deviceValidator_(client),
+        svc_(repo_, deviceValidator_) {
     identity.machineName = machineName;
     identity.serviceName = "sensor_service";
     identity.serviceId = serviceId;
@@ -81,7 +88,8 @@ public:
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"sensor.list",   "sensor.get",    "sensor.create",
-                             "sensor.update", "sensor.delete", "sensor.list_owners"};
+                             "sensor.update", "sensor.delete", "sensor.list_owners",
+                             "sensor.ref"};
   }
 
   bool initialize() {
@@ -131,6 +139,7 @@ private:
             {"sensor.update", handleUpdate},
             {"sensor.delete", handleDelete},
             {"sensor.list_owners", handleListOwners},
+            {"sensor.ref", handleRef},
         };
 
     try {
@@ -149,18 +158,21 @@ private:
     const auto& req = ctx.request;
     const std::string deviceId =
         rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "device_id");
-    if (!deviceId.empty() && !isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: device_id must be numeric", 400);
+    if (!deviceId.empty() && !isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: device_id must be a UUID", 400);
     }
-    const auto sensors = [&] {
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
       return svc.findAll(deviceId);
     }();
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
-      for (const auto& s : sensors) {
+      for (const auto& s : result.getData()) {
         arr.PushBack(sensorToJson(s, alloc), alloc);
       }
       return arr;
@@ -174,7 +186,7 @@ private:
                                               rdws::sensor::SensorService& svc) {
     const auto sensors = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findAll();
+      return svc.listOwners();
     }();
 
     auto t = ctx.profiler.scoped("json.serialize");
@@ -199,13 +211,13 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto sensor = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findById(id);
+      return svc.findByPublicId(id);
     }();
     if (!sensor) {
       return ResponseHelper::returnErrorDoc("Sensor not found", 404);
@@ -226,8 +238,8 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: device_id", 400);
     }
-    if (!isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: device_id must be numeric", 400);
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: device_id must be a UUID", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
@@ -237,26 +249,22 @@ private:
     }
 
     const SensorCreate data{
-        .deviceId = deviceId,
+        .devicePublicId = deviceId,
         .type = type,
         .unit = unit,
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
-    const std::string id = [&] {
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
       return svc.create(data);
     }();
-    if (id.empty()) {
-      return ResponseHelper::returnErrorDoc("Failed to create sensor", 500);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
-        [&](auto& alloc) {
-          rapidjson::Value obj(rapidjson::kObjectType);
-          obj.AddMember("id", rapidjson::Value(id.c_str(), alloc), alloc);
-          return obj;
-        },
+        [&](auto& alloc) { return json::JsonObj(alloc).set("id", result.getData()).take(); },
         201);
   }
 
@@ -270,8 +278,8 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
     if (type.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: type", 400);
@@ -286,9 +294,10 @@ private:
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
     auto t = ctx.profiler.scoped("db.query");
-    const bool ok = svc.update(id, data);
-    return ok ? ResponseHelper::returnSuccessDoc()
-              : ResponseHelper::returnErrorDoc("Failed to update sensor", 500);
+    const auto result = svc.update(id, data);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
   static rapidjson::Document handleDelete(const rdws::utils::CapabilityContext& ctx,
@@ -298,14 +307,53 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     auto t = ctx.profiler.scoped("db.query");
-    const bool ok = svc.remove(id);
-    return ok ? ResponseHelper::returnSuccessDoc(204)
-              : ResponseHelper::returnErrorDoc("Failed to delete sensor", 500);
+    const bool found = svc.remove(id);
+    return found ? ResponseHelper::returnSuccessDoc(204)
+                 : ResponseHelper::returnErrorDoc("Sensor not found", 404);
+  }
+
+  // Internal: both ids of a sensor (and of its device), by the internal "id" or by "public_id".
+  // sensor_reading_service uses it to turn the path's sensor UUID into the internal id that
+  // sensor_readings is keyed by. No routing rule exposes it (so HTTP /invoke refuses it), and
+  // an HTTP caller's identity is refused here too, so internal ids can't leak to a client.
+  static rapidjson::Document handleRef(const rdws::utils::CapabilityContext& ctx,
+                                       rdws::sensor::SensorService& svc) {
+    const auto& req = ctx.request;
+    if (json::hasActorIdentity(req)) {
+      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
+    }
+    const std::string id = json::getString(req, "id").value_or(std::string{});
+    const std::string publicId = json::getString(req, "public_id").value_or(std::string{});
+    if (id.empty() == publicId.empty()) {
+      return ResponseHelper::returnErrorDoc("Give exactly one of: id, public_id", 400);
+    }
+    if (!id.empty() && !isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: id must be numeric", 400);
+    }
+    if (!publicId.empty() && !isUuid(publicId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: public_id must be a UUID", 400);
+    }
+
+    const auto sensor = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return id.empty() ? svc.findByPublicId(publicId) : svc.findById(id);
+    }();
+    if (!sensor) {
+      return ResponseHelper::returnErrorDoc("Sensor not found", 404);
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      return json::JsonObj(alloc)
+          .set("id", sensor->id)
+          .set("public_id", sensor->publicId)
+          .set("device_id", sensor->deviceId)
+          .set("device_public_id", sensor->devicePublicId)
+          .take();
+    });
   }
 };
 

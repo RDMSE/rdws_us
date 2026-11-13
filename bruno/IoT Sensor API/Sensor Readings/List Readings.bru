@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/sensors/13/readings?from=2026-06-01T00:00:00Z&to=2026-07-22T23:59:59Z
+  url: {{baseUrl}}/sensors/:sensId/readings?from=2026-06-01T00:00:00Z&to=2026-07-22T23:59:59Z
   body: none
   auth: bearer
 }
@@ -13,6 +13,10 @@ get {
 params:query {
   from: 2026-06-01T00:00:00Z
   to: 2026-07-22T23:59:59Z
+}
+
+params:path {
+  sensId: {{sensorId}}
 }
 
 auth:bearer {

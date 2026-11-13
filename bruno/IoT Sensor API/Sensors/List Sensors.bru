@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/sensors?device_id=13
+  url: {{baseUrl}}/sensors?device_id={{deviceId}}
   body: none
   auth: bearer
 }
 
 params:query {
-  device_id: 13
+  device_id: {{deviceId}}
 }
 
 auth:bearer {

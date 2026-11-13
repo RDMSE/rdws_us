@@ -5,9 +5,13 @@ meta {
 }
 
 delete {
-  url: {{baseUrl}}/farms/1
+  url: {{baseUrl}}/farms/:farmId
   body: none
   auth: bearer
+}
+
+params:path {
+  farmId: 
 }
 
 auth:bearer {

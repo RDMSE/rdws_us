@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 //
-// FieldService — capabilities: field.list, field.get, field.create, field.update, field.delete
+// FieldService — capabilities: field.list, field.get, field.create, field.update, field.delete,
+// and the internal field.ref. The API addresses a field, and its farm, by public id (UUID);
+// the internal ids never leave the backend, except to other services through field.ref.
 //
 
 #include "../../service_broker/Services/ServiceClient.h"
@@ -33,6 +35,7 @@ using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::field;
 using rdws::utils::isNumericId;
+using rdws::utils::isUuid;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 
@@ -40,8 +43,8 @@ namespace {
 
 rapidjson::Value fieldToJson(const Field& f, rapidjson::Document::AllocatorType& alloc) {
   JsonObj obj(alloc);
-  obj.set("id", f.id)
-    .set("farm_id", f.farmId)
+  obj.set("id", f.publicId)
+    .set("farm_id", f.farmPublicId)
     .set("name", f.name)
     .set("created_at", f.createdAt);
   if (!f.area.empty()) {
@@ -86,8 +89,8 @@ public:
     identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
-    identity.capabilities = {"field.list", "field.get", "field.create", "field.update",
-                             "field.delete"};
+    identity.capabilities = {"field.list",   "field.get",    "field.create",
+                             "field.update", "field.delete", "field.ref"};
   }
 
   bool initialize() {
@@ -136,6 +139,7 @@ private:
             {"field.create", handleCreate},
             {"field.update", handleUpdate},
             {"field.delete", handleDelete},
+            {"field.ref",    handleRef},
         };
 
     try {
@@ -153,8 +157,8 @@ private:
                                         rdws::field::FieldService& svc) {
     const auto& req = ctx.request;
     const std::string farmId = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "farm_id");
-    if (!farmId.empty() && !isNumericId(farmId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be numeric", 400);
+    if (!farmId.empty() && !isUuid(farmId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be a UUID", 400);
     }
     const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
@@ -181,13 +185,13 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto field = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findById(id);
+      return svc.findByPublicId(id);
     }();
     if (!field) {
       return ResponseHelper::returnErrorDoc("Field not found", 404);
@@ -207,8 +211,8 @@ private:
     if (farmId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: farm_id", 400);
     }
-    if (!isNumericId(farmId)) {
-      return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be numeric", 400);
+    if (!isUuid(farmId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: farm_id must be a UUID", 400);
     }
     if (name.empty()) {
       return ResponseHelper::returnErrorDoc("Missing field: name", 400);
@@ -225,7 +229,7 @@ private:
     };
 
     const FieldCreate data {
-      .farmId = farmId,
+      .farmPublicId = farmId,
       .name = name,
       .area = getArea(),
       .updatedBy = json::getActorSubjectOrDefault(req)
@@ -254,8 +258,8 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     std::string name = json::getString(req, "name").value_or(std::string{});
@@ -268,9 +272,10 @@ private:
         .updatedBy = json::getActorSubjectOrDefault(req)
     };
     auto t = ctx.profiler.scoped("db.query");
-    const bool ok = svc.update(id, data);
-    return ok ? ResponseHelper::returnSuccessDoc()
-              : ResponseHelper::returnErrorDoc("Failed to update field", 500);
+    const auto result = svc.update(id, data);
+    return result.isSuccess()
+               ? ResponseHelper::returnSuccessDoc()
+               : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
   }
 
   static rapidjson::Document handleDelete(const rdws::utils::CapabilityContext& ctx,
@@ -280,14 +285,53 @@ private:
     if (id.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(id)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     auto t = ctx.profiler.scoped("db.query");
-    const bool ok = svc.remove(id);
-    return ok ? ResponseHelper::returnSuccessDoc(204)
-              : ResponseHelper::returnErrorDoc("Failed to delete field", 500);
+    const bool found = svc.remove(id);
+    return found ? ResponseHelper::returnSuccessDoc(204)
+                 : ResponseHelper::returnErrorDoc("Field not found", 404);
+  }
+
+  // Internal: both ids of a field (and of its farm), looked up by the internal "id" or by
+  // "public_id". Other services use it to check a field_id they received and to get the ids
+  // their rows need. No routing rule exposes it (so HTTP /invoke refuses it), and an HTTP
+  // caller's identity is refused here too, so internal ids can't leak to a client.
+  static rapidjson::Document handleRef(const rdws::utils::CapabilityContext& ctx,
+                                       rdws::field::FieldService& svc) {
+    const auto& req = ctx.request;
+    if (json::hasActorIdentity(req)) {
+      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
+    }
+    const std::string id = json::getString(req, "id").value_or(std::string{});
+    const std::string publicId = json::getString(req, "public_id").value_or(std::string{});
+    if (id.empty() == publicId.empty()) {
+      return ResponseHelper::returnErrorDoc("Give exactly one of: id, public_id", 400);
+    }
+    if (!id.empty() && !isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: id must be numeric", 400);
+    }
+    if (!publicId.empty() && !isUuid(publicId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: public_id must be a UUID", 400);
+    }
+
+    const auto field = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return id.empty() ? svc.findByPublicId(publicId) : svc.findById(id);
+    }();
+    if (!field) {
+      return ResponseHelper::returnErrorDoc("Field not found", 404);
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      return JsonObj(alloc)
+          .set("id", field->id)
+          .set("public_id", field->publicId)
+          .set("farm_id", field->farmId)
+          .set("farm_public_id", field->farmPublicId)
+          .take();
+    });
   }
 };
 

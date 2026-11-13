@@ -5,9 +5,13 @@ meta {
 }
 
 put {
-  url: {{baseUrl}}/farms/1
+  url: {{baseUrl}}/farms/:farmId
   body: json
   auth: bearer
+}
+
+params:path {
+  farmId: {{farmId}}
 }
 
 auth:bearer {
@@ -17,6 +21,7 @@ auth:bearer {
 body:json {
   {
     "name": "Fazenda São João (atualizada)",
-    "location": "POINT(-47.9292 -15.7801)"
+    "location": { "lat": -15.7801, "lng": -47.9292 },
+    "timezone": "America/Sao_Paulo"
   }
 }

@@ -3,7 +3,7 @@
 
 //
 // DeviceConfigService — capabilities: device_config.get, device_config.update
-// Path parameter {id} refers to device_id.
+// Path parameter {id} is the device's public id (UUID); the row carries a copy of it (V21).
 //
 // device_config is 1:1 with device (see Plano_DB_IOT_Sensors.md) — a default
 // empty config ('{}') is created alongside the device via a trigger in Postgres
@@ -25,6 +25,7 @@
 
 #include "../../shared/utils/logger.h"
 #include "rdws_version.h"
+#include "../../shared/service/client/DeviceDiagnosticsClient.h"
 
 #include <atomic>
 #include <csignal>
@@ -37,7 +38,7 @@ namespace json = rdws::utils::json;
 using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::device_config;
-using rdws::utils::isNumericId;
+using rdws::utils::isUuid;
 using rdws::utils::ResponseHelper;
 using json::JsonObj;
 namespace logger = rdws::utils::logger;
@@ -53,19 +54,23 @@ private:
   PostgreSQLDatabase db_;
   DeviceConfigRepository repo_;
   rdws::sensor::SensorRepository sensorRepo_;
+  // Binds to `client` (still unset here): asks device_service for what the station declared,
+  // through the gateway, instead of reading device_telemetry
+  rdws::device::DeviceDiagnosticsClient declaredSource_;
   rdws::device_config::DeviceConfigService svc_;
 
 public:
   AppDeviceConfigService(const std::string& serviceId, const std::string& machineName,
                          std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), sensorRepo_(db_), svc_(repo_, sensorRepo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), sensorRepo_(db_), declaredSource_(client),
+        svc_(repo_, sensorRepo_, declaredSource_) {
     identity.machineName = machineName;
     identity.serviceName = "device_config_service";
     identity.serviceId = serviceId;
     identity.version = rdws::kVersion;
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
-    identity.capabilities = {"device_config.get", "device_config.update"};
+    identity.capabilities = {"device_config.get", "device_config.update", "device_config.status"};
   }
 
   bool initialize() {
@@ -113,6 +118,7 @@ private:
         handlers = {
             {"device_config.get", handleGet},
             {"device_config.update", handleUpdate},
+            {"device_config.status", handleStatus},
         };
 
     try {
@@ -133,13 +139,13 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const auto cfg = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findByDeviceId(deviceId);
+      return svc.findByDevicePublicId(deviceId);
     }();
     if (!cfg) {
       return ResponseHelper::returnErrorDoc("Configuration not found", 404);
@@ -148,8 +154,8 @@ private:
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       JsonObj obj(alloc);
-      obj.set("id", cfg->id)
-          .set("deviceId", cfg->deviceId)
+      // The device's public id; the config row's own id is internal (the config is 1:1)
+      obj.set("deviceId", cfg->devicePublicId)
           .setJsonOrString("config", cfg->config)
           .set("version", cfg->version)
           .set("createdAt", cfg->createdAt);
@@ -163,6 +169,44 @@ private:
     });
   }
 
+  // {"version", "declared", "rejected", "state", "declaredAt"}; declared/rejected/declaredAt are
+  // null when the station never declared or isn't refusing anything.
+  static rapidjson::Document handleStatus(const rdws::utils::CapabilityContext& ctx,
+                                          rdws::device_config::DeviceConfigService& svc) {
+    const std::string deviceId =
+        rdws::utils::LambdaParamsHelper::getPathParam(ctx.request, "id");
+    if (deviceId.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
+    }
+
+    const auto result = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return svc.status(deviceId);
+    }();
+    if (!result.isSuccess()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
+    const auto* status = &result.getData();
+
+    auto t = ctx.profiler.scoped("json.serialize");
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      JsonObj obj(alloc);
+      obj.set("version", status->version)
+          .setOrNull("declared", status->declared)
+          .setOrNull("rejected", status->rejected)
+          .set("state", status->state);
+      if (status->declaredAt.empty()) {
+        obj.setNull("declaredAt");
+      } else {
+        obj.set("declaredAt", status->declaredAt);
+      }
+      return obj.take();
+    });
+  }
+
   static rapidjson::Document handleUpdate(const rdws::utils::CapabilityContext& ctx,
                                           rdws::device_config::DeviceConfigService& svc) {
     const auto& req = ctx.request;
@@ -170,8 +214,8 @@ private:
     if (deviceId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(deviceId)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(deviceId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     std::string configJson;

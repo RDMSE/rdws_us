@@ -10,6 +10,7 @@
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/SensorReadingRepository.h"
 #include "../../shared/service/SensorReadingService.h"
+#include "../../shared/service/client/SensorServiceClient.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/capability_router.h"
@@ -31,15 +32,19 @@ using namespace servicegateway;
 using namespace rdws::database;
 using namespace rdws::sensor_reading;
 using rdws::utils::isNumericId;
+using rdws::utils::isUuid;
 using rdws::utils::ResponseHelper;
 namespace logger = rdws::utils::logger;
 
 namespace {
 
-rapidjson::Value readingToJson(const SensorReading& r, rapidjson::Document::AllocatorType& alloc) {
+// sensorPublicId: the path's sensor; the row only has the internal id. The reading's own id
+// stays the sequential one, reachable only under its sensor (findInSensor).
+rapidjson::Value readingToJson(const SensorReading& r, const std::string& sensorPublicId,
+                               rapidjson::Document::AllocatorType& alloc) {
   return rdws::utils::json::JsonObj(alloc)
       .set("id", r.id)
-      .set("sensor_id", r.sensorId)
+      .set("sensor_id", sensorPublicId)
       .set("timestamp", r.timestamp)
       .set("value", r.value)
       .set("created_at", r.createdAt)
@@ -55,15 +60,18 @@ private:
   std::string gatewayAddress;
   std::atomic<bool> running{false};
 
-  // DB/repo/svc — declared in dependency order
+  // DB/repo/svc — declared in dependency order. sensorValidator_ binds to `client` (still unset
+  // at this point) and resolves the path's sensor UUID via sensor_service through the gateway.
   PostgreSQLDatabase db_;
   SensorReadingRepository repo_;
+  rdws::sensor::SensorServiceClient sensorValidator_;
   rdws::sensor_reading::SensorReadingService svc_;
 
 public:
   AppSensorReadingService(const std::string& serviceId, const std::string& machineName,
                           std::string broker)
-      : gatewayAddress(std::move(broker)), repo_(db_), svc_(repo_) {
+      : gatewayAddress(std::move(broker)), repo_(db_), sensorValidator_(client),
+        svc_(repo_, sensorValidator_) {
     identity.machineName = machineName;
     identity.serviceName = "sensor_reading_service";
     identity.serviceId = serviceId;
@@ -138,22 +146,25 @@ private:
     if (sensorId.empty()) {
       return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
     }
-    if (!isNumericId(sensorId)) {
-      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be numeric", 400);
+    if (!isUuid(sensorId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
     }
 
     const std::string from = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "from");
     const std::string to = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "to");
-    const auto readings = [&] {
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findBySensorId(sensorId, from, to);
+      return svc.findBySensor(sensorId, from, to);
     }();
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+    }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc([&](auto& alloc) {
       rapidjson::Value arr(rapidjson::kArrayType);
-      for (const auto& r : readings) {
-        arr.PushBack(readingToJson(r, alloc), alloc);
+      for (const auto& r : result.getData()) {
+        arr.PushBack(readingToJson(r, sensorId, alloc), alloc);
       }
       return arr;
     });
@@ -163,6 +174,13 @@ private:
   static rapidjson::Document handleGet(const rdws::utils::CapabilityContext& ctx,
                                        rdws::sensor_reading::SensorReadingService& svc) {
     const auto& req = ctx.request;
+    const std::string sensorId = rdws::utils::LambdaParamsHelper::getPathParam(req, "id");
+    if (sensorId.empty()) {
+      return ResponseHelper::returnErrorDoc("Missing path parameter: id", 400);
+    }
+    if (!isUuid(sensorId)) {
+      return ResponseHelper::returnErrorDoc("Invalid path parameter: id must be a UUID", 400);
+    }
     std::string rid = rdws::utils::LambdaParamsHelper::getPathParam(req, "rid");
     if (rid.empty()) {
       rid = rdws::utils::LambdaParamsHelper::getStringQueryParam(req, "rid");
@@ -174,17 +192,18 @@ private:
       return ResponseHelper::returnErrorDoc("Invalid reading id (rid): must be numeric", 400);
     }
 
-    const auto reading = [&] {
+    // Only a reading of the path's sensor: before, any rid was reachable under any sensor
+    const auto result = [&] {
       auto t = ctx.profiler.scoped("db.query");
-      return svc.findById(rid);
+      return svc.findInSensor(sensorId, rid);
     }();
-    if (!reading) {
-      return ResponseHelper::returnErrorDoc("Reading not found", 404);
+    if (result.isError()) {
+      return ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
     }
 
     auto t = ctx.profiler.scoped("json.serialize");
     return ResponseHelper::returnDataDoc(
-        [&](auto& alloc) { return readingToJson(reading.value(), alloc); });
+        [&](auto& alloc) { return readingToJson(result.getData(), sensorId, alloc); });
   }
 };
 

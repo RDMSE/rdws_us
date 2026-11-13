@@ -56,6 +56,11 @@ public:
   // descending).  Returns inputCapability unchanged when no rule matches.
   std::string resolve(const std::string& inputCapability, const rapidjson::Document& payload) const;
 
+  // True when an enabled rule takes inputCapability as its input. HTTP /invoke only forwards
+  // such capabilities: the rules are the allowlist of what clients may call, so a capability
+  // meant for services only (credential lookups) has no rule and stays unreachable over HTTP.
+  [[nodiscard]] bool exposes(const std::string& inputCapability) const;
+
   // Resolve by HTTP method + path pattern.
   // On match, fills pathParams with captured {param} values and returns the
   // outputCapability.  Returns empty string when no rule matches.

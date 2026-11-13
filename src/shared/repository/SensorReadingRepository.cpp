@@ -47,12 +47,11 @@ std::vector<SensorReading> SensorReadingRepository::findBySensorId(const std::st
   return readings;
 }
 
-std::optional<SensorReading> SensorReadingRepository::findById(const std::string& id) {
-  std::string query = "SELECT id, sensor_id, timestamp, value::text AS value, created_at "
-                      "FROM sensor_readings WHERE id = $1";
-  std::vector<std::string> params = {id};
-
-  auto rs = db_.execQuery(query, params);
+std::optional<SensorReading> SensorReadingRepository::findInSensor(const std::string& sensorId,
+                                                                  const std::string& id) {
+  auto rs = db_.execQuery("SELECT id, sensor_id, timestamp, value::text AS value, created_at "
+                          "FROM sensor_readings WHERE id = $1 AND sensor_id = $2",
+                          {id, sensorId});
   if (!rs->next()) {
     return std::nullopt;
   }

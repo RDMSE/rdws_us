@@ -15,6 +15,7 @@ Origem: `docs/Plano_Telemetria.md` e `docs/Plano_Ingestion.md`.
 
 | Prio  | Item | Observação |
 |-------|------|---|
+| P2    | Ingestion: tentar de novo logo quando a primeira carga de credenciais falha | Num deploy, a ingestion pode subir antes do `device_service` (`No available service for capability device_credential.list_active`, visto em 2026-11-11 e 2026-11-12) e só recarrega no ciclo seguinte (`kRefreshIntervalSec`, 60 s). Nesse minuto o handshake de qualquer estação é recusado; ela não perde dados, mas atrasa até o próximo uplink (1 h com `transmissions_per_day: 24`). Correção: `refreshCredentials`/`refreshSensorOwners` dizem se carregaram, e o laço tenta a cada 5 s até carregar. Fazer logo depois do RDWS-28 |
 | P2    | Canal de notificação dos alertas de frota | O alerta "Silent station" só aparece no Grafana (R2). Adiado em 2026-10-23: fazer quando a primeira estação sair da bancada (escolher Telegram, ntfy ou e-mail) |
 | P3    | Resolver `crash_pc` em arquivo e linha no servidor | Hoje é manual, com `addr2line` e o `.elf` da máquina do desenvolvedor. Depende da release por tag do firmware, que leva o `.elf` ao servidor |
 | P3    | Retenção das falhas | `crash_*` somem com a limpeza de 90 dias de `device_telemetry`; são raras e servem para comparar versões (`Plano_Telemetria.md`, pontos em aberto) |
@@ -52,7 +53,6 @@ implementação do plano.
 
 | Prio | Item | Observação |
 |---|---|---|
-| P2 | Migration: `farms.timezone`, `devices.elevation_m`, `devices.elevation_source` | Passo 1. O D1.1 (`rec_cfg`) já está feito |
 | P2 | Funções SQL puras (`es`, `dewpoint`, `vpd`, `wet_bulb`, `slp`, `ra`, `et0_hs`, `et0_pm`) com testes de referência | Passo 2. FAO-56 e Stull 2011 |
 | P2 | View `weather_samples` (com `window_s`) e views instantâneas (Td, DPV, Delta T, P0, tendência 3 h) | Passo 3 |
 | P2 | Painéis instantâneos no Grafana | Passo 4 |
@@ -69,19 +69,21 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 
 | Prio | Item | Observação |
 |---|---|---|
-| P2 | Fase 13: IDOR / `public_id` nas tabelas expostas | Muda o contrato da API |
+| P3 | Fase 13c: dono das farms e acesso cruzado (`403`) | RDWS-189. A 13a (`public_id`) está feita; esta precisa de um segundo usuário de verdade, então vem com o `rdws_web` |
 | P3 | Posição (`reportLocation`) fora do thread CoAP | Hoje é um `invoke` síncrono de até 5 s por pack com `lat`/`lon`, no único thread do ingestion: a mesma classe de risco da regressão do RDWS-157. Mover para mensagem na fila com o writer gravando em `devices.location`, como o `config_span`. Só importa quando uma estação mandar posição |
 | P2 | Timeout de PONG no `ServiceClient` (conexão meio-aberta) | A reconexão do RDWS-92 só age quando o `recv()` falha; se o gateway some sem FIN, o cliente fica preso. Mais provável quando os serviços saírem do mesmo host |
-| P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno |
+| P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno. Issue RDWS-187; antes do primeiro deploy em prod (RDWS-186) ou de expor o QA fora da LAN |
 | P3 | Wrappers semânticos no `ResponseHelper` | Tirar códigos HTTP soltos dos handlers |
 | P3 | Metadados livres do device (`devices.metadata JSONB`) | Fabricante, série, modelo |
+| P3 | `sensor_id` da config pelo UUID na API | Hoje `GET`/`PATCH /devices/{id}/config` expõem e recebem o id interno do sensor (`onboard[].sensor_id`), a exceção documentada da Fase 13a (RDWS-28): é o id do protocolo da estação. Traduzir na borda: o JSON da API usa o `public_id` do sensor e o `device_config_service` converte para o interno na entrega, como já converte os `triggers` para ponto fixo (RDWS-172) |
+| P3 | `PATCH /farms/{id}` e `PATCH /devices/{id}` (todos os campos opcionais) | O `PUT` mistura semânticas: o `farm.update` exige `name` e o `device.update` exige `type` e `status`, que são sempre sobrescritos, enquanto `timezone` e `elevation_m` seguem "ausente mantém" (RDWS-182). Para mudar só o fuso ou a altitude, o cliente reenvia o resto. Importa quando o `rdws_web` editar campos soltos |
 | P3 | Testes de carga leve com várias capabilities simultâneas | Fase 5 |
 | P3 | Link painel → logs do request no Grafana | Fase 11 |
 | P3 | Sync de `routes.json` também no `deploy-prod.yml` | Já existe no QA |
 | P3 | Rotas (`EventRouter`) e `GatewayConfig` no banco | "Exceção já decidida" da Fase 14, sem esperar a multi-instância. Rotas do repo entram por migration Flyway (remover uma rota = migration com `DELETE`); coluna `source` (`repo`/`runtime`) separa as criadas via `POST /routes`. Substitui o `sync_gateway_routes.py` e a semeadura do `docker-entrypoint.sh`. Até lá, o QA mantém `POST`/`PUT`/`DELETE /devices/{id}/config` (removidas no RDWS-16) — apagar à mão com token admin |
 | P3 | Fase 14: multi-instância (discovery compartilhado, métricas agregadas) | Por último, sem data. A parte de config no banco está no item acima |
 | P3 | Auditoria mais ampla (tabela de audit log) | Avaliação |
-| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL` |
+| P3 | Testes do gateway instáveis em `ctest -j` | Cada caso é um processo (`gtest_discover_tests`) e vários usam portas e sockets fixos, então colidem em paralelo (`ServiceReconnects_SameId`, `Invoke_CallerReachesResponder`). Em série passam. Dar uma porta por teste, como no `test_coap_dtls_client.cpp`, ou `RUN_SERIAL`. Parte das falhas era a corrida do RDWS-184 (resposta antes do `waitForResponse`, corrigida); em 2026-11-11 ainda falhou 1 de 3 rodadas com `-j4` (`Invoke_CallerReachesResponder`), então as portas fixas continuam |
 
 ## Infra e deploy
 
@@ -90,6 +92,7 @@ Origem: `docs/Plano_Deployment.md`.
 | Prio | Item | Observação |
 |---|---|---|
 | P2 | Provisionar a VPS e o primeiro deploy de produção | Fora do alcance de automação |
+| P3 | `RDWS_ENVIRONMENT` da ingestion no QA | O `ingestion_qa_001` se registra no gateway com `"environment": "test"` (os outros com `qa`), visto no `GET /status` em 2026-11-13. O bloco dele no `docker-compose.qa-app.yml` não usa a âncora `*db-env` (não tem banco), que é onde está `RDWS_ENVIRONMENT: qa`; o `test` deve vir de um `.env` lido no container. Pôr a variável no bloco e conferir o mesmo no `docker-compose.prod-app.yml` |
 | P2 | Endpoint CoAP público na VPS + relay UDP para o QA (§2.2) | Quando a primeira estação sair da bancada |
 | P2 | Tempo de CI/deploy | Cada merge compila tudo três vezes: o CI (estágio `builder` com testes), o `push-ghcr` (9 builds em série) e o deploy de QA (`docker compose up --build`, mais o `qa_simulators.sh`). O `COPY . .` antes do `cmake` invalida o build inteiro a cada commit, até um só de docs, e as dependências do `FetchContent` são baixadas e compiladas de novo. Opções, da que mais rende: (1) o deploy usa as imagens `:qa` do GHCR com `docker compose pull`, como o de produção, e o `push-ghcr` passa a incluir ingestion, reading_writer e simulador; (2) `ccache` com cache mount do BuildKit; (3) dependências numa camada própria antes de copiar o código; (4) `docs/`, `bruno/` e `infra/` no `.dockerignore`. Medir antes a duração de cada passo nos runs do Actions |
 | P3 | Secret `GRAFANA_ADMIN_PASSWORD` no environment `qa` e no `.env.qa` gerado | Hoje cai no padrão se o volume do Grafana se perder |
@@ -104,7 +107,6 @@ Origem: `docs/Plano_DeviceCredentials.md`.
 | P2 | Grace period na rotação de PSK | Hoje a rotação derruba o device até reprovisionar |
 | P3 | Versionamento da KEK | Quando houver necessidade real |
 | P3 | TLS/mTLS no canal broker ↔ serviços | Se a topologia sair de um único host |
-| P3 | Convergir `psk_identity` com `public_id` (Fase 13) | Avaliar junto com a Fase 13 |
 
 ## Banco e simulador
 
@@ -113,3 +115,4 @@ Origem: `docs/Plano_DeviceCredentials.md`.
 | — | Tipos novos em `sensor_type` (bateria, solar, vento, chuva, radiação); avaliar `co2` → `eco2` | Pedido pelo firmware (passos 5–6, ver o backlog dele) |
 | P3 | Simulador gerando a janela OMM (vento) | `Plano_SensorSimulatorService.md` |
 | P3 | Cenários de falha propositais no simulador (fora da faixa, perda, offline) | `Plano_SensorSimulatorService.md` |
+| P3 | `DeviceConfigRepository` lê a tabela `devices` (`JOIN` para `type` e `is_simulated`) | Leitura de outro domínio, contra a regra de cada serviço ler só as próprias tabelas. Trazer esses dois campos pelo `device_service` (capability interna ou cópia na `device_configurations`, como o `device_public_id` da Fase 13a). Achado no RDWS-28 |

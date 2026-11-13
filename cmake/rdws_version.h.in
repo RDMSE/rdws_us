@@ -12,6 +12,6 @@ inline constexpr const char* kVersion = "@RDWS_VERSION_EFFECTIVE@";
 
 // Version of the HTTP API contract. Only goes up when the contract breaks, so clients (rdws_web)
 // depend on it instead of on every release (README, "Versões").
-inline constexpr int kApiVersion = 1;
+inline constexpr int kApiVersion = 2;
 
 } // namespace rdws

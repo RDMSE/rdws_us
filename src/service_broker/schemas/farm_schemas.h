@@ -24,6 +24,10 @@ const std::string FARM_CREATE_SCHEMA = R"({
                     "lat": { "type": "number" },
                     "lng": { "type": "number" }
                 }
+            },
+            "timezone": {
+                "type": "string",
+                "minLength": 1
             }
         },
         "required": ["name"]
@@ -36,6 +40,10 @@ const std::string FARM_UPDATE_SCHEMA = R"({
         "title": "farm.update",
         "properties": {
             "name": {
+                "type": "string",
+                "minLength": 1
+            },
+            "timezone": {
                 "type": "string",
                 "minLength": 1
             }
