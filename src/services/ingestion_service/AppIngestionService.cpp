@@ -45,6 +45,7 @@
 #include "../../shared/senml/senml.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"
+#include "../../shared/utils/refresh_schedule.h"
 #include "rdws_version.h"
 
 #include <coap3/coap.h>
@@ -174,15 +175,33 @@ private:
   bool ownersLoaded_ = false;
 
   static constexpr int kRefreshIntervalSec = 60;
+  // While a cache has never loaded: at startup the ingestion can register before the service
+  // that answers it (device_service, sensor_service), and an empty credential cache refuses
+  // every DTLS handshake. Waiting the full cycle would turn that into a minute.
+  static constexpr int kFirstLoadRetrySec = 5;
   static constexpr unsigned kSessionTimeoutSec = 60;
+
+  // The credential cache has loaded at least once (a later failed refresh keeps the old map)
+  std::atomic<bool> credentialsLoaded_{false};
+
+  [[nodiscard]] bool cachesLoaded() {
+    std::scoped_lock lock(ownersMutex_);
+    return credentialsLoaded_.load() && ownersLoaded_;
+  }
 
   void refreshLoop() {
     while (running_.load()) {
-      for (int i = 0; i < kRefreshIntervalSec && running_.load(); ++i) {
+      const bool loadedBefore = cachesLoaded();
+      const int delay =
+          rdws::utils::nextRefreshDelaySec(loadedBefore, kRefreshIntervalSec, kFirstLoadRetrySec);
+      for (int i = 0; i < delay && running_.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
       if (running_.load()) {
         refreshCaches();
+        if (!loadedBefore && cachesLoaded()) {
+          logger::info("IngestionService: caches loaded after a retry", "");
+        }
       }
     }
   }
@@ -266,6 +285,7 @@ private:
       it->second.bin.length = it->second.key.size();
       it->second.bin.s = reinterpret_cast<const uint8_t*>(it->second.key.data());
     }
+    credentialsLoaded_.store(true);
     logger::info("IngestionService: credential cache refreshed",
                 "count=" + std::to_string(pskCache_.size()));
   }
