@@ -318,8 +318,9 @@ nenhum arquivo do repositório guarda o número.
   Docker, onde não há `.git`, o CI e o deploy passam a versão como `--build-arg RDWS_VERSION`.
   Fora do Docker, a versão é calculada quando o CMake configura: depois de um commit ou de uma
   tag nova, rode o `cmake` de novo.
-- **Versão da API**, à parte: `rdws::kApiVersion` (hoje `1`). Só sobe quando o contrato da API
-  quebra, então clientes como o `rdws_web` dependem dela, e não de cada versão da solução.
+- **Versão da API**, à parte: `rdws::kApiVersion` (hoje `2`: ids públicos em UUID, desde a
+  Fase 13a). Só sobe quando o contrato da API quebra, então clientes como o `rdws_web` dependem
+  dela, e não de cada versão da solução.
 - **Onde ver:** `GET /status` do gateway (`version` e `apiVersion`), a versão com que cada
   serviço se registra no gateway, o log de partida do `ReadingWriterService` e a tag das imagens
   no GHCR.
