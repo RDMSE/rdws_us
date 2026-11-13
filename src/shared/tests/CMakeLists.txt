@@ -192,3 +192,13 @@ target_link_libraries(shared_sensor_reading_service_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_sensor_reading_service_tests)
+
+add_executable(shared_refresh_schedule_tests
+    test_refresh_schedule.cpp
+)
+target_link_libraries(shared_refresh_schedule_tests PRIVATE
+    rdws_shared_utils
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_refresh_schedule_tests)

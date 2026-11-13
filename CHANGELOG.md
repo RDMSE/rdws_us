@@ -14,6 +14,11 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ## [Não lançado]
 
+### Ingestão
+- Quando a primeira carga dos caches (credenciais, donos dos sensores) falha, por exemplo porque
+  a ingestion subiu antes do `device_service` num deploy, ela tenta de novo a cada 5 s, e não
+  só no ciclo de 60 s. Antes, nesse minuto todo handshake DTLS era recusado ([RDWS-199]).
+
 ## [v0.2.0] — 2026-11-13
 
 A API passa a endereçar farms, fields, devices e sensors pelo `public_id` (UUID), Fase 13a do
@@ -128,3 +133,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-182]: https://github.com/RDMSE/rdws_us/issues/182
 [RDWS-184]: https://github.com/RDMSE/rdws_us/issues/184
 [RDWS-188]: https://github.com/RDMSE/rdws_us/issues/188
+[RDWS-199]: https://github.com/RDMSE/rdws_us/issues/199
