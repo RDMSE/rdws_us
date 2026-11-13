@@ -9,7 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 1 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| Não lançado | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
@@ -28,6 +28,8 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ### Plataforma
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
+- `db/seeds/seed_fake_data.sql` preenche as cópias do `public_id` do pai, obrigatórias desde a
+  V19 ([RDWS-28]).
 
 ### Segurança
 - Farms, fields, devices e sensors endereçados pelo `public_id` (UUID) em vez do id sequencial,
@@ -45,8 +47,11 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   (o `id` da linha de config, interno, saiu da resposta). A estação não muda: o protocolo CoAP
   continua com os ids internos (`bn` do SenML, `sensor_id` da config); a ingestion pede a config
   pelo UUID que o cache de credenciais agora traz. Exceção: o `onboard[].sensor_id` da config
-  continua o id interno do sensor, porque é o do protocolo da estação (backlog). Fase 13a; as
-  leituras seguem ([RDWS-28]).
+  continua o id interno do sensor, porque é o do protocolo da estação (backlog).
+  `/sensors/{id}/readings` recebe o UUID do sensor (desconhecido: `404`, não lista vazia), o
+  `sensor_id` das leituras vem em UUID, e `/sensors/{id}/readings/{rid}` só acha uma leitura
+  daquele sensor: antes, qualquer `rid` aparecia sob qualquer sensor. O `id` da leitura continua
+  o sequencial, alcançável só sob o próprio sensor. `apiVersion` passa a `2` ([RDWS-28]).
 - `POST /invoke/{capability}` só encaminha capabilities expostas por uma regra de rota; antes,
   qualquer token válido chamava capabilities só de serviço, como as que devolvem as chaves PSK
   ativas (`device_credential.get_active`/`list_active`). Essas duas também recusam (`403`) uma

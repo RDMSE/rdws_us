@@ -69,7 +69,7 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 
 | Prio | Item | Observação |
 |---|---|---|
-| P2 | Fase 13: IDOR / `public_id` nas tabelas expostas | Muda o contrato da API |
+| P3 | Fase 13c: dono das farms e acesso cruzado (`403`) | RDWS-189. A 13a (`public_id`) está feita; esta precisa de um segundo usuário de verdade, então vem com o `rdws_web` |
 | P3 | Posição (`reportLocation`) fora do thread CoAP | Hoje é um `invoke` síncrono de até 5 s por pack com `lat`/`lon`, no único thread do ingestion: a mesma classe de risco da regressão do RDWS-157. Mover para mensagem na fila com o writer gravando em `devices.location`, como o `config_span`. Só importa quando uma estação mandar posição |
 | P2 | Timeout de PONG no `ServiceClient` (conexão meio-aberta) | A reconexão do RDWS-92 só age quando o `recv()` falha; se o gateway some sem FIN, o cliente fica preso. Mais provável quando os serviços saírem do mesmo host |
 | P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno. Issue RDWS-187; antes do primeiro deploy em prod (RDWS-186) ou de expor o QA fora da LAN |
@@ -106,7 +106,6 @@ Origem: `docs/Plano_DeviceCredentials.md`.
 | P2 | Grace period na rotação de PSK | Hoje a rotação derruba o device até reprovisionar |
 | P3 | Versionamento da KEK | Quando houver necessidade real |
 | P3 | TLS/mTLS no canal broker ↔ serviços | Se a topologia sair de um único host |
-| P3 | Convergir `psk_identity` com `public_id` (Fase 13) | Avaliar junto com a Fase 13 |
 
 ## Banco e simulador
 

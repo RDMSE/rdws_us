@@ -415,21 +415,30 @@ push/PR → build Docker → testes unitários + e2e → (merge main) → deploy
 
 ### Fase 13 - Segurança: prevenção de IDOR
 
-**Contexto:** os IDs expostos na API são `BIGSERIAL` sequenciais, permitindo enumeração trivial de recursos (IDOR — Insecure Direct Object Reference).
+**Contexto:** os IDs expostos na API eram `BIGSERIAL` sequenciais, permitindo enumeração trivial
+de recursos (IDOR — Insecure Direct Object Reference).
 
-**Decisão de design proposta:**
-- Adicionar coluna `public_id UUID DEFAULT gen_random_uuid()` nas tabelas expostas (`farms`, `fields`, `devices`, `sensors`, `sensor_readings`, `device_configurations`).
-- A API passa a expor e receber `public_id` em vez do `id` interno.
-- Repositórios fazem lookup por `public_id` nas queries.
-- Complementar com validação de ownership pelo `sub` do JWT nos handlers (filtrar por tenant/usuário).
+**Fase 13a — `public_id` ✅** (RDWS-28, V18–V22, `apiVersion` 2)
+- `public_id UUID` (v4, `gen_random_uuid()`, único) em `farms`, `fields`, `devices` e `sensors`.
+  A API expõe e recebe só o UUID: o `id` das respostas e dos paths e as referências ao pai
+  (`farm_id`, `field_id`, `device_id`) no corpo, nos filtros e nas respostas. Id numérico no path
+  responde `400`.
+- O filho guarda o `public_id` do pai (`fields.farm_public_id`, `devices.field_public_id`,
+  `device_configurations.device_public_id`, `sensors.device_public_id`) com FK composta
+  `(id interno, public_id)`, para nenhum serviço ler a tabela de outro. O UUID não muda, então a
+  cópia não fica velha. O id interno continua a PK e o alvo das FKs (Grafana, joins).
+- A tradução fica na borda HTTP de cada serviço. Quem recebe um id de outro domínio o resolve
+  por uma capability interna `*.ref` (`farm.ref`, `field.ref`, `device.ref`, `sensor.ref`), via
+  `*ServiceClient`, que devolve também o id interno. As `*.ref` não têm rota (o `/invoke` as
+  recusa, RDWS-188) e respondem `403` a quem chega com identidade HTTP.
+- Fora do UUID, de propósito: `sensor_readings` (o `rid` continua sequencial, mas só é achado sob
+  o próprio sensor) e o protocolo da estação (CoAP: `bn` do SenML e nomes de sensor com os ids
+  internos, `onboard[].sensor_id` da config). Traduzir o `sensor_id` da config na borda está no
+  backlog. O `psk_identity` continua separado do `public_id` (`Plano_DeviceCredentials.md`).
 
-- ⬜ Migration adicionando `public_id UUID` nas tabelas afetadas (com índice único).
-- ⬜ Atualizar repositórios para buscar/retornar `public_id`.
-- ⬜ Atualizar serialização (`xToJson`) para expor `public_id` como `id`.
-- ⬜ Atualizar handlers para receber `public_id` nos path params.
-- ⬜ Atualizar seed de dados fake.
-- ⬜ Validação de ownership nos handlers usando `lambdaContext.identity.claims`.
-- Critério de aceite: nenhum `BIGSERIAL` interno exposto na API; acesso cruzado entre usuários retorna 403.
+**Fase 13c — dono e acesso cruzado (403)**, sem data (RDWS-189): não há relação usuário↔farm.
+`farm_members (user_id, farm_id, role)`, listas filtradas pelas farms do usuário e `403` no
+acesso cruzado; junto com o `rdws_web`, quando houver um segundo usuário de verdade.
 
 ---
 
@@ -796,15 +805,15 @@ Afetava todo `App*Service` que usa `ServiceClient`.
 ---
 
 ## Próximo passo sugerido
-Atualizado em 2026-11-10. As fases 9b, 10a, 10b (CI/CD + Docker), 11 (Loki + Grafana), 12 e 13b
-estão feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), o
+Atualizado em 2026-11-13. As fases 9b, 10a, 10b (CI/CD + Docker), 11 (Loki + Grafana), 12, 13a
+e 13b estão feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), o
 `SensorSimulatorService` e a telemetria SenML (`Plano_Telemetria.md`), todos rodando em QA.
 A reconexão do `ServiceClient` (RDWS-92) e a autenticação do CRUD de `/routes` (RDWS-155)
 também. O que sobra deste plano, em ordem sugerida de valor:
 
-1. **Fase 13 — IDOR / `public_id`** (segurança; muda contrato da API).
-2. **Timeout de PONG no `ServiceClient`** (conexão meio-aberta, seção do RDWS-92).
-3. Trocar a senha do admin no QA e criar um usuário próprio para o deploy.
+1. **Timeout de PONG no `ServiceClient`** (conexão meio-aberta, seção do RDWS-92).
+2. Trocar a senha do admin no QA e criar um usuário próprio para o deploy (RDWS-187).
+3. Fase 13c (dono e acesso cruzado), com o `rdws_web` (RDWS-189).
 4. Wrappers semânticos do `ResponseHelper`, metadados livres do device, testes de carga.
 5. Fase 14 (multi-instância) e migrar `routes.json`/`GatewayConfig` para o banco — por
    último, sem data.
