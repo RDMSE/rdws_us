@@ -28,7 +28,10 @@ public:
                                                                   const std::string& from = {},
                                                                   const std::string& to = {}) = 0;
 
-  [[nodiscard]] virtual std::optional<SensorReading> findById(const std::string& id) = 0;
+  // A reading only under its own sensor (both internal ids): a reading id is sequential, so
+  // looking it up by id alone would let any sensor's path reach any reading
+  [[nodiscard]] virtual std::optional<SensorReading>
+  findInSensor(const std::string& sensorId, const std::string& id) = 0;
 
   // Idempotent: relies on the UNIQUE(sensor_id, timestamp) constraint (V8 migration) —
   // a redelivered queue message (ReadingWriterService) silently no-ops instead of
@@ -46,7 +49,8 @@ public:
                                                           const std::string& from = {},
                                                           const std::string& to = {}) override;
 
-  [[nodiscard]] std::optional<SensorReading> findById(const std::string& id) override;
+  [[nodiscard]] std::optional<SensorReading> findInSensor(const std::string& sensorId,
+                                                          const std::string& id) override;
   [[nodiscard]] bool insert(const std::string& sensorId, const std::string& timestamp,
                             const std::string& value, int flags = 0) override;
 

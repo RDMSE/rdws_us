@@ -183,7 +183,7 @@ TEST_F(HttpE2ETest, ObservabilityEndpoints_ReturnOk) {
   const auto version = json::getString(status, "version");
   ASSERT_TRUE(version.has_value());
   EXPECT_EQ(version->rfind('v', 0), 0u) << *version;
-  EXPECT_EQ(json::getInt(status, "apiVersion"), 1);
+  EXPECT_EQ(json::getInt(status, "apiVersion"), 2); // public ids (UUID) in the API
 }
 
 // ── Scenario 2: Invoke with no backend service → 503 ─────────────────────────
