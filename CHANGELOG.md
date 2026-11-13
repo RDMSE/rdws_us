@@ -9,10 +9,16 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| v0.2.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
+
+## [v0.2.0] — 2026-11-13
+
+A API passa a endereçar farms, fields, devices e sensors pelo `public_id` (UUID), Fase 13a do
+`Plano_Gateway_HTTP.md`: quebra o contrato, por isso `apiVersion` 2. Os ids internos seguem no
+banco, no Grafana e no protocolo da estação.
 
 ### Configuração da estação
 - `GET /devices/{id}/config/status`: se a versão atual roda na estação (`applied`, `pending`,
