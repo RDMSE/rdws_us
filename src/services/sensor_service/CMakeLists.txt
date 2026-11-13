@@ -1,6 +1,7 @@
 add_executable(sensor_service AppSensorService.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/repository/SensorRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/SensorService.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/client/DeviceServiceClient.cpp
 )
 
 target_link_libraries(sensor_service PRIVATE

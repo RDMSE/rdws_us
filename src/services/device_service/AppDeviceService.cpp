@@ -207,6 +207,9 @@ public:
         // reports device position per payload (Plano_Ingestion.md) and shouldn't need
         // type/status just to do that - device.update requires both, this doesn't.
         "device.update_location",
+        // Internal-only: both ids of a device, for services that receive a device_id (UUID)
+        // and need the internal one for their FK (sensor_service, DeviceServiceClient).
+        "device.ref",
     };
 
     deviceHandlers_ = {
@@ -220,6 +223,7 @@ public:
         {"device.update_location", handleUpdateLocation},
         {"device.diagnostics", handleDiagnostics},
         {"device.delete", handleDelete},
+        {"device.ref", handleRef},
     };
     credentialHandlers_ = {
         {"device_credential.get_active", handleCredentialGetActive},
@@ -538,6 +542,44 @@ private:
     return result.isSuccess()
                ? ResponseHelper::returnSuccessDoc(204)
                : ResponseHelper::returnErrorDoc(result.getErrorMessage(), result.getStatusCode());
+  }
+
+  // Internal: both ids of a device (and of its field), by the internal "id" or by "public_id".
+  // No routing rule exposes it (so HTTP /invoke refuses it), and an HTTP caller's identity is
+  // refused here too, so internal ids can't leak to a client.
+  static rapidjson::Document handleRef(const rdws::utils::CapabilityContext& ctx,
+                                       rdws::device::DeviceService& svc) {
+    const auto& req = ctx.request;
+    if (json::hasActorIdentity(req)) {
+      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
+    }
+    const std::string id = json::getString(req, "id").value_or(std::string{});
+    const std::string publicId = json::getString(req, "public_id").value_or(std::string{});
+    if (id.empty() == publicId.empty()) {
+      return ResponseHelper::returnErrorDoc("Give exactly one of: id, public_id", 400);
+    }
+    if (!id.empty() && !isNumericId(id)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: id must be numeric", 400);
+    }
+    if (!publicId.empty() && !isUuid(publicId)) {
+      return ResponseHelper::returnErrorDoc("Invalid field: public_id must be a UUID", 400);
+    }
+
+    const auto device = [&] {
+      auto t = ctx.profiler.scoped("db.query");
+      return id.empty() ? svc.findByPublicId(publicId) : svc.findById(id);
+    }();
+    if (!device) {
+      return ResponseHelper::returnErrorDoc("Device not found", 404);
+    }
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      return JsonObj(alloc)
+          .set("id", device->id)
+          .set("public_id", device->publicId)
+          .set("field_id", device->fieldId)
+          .set("field_public_id", device->fieldPublicId)
+          .take();
+    });
   }
 
   // ─── device_credential.* — internal only, never routed via HTTP ──────────────

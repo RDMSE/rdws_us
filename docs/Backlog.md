@@ -75,6 +75,7 @@ Origem: `docs/Plano_Gateway_HTTP.md`.
 | P2 | Trocar a senha do admin no QA (ainda é o `changeme` do seed da V1) e criar um usuário admin próprio pro deploy | O sync de rotas do `deploy-qa.yml` usa os secrets `RDWS_ADMIN_USER`/`RDWS_ADMIN_PASSWORD` (RDWS-155). Junto: `adminPass` como variável secret nos environments do Bruno. Issue RDWS-187; antes do primeiro deploy em prod (RDWS-186) ou de expor o QA fora da LAN |
 | P3 | Wrappers semânticos no `ResponseHelper` | Tirar códigos HTTP soltos dos handlers |
 | P3 | Metadados livres do device (`devices.metadata JSONB`) | Fabricante, série, modelo |
+| P3 | `sensor_id` da config pelo UUID na API | Hoje `GET`/`PATCH /devices/{id}/config` expõem e recebem o id interno do sensor (`onboard[].sensor_id`), a exceção documentada da Fase 13a (RDWS-28): é o id do protocolo da estação. Traduzir na borda: o JSON da API usa o `public_id` do sensor e o `device_config_service` converte para o interno na entrega, como já converte os `triggers` para ponto fixo (RDWS-172) |
 | P3 | `PATCH /farms/{id}` e `PATCH /devices/{id}` (todos os campos opcionais) | O `PUT` mistura semânticas: o `farm.update` exige `name` e o `device.update` exige `type` e `status`, que são sempre sobrescritos, enquanto `timezone` e `elevation_m` seguem "ausente mantém" (RDWS-182). Para mudar só o fuso ou a altitude, o cliente reenvia o resto. Importa quando o `rdws_web` editar campos soltos |
 | P3 | Testes de carga leve com várias capabilities simultâneas | Fase 5 |
 | P3 | Link painel → logs do request no Grafana | Fase 11 |

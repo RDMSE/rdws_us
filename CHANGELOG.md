@@ -9,7 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
-| Não lançado | 1 | V21 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
+| Não lançado | 1 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
@@ -30,18 +30,23 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `JsonObj` grava `null` (`setNull`, `setOrNull`) ([RDWS-180]).
 
 ### Segurança
-- Farms, fields e devices endereçados pelo `public_id` (UUID) em vez do id sequencial, que
-  permitia enumerar todos: o `id` nas respostas e nos paths (`/farms/{id}`, `/fields/{id}`,
-  `/devices/{id}`, inclusive `diagnostics` e `credential/rotate|revoke`) e as referências ao pai
-  (`farm_id` dos fields, `field_id` dos devices: corpo, filtro e resposta) agora são UUIDs, e um
+- Farms, fields, devices e sensors endereçados pelo `public_id` (UUID) em vez do id sequencial,
+  que permitia enumerar todos: o `id` nas respostas e nos paths (`/farms/{id}`, `/fields/{id}`,
+  `/devices/{id}`, inclusive `diagnostics` e `credential/rotate|revoke`, `/sensors/{id}`) e as
+  referências ao pai (`farm_id` dos fields, `field_id` dos devices, `device_id` dos sensors:
+  corpo, filtro e resposta) agora são UUIDs, e um
   id numérico responde `400`. `PUT` e `DELETE` de um recurso inexistente respondem `404` (antes,
   sucesso). O filho guarda o `public_id` do pai (`fields.farm_public_id`,
-  `devices.field_public_id`, `device_configurations.device_public_id`, FK composta com o id
-  interno), para nenhum serviço ler a tabela de outro. `/devices/{id}/config` e
+  `devices.field_public_id`, `device_configurations.device_public_id`,
+  `sensors.device_public_id`, FK composta com o id interno), para nenhum serviço ler a tabela de
+  outro. `POST /sensors` passa a responder `404` para um device inexistente (antes, a FK falhava
+  com `500`). `/devices/{id}/config` e
   `/devices/{id}/config/status` também recebem o UUID, e o `deviceId` da config passa a ser ele
   (o `id` da linha de config, interno, saiu da resposta). A estação não muda: o protocolo CoAP
   continua com os ids internos (`bn` do SenML, `sensor_id` da config); a ingestion pede a config
-  pelo UUID que o cache de credenciais agora traz. Fase 13a; os sensors seguem ([RDWS-28]).
+  pelo UUID que o cache de credenciais agora traz. Exceção: o `onboard[].sensor_id` da config
+  continua o id interno do sensor, porque é o do protocolo da estação (backlog). Fase 13a; as
+  leituras seguem ([RDWS-28]).
 - `POST /invoke/{capability}` só encaminha capabilities expostas por uma regra de rota; antes,
   qualquer token válido chamava capabilities só de serviço, como as que devolvem as chaves PSK
   ativas (`device_credential.get_active`/`list_active`). Essas duas também recusam (`403`) uma
