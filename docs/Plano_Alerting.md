@@ -17,44 +17,39 @@ O `Plano_Ingestion.md` define como as leituras chegam até `sensor_readings`. Es
                                                      memória)
 ```
 
-Duas camadas, com responsabilidades e requisitos de latência diferentes — por isso não vivem no mesmo processo:
+Duas camadas, com responsabilidades diferentes (decisão de 2026-11-14, seção abaixo):
 
-1. **Filtro de primeira ordem** — testes instantâneos sobre uma leitura isolada (`valor > limite`). Barato, sem estado, cabe no caminho de escrita.
-2. **AlertingService** — correlação entre sinais (dewpoint precisa de temperatura *e* umidade juntas) e série temporal (tendência, janela deslizante). Precisa de estado que sobrevive entre leituras — não cabe no caminho síncrono de escrita.
+1. **Device** — a estação detecta uma borda nos próprios sensores (`triggers[]` da config) e
+   antecipa o envio. Isso não é um alarme: decide só "mande agora, fora do agendamento".
+2. **AlertingService** — decide se existe uma condição de alarme de verdade: limites e
+   regras da fazenda (`alarm_rules`), correlação entre sinais (dewpoint precisa de
+   temperatura *e* umidade juntas) e série temporal (tendência, janela deslizante). Uma
+   condição de alarme no device não implica um alarme do sistema, e vice-versa.
+
+A plausibilidade física de cada leitura (faixa por unidade, flag `out_of_range` na ingestão,
+RDWS-174) não é alarme: marca a leitura, e o `AlertingService` a ignora.
 
 ---
 
-## Camada 1 — Filtro de primeira ordem
+## Camada 1 — Device (edge triggers)
 
-- Roda dentro do `ReadingWriterService` (ou antes, no `IngestionService`), no momento em que a leitura já está sendo processada — sem round-trip extra.
-- Testa a leitura isolada contra o(s) limite(s) simples configurado(s) pro sensor (min/max), lidos de `device_config` ou de `alarm_rules` (ver modelo de dados abaixo) — a decidir na implementação qual fonte é a autoritativa pra não duplicar configuração.
+**Decisão (2026-11-14, RDWS-201, separação open-core):** não existe filtro de primeira ordem
+no `ReadingWriterService` nem na ingestão. O desenho anterior (teste `valor > limite` no
+caminho de escrita, publicando `reading.threshold_breach`) ficou sem motivo:
 
-**Nota (mecanismo de leitura do limite, 2026-07-12):** a premissa de "barato, sem
-round-trip extra" exige um desenho explícito — sem ele, a implementação óbvia é uma
-query por leitura processada, o que contradiz a própria premissa. Mesmo padrão já
-validado em `Plano_DeviceCredentials.md` (§5) para o mesmo tipo de problema (valor
-precisa estar disponível rápido, dentro de um consumer, sem round-trip por evento):
-cache em memória no `IngestionService`/`ReadingWriterService`, carregado no startup, com
-invalidação pontual via evento (`alarm_rule.changed`, publicado quando um limite muda) em
-vez de recarregar tudo ou fazer polling. Assim que a fonte autoritativa for decidida
-(`device_config` vs. `alarm_rules`), o cache espelha essa fonte; a decisão de qual é
-autoritativa continua em aberto (ver "Pontos em aberto"), mas o mecanismo de acesso
-barato já não precisa ser reinventado.
-- Só decide "essa leitura merece atenção" — não decide se um alarme deve ser aberto/fechado (isso é responsabilidade da Camada 2, que trata histerese). Publica um evento leve (`reading.threshold_breach`) sem bloquear nem atrasar a escrita da leitura em si.
+- O `AlertingService` recebe uma cópia de cada leitura pela fanout de `sensor_readings`
+  quase em tempo real, sem consulta extra: o "barato, sem round-trip" da Camada 1 já vale
+  para ele.
+- Some a pergunta da fonte dos limites (`device_config` por device vs. `alarm_rules` por
+  fazenda) e a checagem duplicada entre as duas camadas.
+- Na separação open-core, alarmes são do repositório privado; o caminho de escrita é
+  público. A Camada 1 no writer obrigaria o público a conhecer o conceito de alarme (ou a
+  ler `alarm_rules`, invertendo a dependência).
 
-**Nota (transporte do evento, 2026-07-12):** "barramento interno" no parágrafo acima
-não pode ser o `EventBus` do `Plano_Gateway_HTTP.md` (Fase 7) — aquele é em memória, por
-processo, single-instância (mesma limitação já registrada na Fase 14, "agregação de
-métricas entre instâncias" como problema em aberto). A Camada 1 roda dentro do
-`IngestionService`/`ReadingWriterService`, processos separados do gateway, sem acesso a
-esse `EventBus`. Duas questões ficam em aberto antes de implementar:
-- **Transporte real**: outra fila/routing key no mesmo exchange do RabbitMQ (natural,
-  já que a Camada 1 já vive dentro de um consumer desse broker), ou mecanismo à parte?
-- **Consumidor**: se for o `AlertingService`, ele já recebe o stream de leituras cru via
-  Camada 2 — testar o limite simples de novo ali duplica o trabalho da Camada 1. Se o
-  consumidor é outra coisa (ex. um painel de "atenção" com latência menor que o ciclo do
-  `AlertingService`), isso precisa ser nomeado — hoje o evento é descrito sem canal nem
-  consumidor concretos. Ver também "Pontos em aberto".
+O que é a primeira camada, então, é o **device**: os `triggers[]` da config
+(`Plano_Telemetria.md`, RDWS-172; `rise`/`fall` em janela, `gt`/`lt` com histerese) fazem a
+estação antecipar o envio quando um sinal muda. O backend valida e entrega essa config; o
+trigger não abre alarme nenhum. Os dados chegam mais cedo, e quem decide é a Camada 2.
 
 ## Camada 2 — AlertingService
 
@@ -72,8 +67,11 @@ esse `EventBus`. Duas questões ficam em aberto antes de implementar:
   ("média dos últimos 15min", "tendência de subida") são queries janeladas direto no
   banco, não estado mantido pelo processo. Mais simples e sobrevive a restart do serviço sem perder contexto. Estado em memória só valeria a pena se a latência de detecção precisasse ser sub-segundo, o que não é o caso (leituras agendadas, não streaming de alta frequência — mesmo racional já usado em `Plano_Ingestion.md` pra escolher RabbitMQ).
 - **Histerese obrigatória.** Sem isso, um valor oscilando em torno do limite dispara o mesmo alarme repetidamente. Resolvido no modelo de dados: um alarme só é reaberto se o anterior (mesma regra + mesmo sensor) já estiver `resolved`; ao encontrar uma leitura que não viola mais a condição, o `AlertingService` fecha (`resolved_at`) o `alarm_event` ativo correspondente.
-- **Correlação entre sinais** (ex.: dewpoint = f(temperatura, umidade)) exige que o `AlertingService` busque as leituras mais recentes de sensores relacionados (mesmo `device_id`, tipos `temperature` + `humidity`) em vez de avaliar cada leitura isoladamente — é o motivo principal pelo qual isso não cabe na Camada 1.
+- **Correlação entre sinais** (ex.: dewpoint = f(temperatura, umidade)) exige que o `AlertingService` busque as leituras mais recentes de sensores relacionados (mesmo `device_id`, tipos `temperature` + `humidity`) em vez de avaliar cada leitura isoladamente — uma das razões por que a decisão fica toda aqui, e não num teste por leitura isolada.
 - Habilitado/desabilitado por fazenda via `alarm_rules.enabled` (ver abaixo) — o serviço consulta as regras ativas da fazenda do device antes de avaliar qualquer condição.
+- **Limites simples também aqui** (`valor > limite`, decisão de 2026-11-14): com a fanout, o
+  teste de uma leitura isolada custa o mesmo que no writer, e fica junto das regras e da
+  histerese. As leituras com `out_of_range` (`flags & 0x4000`) são ignoradas.
 
 ## Modelo de dados
 
@@ -232,11 +230,11 @@ Notificar uma geada que acabou ontem só gera ruído.
 
 ## Pontos em aberto
 
-- Evento `alarm_rule.changed` (invalidação do cache da Camada 1) — nome/payload/exchange ainda não definidos, mesmo racional do `device_credential.changed` em `Plano_DeviceCredentials.md`.
-- Transporte e consumidor do evento `reading.threshold_breach` da Camada 1 — não pode ser o `EventBus` do gateway (single-instância, por processo); definir se é fila/routing key própria no RabbitMQ e quem consome sem duplicar a avaliação já feita pela Camada 2 (ver nota na seção da Camada 1).
+- Evento `alarm_rule.changed`: só se o `AlertingService` mantiver as regras em cache (em vez de consultá-las por leitura) — nome/payload/exchange ainda não definidos, mesmo racional do `device_credential.changed` em `Plano_DeviceCredentials.md`.
+- ~~Transporte e consumidor do evento `reading.threshold_breach` da Camada 1~~ — decidido em 2026-11-14: não há esse evento (seção "Camada 1").
 - Se `sensor_readings` realmente será hypertable TimescaleDB (`create_hypertable`) ou particionamento nativo do Postgres — adiado em 2026-10-07 (`Plano_Telemetria.md` Fase 3, R3: tabela simples até o volume justificar); as queries janeladas deste plano devem funcionar sobre a tabela simples primeiro.
 - ~~Qual sensor é "o principal" em `alarm_events.sensor_id` para métricas derivadas~~ — proposta em "Alertas sobre índices derivados" (2026-10-07): o sensor da grandeza dominante. Confirmar.
-- Fonte autoritativa dos limites simples da Camada 1: `device_config` (já existe, mas é por device) vs. `alarm_rules` (novo, por farm) — evitar duas fontes de verdade pro mesmo tipo de limite.
+- ~~Fonte autoritativa dos limites simples da Camada 1~~ — decidido em 2026-11-14: `alarm_rules`, avaliado pelo `AlertingService`; o `device_config` só leva os `triggers[]` do device.
 - `window_minutes` cobre "média na janela"; tendência de subida/descida (derivada, não média) fica de fora do desenho inicial — avaliar se é necessário antes de implementar ou se entra numa v2.
 - Tempo de escalonamento (`N` minutos até virar SMS) e cadeia de contatos por fazenda: onde vive essa config — nova tabela (`farm_contacts`?) ou reaproveita `users` com algum vínculo à fazenda?
 - Escolha do provedor de SMS (custo, cobertura nacional, API) — decisão de implementação, não de arquitetura.
@@ -263,7 +261,9 @@ Depende do `Plano_Ingestion.md` estar funcionando ponta a ponta primeiro — sem
 1. ✅ Pipeline de ingestão estável (`Plano_Ingestion.md`): RabbitMQ, `IngestionService` e
    `ReadingWriterService` rodando em QA, com SenML, desde 2026-10 (`Plano_Telemetria.md`).
 2. Migration Flyway para `alarm_rules` e `alarm_events`.
-3. Filtro de primeira ordem no `ReadingWriterService` (mais simples, valida o desenho de configuração por fazenda antes do serviço separado existir).
+3. ~~Filtro de primeira ordem no `ReadingWriterService`~~ — fora do plano desde 2026-11-14
+   (seção "Camada 1"). No lugar: a fanout de `sensor_readings` (separação open-core, passo 3),
+   que o `AlertingService` precisa para receber a cópia das leituras.
 4. `AlertingService` (consumo do RabbitMQ, queries janeladas, histerese, silenciamento por manutenção) — dockerizado no mesmo pipeline de CI/CD já estabelecido (`Plano_Gateway_HTTP.md` Fase 10b), mesmo padrão dos demais serviços.
 5. Alertas sobre índices derivados (seção própria acima), depois das views e de
    `daily_weather`/`wetness_periods` do `Plano_Indices_Derivados.md`.

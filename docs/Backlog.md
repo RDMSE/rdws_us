@@ -39,11 +39,11 @@ estável.
 | Prio | Item | Observação |
 |---|---|---|
 | P2 | Migration `alarm_rules` e `alarm_events` | Passo 2 da ordem de implementação |
-| P2 | Filtro de primeira ordem (Camada 1) no `ReadingWriterService` | Passo 3 |
+| P2 | Exchange fanout para `sensor_readings` (writer numa fila própria) | Passo 3, no lugar do filtro de primeira ordem no writer (descartado em 2026-11-14, RDWS-201): o `AlertingService` precisa de uma cópia das leituras. É também o passo 3 da separação open-core |
 | P2 | `AlertingService` (Camada 2: janelas, histerese, manutenção) | Passo 4. Tende a ser worker puro |
 | P3 | Alertas sobre índices derivados: `rule_type` + `params JSONB`, métricas novas (`pressure`, `vpd`, `delta_t`, `pressure_tendency_3h`), avaliação por (device, timestamp), notificação de leituras atrasadas | Passo 5; depois das views e de `daily_weather` (seção "Índices derivados" abaixo) |
 | P3 | `NotificationService` (escalonamento, reconhecimento, provedor de SMS) | Passo 6; precisa de plano próprio |
-| — | Decisões em aberto: evento `alarm_rule.changed`, transporte de `reading.threshold_breach`, fonte única dos limites, tendência vs. média, cadeia de contatos por fazenda, schema de `params` por tipo, parâmetros de geada/doença (agrônomo), limite de idade para notificar, estágios de trigger para geada; confirmar o sensor da grandeza dominante em `alarm_events.sensor_id` | Seção "Pontos em aberto" |
+| — | Decisões em aberto: evento `alarm_rule.changed` (se as regras ficarem em cache), tendência vs. média, cadeia de contatos por fazenda, schema de `params` por tipo, parâmetros de geada/doença (agrônomo), limite de idade para notificar, estágios de trigger para geada; confirmar o sensor da grandeza dominante em `alarm_events.sensor_id` | Seção "Pontos em aberto" |
 
 ## Índices derivados
 
