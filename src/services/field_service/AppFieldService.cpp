@@ -7,7 +7,7 @@
 // the internal ids never leave the backend, except to other services through field.ref.
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/FieldRepository.h"
 #include "../../shared/service/FieldService.h"

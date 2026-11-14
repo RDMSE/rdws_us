@@ -9,7 +9,7 @@
 // and in the station protocol (SenML names, the config's onboard[].sensor_id).
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/SensorRepository.h"
 #include "../../shared/service/SensorService.h"

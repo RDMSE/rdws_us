@@ -4,7 +4,7 @@
 #include "Auth/AuthMiddleware.h"
 #include "Config/GatewayConfig.h"
 #include "HttpGateway.h"
-#include "Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "Services/ServiceGateway.h"
 #include "../../shared/utils/json_helper.h"
 

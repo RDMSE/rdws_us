@@ -35,7 +35,7 @@
 // (Plano_Ingestion_Implementacao.md).
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/amqp/amqp_client.h"
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"

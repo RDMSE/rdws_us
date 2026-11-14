@@ -353,7 +353,7 @@ O projeto usa duas licenças, indicadas em cada arquivo-fonte pelo cabeçalho SP
 
 | O quê | Licença | Texto |
 |---|---|---|
-| Bibliotecas compartilhadas (`src/shared/`) e o client do service broker (`src/service_broker/Services/ServiceClient.*` e `ServiceIdentity.*`) | Apache-2.0 | [`src/shared/LICENSE`](src/shared/LICENSE) |
+| Bibliotecas compartilhadas (`src/shared/`), inclusive o client do service broker (`src/shared/broker/`: `ServiceClient` e `ServiceIdentity`) | Apache-2.0 | [`src/shared/LICENSE`](src/shared/LICENSE) |
 | Todo o resto: serviços, service broker, scripts, migrations, infra e documentação | AGPL-3.0-only | [`LICENSE`](LICENSE) |
 
 Na prática: quem roda uma versão modificada dos serviços ou do broker e a oferece pela rede

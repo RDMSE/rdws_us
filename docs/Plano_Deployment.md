@@ -382,7 +382,7 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
      `inet_pton` — só aceita IP literal, não resolve hostname. O `Plano_Deployment.md`
      já afirmava (§2) que nomes de serviço do Compose funcionariam como DNS
      (`tcp://gateway:8080`) sem mudança de código, o que era falso. Trocado por
-     `getaddrinfo` (`src/service_broker/Services/ServiceClient.cpp`), que resolve tanto
+     `getaddrinfo` (`src/shared/broker/ServiceClient.cpp`), que resolve tanto
      IP quanto hostname. Sem essa correção, nenhum serviço containerizado conseguiria se
      conectar ao gateway via nome DNS do Compose.
    - Validado ponta a ponta: `auth_service` (`docker-compose.qa-app.yml`) conecta no

@@ -179,6 +179,7 @@ target_link_libraries(rdws_shared_database
     PRIVATE
     PQXX_DEP
     pq
+    rdws_shared_config # connection string (PostgreSQLDatabase reads rdws::Config)
 )
 
 # Falhar cedo se usarmos API deprecated do libpqxx (ex.: exec_prepared em favor de
@@ -197,6 +198,28 @@ target_compile_options(rdws_shared_database PRIVATE -Werror=deprecated-declarati
 #     rdws_shared_config
 #     ${PQXX_LIBRARIES}
 # )
+
+# Client of the service broker (Apache-2.0, like the rest of src/shared): what a service needs to
+# register its capabilities and invoke others through the gateway, without the gateway itself
+# (AGPL, src/service_broker). A service outside this repository links only this and rdws_shared_*.
+add_library(rdws_broker_client
+    broker/ServiceClient.cpp
+    broker/ServiceClient.h
+    broker/ServiceIdentity.cpp
+    broker/ServiceIdentity.h
+)
+
+target_include_directories(rdws_broker_client PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/broker
+)
+
+target_link_libraries(rdws_broker_client PUBLIC
+    rdws_shared_json_utils
+    rdws_shared_logger
+    rdws_shared_utils
+    rapidjson_wrapper
+)
 
 # --- Testes para shared components ---
 if(BUILD_TESTING)

@@ -5,7 +5,8 @@ add_executable(sensor_service AppSensorService.cpp
 )
 
 target_link_libraries(sensor_service PRIVATE
-    service_gateway_core
+    rdws_broker_client
+    rdws_shared_config
     rdws_shared_database
 )
 

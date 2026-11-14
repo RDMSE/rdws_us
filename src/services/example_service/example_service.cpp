@@ -6,7 +6,7 @@
 // Demonstrates service creation using ServiceClient library
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/utils/json_helper.h"
 #include "rdws_version.h"
 

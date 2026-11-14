@@ -5,7 +5,8 @@ add_executable(field_service AppFieldService.cpp
 )
 
 target_link_libraries(field_service PRIVATE
-    service_gateway_core
+    rdws_broker_client
+    rdws_shared_config
     rdws_shared_database
 )
 

@@ -3,7 +3,7 @@
 
 #include "ServiceIdentity.h"
 
-#include "../../shared/utils/json_helper.h"
+#include "../utils/json_helper.h"
 
 #include <algorithm>
 

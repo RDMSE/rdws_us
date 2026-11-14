@@ -1,7 +1,8 @@
 add_executable(persistence_service AppPersistenceService.cpp)
 
 target_link_libraries(persistence_service PRIVATE
-    service_gateway_core
+    rdws_broker_client
+    rdws_shared_config
     rdws_shared_database
 )
 
