@@ -14,6 +14,13 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ## [Não lançado]
 
+### Plataforma
+- O client do broker (`ServiceClient`, `ServiceIdentity`) virou a biblioteca `rdws_broker_client`
+  em `src/shared/broker/`, Apache-2.0 como o resto de `src/shared`. Os serviços a linkam no lugar
+  do gateway inteiro (só o `auth_service` ainda usa o gateway, para assinar o JWT). Outro projeto
+  pode incluir o `rdws_us` e compilar só as bibliotecas compartilhadas (`RDWS_SHARED_ONLY`),
+  testado no CI por `tests/consumer/` ([RDWS-201]).
+
 ### Ingestão
 - Quando a primeira carga dos caches (credenciais, donos dos sensores) falha, por exemplo porque
   a ingestion subiu antes do `device_service` num deploy, ela tenta de novo a cada 5 s, e não
@@ -134,3 +141,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-184]: https://github.com/RDMSE/rdws_us/issues/184
 [RDWS-188]: https://github.com/RDMSE/rdws_us/issues/188
 [RDWS-199]: https://github.com/RDMSE/rdws_us/issues/199
+[RDWS-201]: https://github.com/RDMSE/rdws_us/issues/201
