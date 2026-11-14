@@ -3,9 +3,9 @@
 
 #include "ServiceClient.h"
 
-#include "../../shared/utils/json_helper.h"
-#include "../../shared/utils/logger.h"
-#include "../../shared/utils/response_helper.h"
+#include "../utils/json_helper.h"
+#include "../utils/logger.h"
+#include "../utils/response_helper.h"
 
 #include <arpa/inet.h>
 #include <netdb.h>

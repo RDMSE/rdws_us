@@ -7,7 +7,7 @@
 // leaves the backend, except to other services through farm.ref.
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/FarmRepository.h"
 #include "../../shared/service/FarmService.h"

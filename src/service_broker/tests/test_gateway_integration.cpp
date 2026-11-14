@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Rafael Dias
 // SPDX-License-Identifier: AGPL-3.0-only
 
-#include "Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "Services/ServiceGateway.h"
 #include "../../shared/utils/json_helper.h"
 

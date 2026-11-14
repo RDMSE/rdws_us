@@ -14,7 +14,7 @@
 // is not a standalone capability — it only runs atomically inside handleCreate (device.create).
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/config/config.h"
 #include "../../shared/crypto/credential_cipher.h"
 #include "../../shared/database/postgresql_database.h"

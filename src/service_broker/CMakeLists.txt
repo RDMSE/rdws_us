@@ -1,14 +1,10 @@
 
 add_library(service_gateway_core
         # ServiceGateway Architecture
-        Services/ServiceIdentity.h
-        Services/ServiceIdentity.cpp
         Services/ServiceRegistry.h
         Services/ServiceRegistry.cpp
         Services/ServiceGateway.h
         Services/ServiceGateway.cpp
-        Services/ServiceClient.h
-        Services/ServiceClient.cpp
         Services/ServiceMonitor.h
         Services/ServiceMonitor.cpp
         Services/EventRouter.h
@@ -47,6 +43,7 @@ target_include_directories(service_gateway_core PUBLIC
 )
 
 target_link_libraries(service_gateway_core PUBLIC
+    rdws_broker_client # ServiceIdentity (registry) and ServiceClient (the services link the core)
     inih_lib
     ValiJSON::valijson
     rdws_shared_validation

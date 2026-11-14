@@ -4,7 +4,7 @@ add_executable(sensor_simulator_service AppSensorSimulatorService.cpp
 )
 
 target_link_libraries(sensor_simulator_service PRIVATE
-    service_gateway_core
+    rdws_broker_client
     rdws_shared_database
     rdws_shared_config
     rdws_shared_crypto

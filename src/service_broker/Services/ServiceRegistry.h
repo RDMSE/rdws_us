@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "ServiceIdentity.h"
+#include "../../shared/broker/ServiceIdentity.h"
 
 #include <functional>
 #include <map>

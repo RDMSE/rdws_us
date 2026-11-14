@@ -1,7 +1,7 @@
 add_executable(ingestion_service AppIngestionService.cpp)
 
 target_link_libraries(ingestion_service PRIVATE
-    service_gateway_core
+    rdws_broker_client
     rdws_shared_config
     rdws_shared_crypto
     rdws_shared_coap

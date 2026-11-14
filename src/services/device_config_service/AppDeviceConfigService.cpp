@@ -11,7 +11,7 @@
 // device_config.create nor device_config.delete: only GET (always exists) and UPDATE
 // (merge patch — see src/shared/utils/json_merge.h).
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/repository/DeviceConfigRepository.h"
 #include "../../shared/repository/SensorRepository.h"

@@ -8,7 +8,7 @@
 // and batch-upserts them into PostgreSQL (request_history, capability_metrics).
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/capability_router.h"

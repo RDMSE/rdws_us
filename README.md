@@ -353,7 +353,7 @@ O projeto usa duas licenças, indicadas em cada arquivo-fonte pelo cabeçalho SP
 
 | O quê | Licença | Texto |
 |---|---|---|
-| Bibliotecas compartilhadas (`src/shared/`) e o client do service broker (`src/service_broker/Services/ServiceClient.*` e `ServiceIdentity.*`) | Apache-2.0 | [`src/shared/LICENSE`](src/shared/LICENSE) |
+| Bibliotecas compartilhadas (`src/shared/`), inclusive o client do service broker (`src/shared/broker/`: `ServiceClient` e `ServiceIdentity`) | Apache-2.0 | [`src/shared/LICENSE`](src/shared/LICENSE) |
 | Todo o resto: serviços, service broker, scripts, migrations, infra e documentação | AGPL-3.0-only | [`LICENSE`](LICENSE) |
 
 Na prática: quem roda uma versão modificada dos serviços ou do broker e a oferece pela rede
@@ -363,5 +363,21 @@ conversar com o gateway sem herdar a AGPL.
 
 O código em `src/third_party/` mantém a licença original de cada projeto (arquivos `LICENSE`
 de cada pasta).
+
+### Usar as bibliotecas compartilhadas em outro projeto
+
+Um projeto de fora (um serviço próprio, que fala com o gateway) inclui o `rdws_us` como
+subprojeto, por FetchContent ou submódulo numa tag, e linka só o que é Apache-2.0:
+
+```cmake
+FetchContent_Declare(rdws_us GIT_REPOSITORY https://github.com/RDMSE/rdws_us.git GIT_TAG v0.2.0)
+FetchContent_MakeAvailable(rdws_us)
+target_link_libraries(meu_servico PRIVATE rdws_broker_client rdws_shared_database)
+```
+
+Incluído assim, o `rdws_us` compila só `src/shared` e `src/third_party` (`RDWS_SHARED_ONLY`,
+ligado por padrão para quem inclui): nada do gateway nem dos serviços, e o `BUILD_TESTING` do
+projeto de fora não muda. No próprio repositório, `-DRDWS_SHARED_ONLY=ON` faz o mesmo. O
+`tests/consumer/` é esse uso mínimo, compilado no CI.
 
 Copyright © 2026 Rafael Dias.

@@ -659,7 +659,7 @@ maior de desacoplamento.
 
 - ✅ Adicionar um client de conveniência sobre `ServiceClient` para chamadas síncronas
   entre serviços (`ServiceClient::invoke(capability, data, timeout)`,
-  `src/service_broker/Services/ServiceClient.h/.cpp`), escondendo `requestId`/timeout/
+  `src/shared/broker/ServiceClient.h/.cpp`), escondendo `requestId`/timeout/
   correlação do call site. **Nota de implementação:** o mecanismo descrito acima
   (`sendDirectRequest`/`waitForResponse`/`requestId`) só existia no `ServiceGateway`
   (o broker), não no `ServiceClient` que cada serviço embute — não havia como um

@@ -4,7 +4,8 @@ add_executable(farm_service AppFarmService.cpp
 )
 
 target_link_libraries(farm_service PRIVATE
-    service_gateway_core
+    rdws_broker_client
+    rdws_shared_config
     rdws_shared_database
 )
 

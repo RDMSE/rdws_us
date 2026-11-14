@@ -7,7 +7,7 @@
 //
 
 #include "../../service_broker/Auth/AuthMiddleware.h"
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/logger.h"

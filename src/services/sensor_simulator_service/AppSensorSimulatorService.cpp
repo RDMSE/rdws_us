@@ -13,7 +13,7 @@
 // instance per simulated device" scheduling model.
 //
 
-#include "../../service_broker/Services/ServiceClient.h"
+#include "../../shared/broker/ServiceClient.h"
 #include "../../shared/config/config.h"
 #include "../../shared/coap/coap_dtls_client.h"
 #include "../../shared/crypto/credential_cipher.h"

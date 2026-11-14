@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Checks the SPDX license header of every tracked C/C++ source under src/ (third_party
 # excluded) — README, "Licença":
-#   Apache-2.0     src/shared/** and the broker client (src/service_broker/Services/
-#                  ServiceClient.* and ServiceIdentity.*)
+#   Apache-2.0     src/shared/** (the broker client included, src/shared/broker/)
 #   AGPL-3.0-only  everything else
 # Fails on a missing header or on the wrong license for the file's location (e.g. a service
 # file copied into src/shared/ with its AGPL header). Runs first in ci.yml; by hand:
@@ -15,8 +14,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 expected_license() {
   case "$1" in
     src/shared/*) echo "Apache-2.0" ;;
-    src/service_broker/Services/ServiceClient.* | src/service_broker/Services/ServiceIdentity.*)
-      echo "Apache-2.0" ;;
     *) echo "AGPL-3.0-only" ;;
   esac
 }
