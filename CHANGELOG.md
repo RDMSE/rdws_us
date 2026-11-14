@@ -22,6 +22,8 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   testado no CI por `tests/consumer/` ([RDWS-201]).
 
 ### Ingestão
+- No QA, a ingestion se registra no gateway com o ambiente `qa` (antes, `test`: faltava o
+  `RDWS_ENVIRONMENT` no `docker-compose.qa-app.yml`) ([RDWS-203]).
 - Quando a primeira carga dos caches (credenciais, donos dos sensores) falha, por exemplo porque
   a ingestion subiu antes do `device_service` num deploy, ela tenta de novo a cada 5 s, e não
   só no ciclo de 60 s. Antes, nesse minuto todo handshake DTLS era recusado ([RDWS-199]).
@@ -142,3 +144,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-188]: https://github.com/RDMSE/rdws_us/issues/188
 [RDWS-199]: https://github.com/RDMSE/rdws_us/issues/199
 [RDWS-201]: https://github.com/RDMSE/rdws_us/issues/201
+[RDWS-203]: https://github.com/RDMSE/rdws_us/issues/203

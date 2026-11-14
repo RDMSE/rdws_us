@@ -181,6 +181,8 @@ services:
       RABBITMQ_USER: ${RABBITMQ_USER:-rdws_user}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD não definido (ver .env.qa.example)}
       INGESTION_COAP_PORT: "5684"
+      # The other services get it from *db-env; without it rdws::Config falls back to "test"
+      RDWS_ENVIRONMENT: qa
     command: ["ingestion_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   reading_writer_service:
