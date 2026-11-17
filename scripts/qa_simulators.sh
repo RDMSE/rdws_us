@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # (Re)creates one SensorSimulatorService container per simulated device in QA
-# (devices.is_simulated = true in rdws_qa), from an image built from the current checkout.
-# Runs at the end of deploy-qa.yml, or by hand on the homelab:
+# (devices.is_simulated = true in rdws_qa). Runs at the end of deploy-qa.yml, or by hand on
+# the homelab:
 #
 #   scripts/qa_simulators.sh [env-file]        # default: .env.qa
 #
+# - Image: with IMAGE_TAG set (the deploy sets it to the commit's SHA), the one CI built and
+#   pushed (ghcr.io/.../sensor_simulator_service:$IMAGE_TAG), pulled; without it, built from
+#   the current checkout, as before.
 # - Devices come from the database: creating a device with is_simulated = true (the flag is
 #   immutable, V7) or deleting one is enough for the next run to start/stop its container.
 #   Nothing to edit here or in the compose files.
@@ -17,7 +20,6 @@
 set -euo pipefail
 
 ENV_FILE="${1:-.env.qa}"
-IMAGE="rdws_us-sensor-simulator:qa"
 NETWORK="rdws_qa_default"
 DB_CONTAINER="rdws_postgres_qa"
 NAME_PREFIX="rdws_sim_device_"
@@ -36,8 +38,14 @@ mapfile -t ids < <(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" 
   "SELECT id FROM devices WHERE is_simulated ORDER BY id")
 echo "simulated devices: ${ids[*]:-none}"
 
-docker build --target runtime --build-arg SERVICE=sensor_simulator_service \
-  --build-arg RDWS_VERSION="${RDWS_VERSION:-$(scripts/rdws_version.sh)}" -t "$IMAGE" .
+if [ -n "${IMAGE_TAG:-}" ]; then
+  IMAGE="ghcr.io/rdmse/rdws_us/sensor_simulator_service:$IMAGE_TAG"
+  docker pull "$IMAGE"
+else
+  IMAGE="rdws_us-sensor-simulator:qa"
+  docker build --target runtime --build-arg SERVICE=sensor_simulator_service \
+    --build-arg RDWS_VERSION="${RDWS_VERSION:-$(scripts/rdws_version.sh)}" -t "$IMAGE" .
+fi
 
 container_name() { printf '%s%02d_qa' "$NAME_PREFIX" "$1"; }
 

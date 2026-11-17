@@ -319,18 +319,22 @@ documento para detalhes.
 ## 4. GitHub Actions
 
 - **Runner self-hosted** registrado no homelab (setup manual, fora do escopo do CI em si).
-Como está em 2026-11-10 (o desenho original previa um `build.yml` e o deploy de QA por
-`pull`; ficou assim):
+Como está em 2026-11-17 (RDWS-205; o desenho original previa um `build.yml` e o deploy de
+QA por `pull`, o que voltou a valer):
 
-- **`.github/workflows/ci.yml`**: em push na `main` e em PR — build + `ctest` no runner
-  self-hosted, checagem dos cabeçalhos SPDX (RDWS-163) e, só em push na `main`, o job
-  `push-ghcr` (matrix por serviço) publica `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`.
+- **`.github/workflows/ci.yml`**: em push na `main`, em tag `v*` e em PR — build + `ctest`
+  no runner self-hosted, checagem dos cabeçalhos SPDX (RDWS-163) e o teste de consumidor
+  (RDWS-201). Na `main` e em tag, o mesmo job constrói em paralelo as **12** imagens de
+  serviço a partir do builder em cache (inclusive ingestion, writer e simulador) e as publica
+  em `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`, mais `:vX.Y.Z` numa tag.
 - **`.github/workflows/deploy-qa.yml`**: `workflow_run` depois do CI na `main`, no runner
-  self-hosted do homelab. Gera o `.env.qa` dos secrets, garante o Postgres de QA, roda o
-  Flyway, garante o RabbitMQ, **builda e sobe** o app (`docker-compose.qa-app.yml up -d
-  --build`, sem passar pelo GHCR), recria os simuladores (`scripts/qa_simulators.sh`), sobe a
-  observabilidade, faz o health check e sincroniza o `routes.json` no gateway
-  (`scripts/sync_gateway_routes.py`, RDWS-155).
+  self-hosted do homelab. Gera o `.env.qa` dos secrets (com `IMAGE_TAG` = SHA do commit),
+  garante o Postgres de QA, roda o Flyway, garante o RabbitMQ, **puxa e sobe** o app
+  (`docker-compose.qa-app.yml pull` + `up -d`, sem build), recria os simuladores com a imagem
+  do CI (`scripts/qa_simulators.sh`), sobe a observabilidade, faz o health check e
+  sincroniza o `routes.json` no gateway (`scripts/sync_gateway_routes.py`, RDWS-155). À mão
+  (`workflow_dispatch`), o input `image_tag` escolhe a imagem; o padrão `qa` é o último build
+  do `main` ou da tag de release.
 - **`.github/workflows/deploy-prod.yml`**: `workflow_dispatch` com input `image_tag` —
   reusa a imagem já publicada no GHCR (promoção, não rebuild), fala com a VPS por
   `DOCKER_HOST=ssh://...`, roda o Flyway e o `docker-compose.prod-app.yml up -d`. Ainda não
