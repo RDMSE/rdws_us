@@ -324,9 +324,11 @@ QA por `pull`, o que voltou a valer):
 
 - **`.github/workflows/ci.yml`**: em push na `main`, em tag `v*` e em PR — build + `ctest`
   no runner self-hosted, checagem dos cabeçalhos SPDX (RDWS-163) e o teste de consumidor
-  (RDWS-201). Na `main` e em tag, o mesmo job constrói em paralelo as **12** imagens de
-  serviço a partir do builder em cache (inclusive ingestion, writer e simulador) e as publica
-  em `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`, mais `:vX.Y.Z` numa tag.
+  (RDWS-201). Na `main` e em tag, o mesmo job constrói as **12** imagens de serviço
+  (inclusive ingestion, writer e simulador) numa sessão só do BuildKit
+  (`docker-compose.build.yml`), que compila uma vez e reaproveita o builder em cache, e as
+  publica em paralelo em `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`, mais `:vX.Y.Z`
+  numa tag. Doze `docker build` separados em paralelo levavam 9 min 23 s.
 - **`.github/workflows/deploy-qa.yml`**: `workflow_run` depois do CI na `main`, no runner
   self-hosted do homelab. Gera o `.env.qa` dos secrets (com `IMAGE_TAG` = SHA do commit),
   garante o Postgres de QA, roda o Flyway, garante o RabbitMQ, **puxa e sobe** o app
