@@ -32,7 +32,9 @@ ARG RDWS_VERSION=
 
 # Complete build (all targets, including tests): the most expensive layer, cached between
 # builds while the sources don't change.
-RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+# The job count shows in the build log: all the CPUs the build sees (no limit on the daemon)
+RUN echo "compile jobs: $(nproc)" \
+    && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
         -DRDWS_VERSION="${RDWS_VERSION}" \
     && cmake --build build -j"$(nproc)"
 
