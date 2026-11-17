@@ -9,11 +9,23 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
+| v0.4.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.3.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.2.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
+
+## [v0.4.0] — 2026-11-17
+
+As leituras passam pela exchange fanout `rdws.sensor_readings` (passo 3 da separação open-core),
+e o `rdws_us` passa a ser incluível como dependência sem chave SSH: o que o repositório privado
+`rdws_enviro` (passo 4) precisa. Sem mudança de API nem de schema.
+
+### Plataforma
+- Os submódulos (inih, valijson, dotenv-cpp) passam a ser clonados por HTTPS: um projeto que
+  inclui o `rdws_us` (por `FetchContent` ou submódulo) não precisa mais de chave SSH no GitHub
+  ([RDWS-219]).
 
 ### Ingestão
 - As leituras passam por uma exchange fanout (`rdws.sensor_readings`): cada consumidor recebe a
@@ -178,3 +190,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-210]: https://github.com/RDMSE/rdws_us/issues/210
 [RDWS-212]: https://github.com/RDMSE/rdws_us/issues/212
 [RDWS-216]: https://github.com/RDMSE/rdws_us/issues/216
+[RDWS-219]: https://github.com/RDMSE/rdws_us/issues/219
