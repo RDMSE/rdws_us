@@ -87,7 +87,12 @@ Resumo do que já está no código:
   e ponta a ponta.
 - **RabbitMQ**: `rabbitmq-c` vendorizado via FetchContent, wrapper
   `AmqpProducer`/`AmqpConsumer` (`src/shared/amqp`) — fila durável `sensor_readings`,
-  uma mensagem por leitura.
+  uma mensagem por leitura. Desde o RDWS-216 a ingestion publica na exchange fanout durável
+  `rdws.sensor_readings`, e cada consumidor tem a própria fila ligada a ela (o writer na
+  `sensor_readings`, que manteve o nome; o `AlertingService` privado na dele): cada um recebe
+  uma cópia de cada leitura. A ingestion declara também a fila do writer e a ligação, porque
+  uma fanout sem fila ligada descarta a mensagem em silêncio (e o confirm volta positivo):
+  assim o registro das leituras não depende da ordem em que os serviços sobem.
 - **`SensorSimulatorService`**: gera leituras periódicas em arquivo, transmite por CoAP/DTLS
   no intervalo configurado em `device_configurations` (ou via
   `POST /simulate/{device_id}/trigger`), buscando a credencial ativa a cada ciclo.
