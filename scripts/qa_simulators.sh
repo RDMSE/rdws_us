@@ -5,9 +5,9 @@
 #
 #   scripts/qa_simulators.sh [env-file]        # default: .env.qa
 #
-# - Image: with IMAGE_TAG set (the deploy sets it to the commit's SHA), the one CI built and
-#   pushed (ghcr.io/.../sensor_simulator_service:$IMAGE_TAG), pulled; without it, built from
-#   the current checkout, as before.
+# - Image: the one image of every service (ghcr.io/.../services, see the Dockerfile), run as the
+#   simulator (RDWS_SERVICE). With IMAGE_TAG set (the deploy sets it to the commit's SHA), the
+#   one CI built and pushed, pulled; without it, built from the current checkout.
 # - Devices come from the database: creating a device with is_simulated = true (the flag is
 #   immutable, V7) or deleting one is enough for the next run to start/stop its container.
 #   Nothing to edit here or in the compose files.
@@ -39,11 +39,11 @@ mapfile -t ids < <(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" 
 echo "simulated devices: ${ids[*]:-none}"
 
 if [ -n "${IMAGE_TAG:-}" ]; then
-  IMAGE="ghcr.io/rdmse/rdws_us/sensor_simulator_service:$IMAGE_TAG"
+  IMAGE="ghcr.io/rdmse/rdws_us/services:$IMAGE_TAG"
   docker pull "$IMAGE"
 else
-  IMAGE="rdws_us-sensor-simulator:qa"
-  docker build --target runtime --build-arg SERVICE=sensor_simulator_service \
+  IMAGE="rdws_us-services:qa"
+  docker build --target runtime \
     --build-arg RDWS_VERSION="${RDWS_VERSION:-$(scripts/rdws_version.sh)}" -t "$IMAGE" .
 fi
 
@@ -77,6 +77,7 @@ for id in "${ids[@]}"; do
     -e DB_HOST=postgres -e DB_PORT=5432 \
     -e DB_USER="$DB_USER" -e DB_PASSWORD="$DB_PASSWORD" -e DB_NAME="$DB_NAME" \
     -e RDWS_ENVIRONMENT=qa \
+    -e RDWS_SERVICE=sensor_simulator_service \
     -e INGESTION_HOST=ingestion_service -e INGESTION_PORT=5684 \
     -e SIMULATOR_DATA_DIR=/app/sim_data \
     -e SIMULATOR_CONTROL_PORT="$port" \

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Entrypoint genérico (gateway + serviços). Bug real encontrado em produção
-# (2026-07-09): o gateway roda com routesFile apontando pra dentro de um volume
+# Entrypoint genérico (gateway + serviços): roda o binário escolhido por RDWS_SERVICE.
+# Bug real encontrado em produção (2026-07-09): o gateway roda com routesFile apontando pra dentro de um volume
 # (docker-compose.qa-app.yml: /app/data/routes.json), que começa vazio num volume
 # novo — sem isso, o EventRouter carrega zero regras e todo path REST (POST
 # /auth/login, GET /farms, ...) responde 404 "No route found", mesmo com
@@ -25,4 +25,14 @@ case "$routes_file" in
     ;;
 esac
 
-exec ./service "$@"
+# Which binary of the image to run (one image for every service, see the Dockerfile)
+if [ -z "${RDWS_SERVICE:-}" ]; then
+  echo "RDWS_SERVICE not set: which service should this container run? ($(ls ./bin | tr '\n' ' '))" >&2
+  exit 64
+fi
+if [ ! -x "./bin/$RDWS_SERVICE" ]; then
+  echo "unknown RDWS_SERVICE '$RDWS_SERVICE' (available: $(ls ./bin | tr '\n' ' '))" >&2
+  exit 64
+fi
+
+exec "./bin/$RDWS_SERVICE" "$@"

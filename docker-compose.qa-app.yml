@@ -4,9 +4,10 @@
 # this one, so the services can resolve "postgres" via the shared network
 # (name: rdws_qa is the same in both files).
 #
-# Images: the ones CI built and pushed (ci.yml), pulled by the deploy with IMAGE_TAG = the
-# commit's SHA (`qa` by default: the latest main or release build). The build sections stay
-# for a local `docker compose build`.
+# Image: one for every service (ghcr.io/rdmse/rdws_us/services, see the Dockerfile), the one CI
+# built and pushed (ci.yml), pulled by the deploy with IMAGE_TAG = the commit's SHA (`qa` by
+# default: the latest main or release build). RDWS_SERVICE picks the binary of each container.
+# The gateway's build section is there for a local `docker compose build`.
 name: rdws_qa
 
 x-db-env: &db-env
@@ -19,18 +20,19 @@ x-db-env: &db-env
 
 services:
   gateway:
-    build:
+    build: # one image for every service: building it once, here, is enough
       context: .
       target: runtime
       args:
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/service_gateway_http:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_gateway_qa
     restart: unless-stopped
     ports:
       - "8080:8080" # TCP — backends registry (ServiceGateway)
       - "3001:3001" # HTTP — gateway API
     environment:
+      RDWS_SERVICE: service_gateway_http
       RDWS_AUTH_MODE: jwt
       RDWS_JWT_SECRET: ${RDWS_JWT_SECRET:?RDWS_JWT_SECRET não definido (ver .env.qa.example)}
       RDWS_JWT_ISSUER: ${RDWS_JWT_ISSUER:-}
@@ -40,18 +42,13 @@ services:
     command: ["8080", "3001", "/tmp/service_gateway.sock", "/app/data/routes.json"]
 
   auth_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: auth_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/auth_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_auth_qa
     restart: unless-stopped
     depends_on:
       - gateway
     environment:
+      RDWS_SERVICE: auth_service
       <<: *db-env
       # Mesmo segredo do gateway (RDWS_JWT_SECRET) — nome de env diferente porque o
       # auth_service lê JWT_SECRET diretamente, sem o prefixo RDWS_.
@@ -59,120 +56,85 @@ services:
     command: ["auth_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   farm_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: farm_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/farm_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_farm_qa
-    restart: unless-stopped
-    depends_on:
-      - gateway
-    environment: *db-env
-    command: ["farm_qa_001", "gateway-qa", "tcp://gateway:8080"]
-
-  field_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: field_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/field_service:${IMAGE_TAG:-qa}
-    container_name: rdws_field_qa
-    restart: unless-stopped
-    depends_on:
-      - gateway
-    environment: *db-env
-    command: ["field_qa_001", "gateway-qa", "tcp://gateway:8080"]
-
-  device_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: device_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/device_service:${IMAGE_TAG:-qa}
-    container_name: rdws_device_qa
     restart: unless-stopped
     depends_on:
       - gateway
     environment:
       <<: *db-env
+      RDWS_SERVICE: farm_service
+    command: ["farm_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  field_service:
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
+    container_name: rdws_field_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: field_service
+    command: ["field_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
+  device_service:
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
+    container_name: rdws_device_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment:
+      RDWS_SERVICE: device_service
+      <<: *db-env
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY não definido (32 bytes, ver .env.qa.example)}
     command: ["device_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   device_config_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: device_config_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/device_config_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_device_config_qa
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: device_config_service
     command: ["device_config_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   sensor_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: sensor_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/sensor_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_sensor_qa
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: sensor_service
     command: ["sensor_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   sensor_reading_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: sensor_reading_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/sensor_reading_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_sensor_reading_qa
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: sensor_reading_service
     command: ["sensor_reading_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   persistence_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: persistence_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/persistence_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_persistence_qa
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: persistence_service
     command: ["persistence_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   ingestion_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: ingestion_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/ingestion_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_ingestion_qa
     restart: unless-stopped
     depends_on:
@@ -180,6 +142,7 @@ services:
     ports:
       - "5684:5684/udp" # CoAP/DTLS — devices/SensorSimulatorService connect here
     environment:
+      RDWS_SERVICE: ingestion_service
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
       RABBITMQ_USER: ${RABBITMQ_USER:-rdws_user}
@@ -190,16 +153,11 @@ services:
     command: ["ingestion_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
   reading_writer_service:
-    build:
-      context: .
-      target: runtime
-      args:
-        SERVICE: reading_writer_service
-        RDWS_VERSION: ${RDWS_VERSION:-}
-    image: ghcr.io/rdmse/rdws_us/reading_writer_service:${IMAGE_TAG:-qa}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_reading_writer_qa
     restart: unless-stopped
     environment:
+      RDWS_SERVICE: reading_writer_service
       <<: *db-env
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"

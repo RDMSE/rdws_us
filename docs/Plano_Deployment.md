@@ -324,16 +324,17 @@ QA por `pull`, o que voltou a valer):
 
 - **`.github/workflows/ci.yml`**: em push na `main`, em tag `v*` e em PR — build + `ctest`
   no runner self-hosted, checagem dos cabeçalhos SPDX (RDWS-163) e o teste de consumidor
-  (RDWS-201). Na `main` e em tag, o mesmo job constrói as **12** imagens de serviço
-  (inclusive ingestion, writer e simulador) numa sessão só do BuildKit
-  (`docker-compose.build.yml`), que compila uma vez e reaproveita o builder em cache, e as
-  publica em paralelo em `ghcr.io/rdmse/rdws_us/<service>:<sha|qa|latest>`, mais `:vX.Y.Z`
-  numa tag. Doze `docker build` separados em paralelo levavam 9 min 23 s.
+  (RDWS-201), e constrói **uma imagem só para todos os serviços** (o estágio de runtime
+  sobre o builder que acabou de passar nos testes; cada container escolhe o binário por
+  `RDWS_SERVICE`). Na `main` e em tag, publica essa imagem em
+  `ghcr.io/rdmse/rdws_us/services:<sha|qa|latest>`, mais `:vX.Y.Z` numa tag. Antes eram 12
+  imagens, uma por serviço: mesmo com a compilação em cache, exportar e publicar as 12 levava
+  uns 5 min por merge.
 - **`.github/workflows/deploy-qa.yml`**: `workflow_run` depois do CI na `main`, no runner
   self-hosted do homelab. Gera o `.env.qa` dos secrets (com `IMAGE_TAG` = SHA do commit),
   garante o Postgres de QA, roda o Flyway, garante o RabbitMQ, **puxa e sobe** o app
-  (`docker-compose.qa-app.yml pull` + `up -d`, sem build), recria os simuladores com a imagem
-  do CI (`scripts/qa_simulators.sh`), sobe a observabilidade, faz o health check e
+  (`docker-compose.qa-app.yml pull` + `up -d`, sem build), recria os simuladores com a mesma
+  imagem (`scripts/qa_simulators.sh`, `RDWS_SERVICE=sensor_simulator_service`), sobe a observabilidade, faz o health check e
   sincroniza o `routes.json` no gateway (`scripts/sync_gateway_routes.py`, RDWS-155). À mão
   (`workflow_dispatch`), o input `image_tag` escolhe a imagem; o padrão `qa` é o último build
   do `main` ou da tag de release.

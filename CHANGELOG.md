@@ -23,10 +23,11 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `.dockerignore` tira do contexto do build o que não é código (docs, Bruno, infra, CI, os
   `.env` gerados pelos deploys): o deploy de QA reaproveita a compilação do CI e um commit só de
   docs não recompila nada ([RDWS-205]).
-- As imagens dos 12 serviços são construídas uma vez só, no CI, numa sessão do BuildKit
-  (`docker-compose.build.yml`), e publicadas no GHCR (inclusive ingestion, writer e simulador, que antes o deploy construía); o job
-  `push-ghcr` saiu. O deploy de QA puxa as imagens do commit em vez de construí-las
-  ([RDWS-205]).
+- **Uma imagem só para todos os serviços** (`ghcr.io/rdmse/rdws_us/services`): o estágio de
+  runtime leva os binários que o builder compilou e testou, e cada container escolhe o dele
+  por `RDWS_SERVICE`. O CI a constrói e publica uma vez; o deploy de QA a puxa pelo SHA do
+  commit em vez de construir. Saem os 12 pacotes por serviço no GHCR e o job `push-ghcr`.
+  Do merge ao QA atualizado: de ~21 min para ~9 min (estimado; medido no QA) ([RDWS-205]).
 
 ### Ingestão
 - No QA, a ingestion se registra no gateway com o ambiente `qa` (antes, `test`: faltava o
