@@ -47,8 +47,8 @@ private:
   // closing the connection, leaves recv() blocked forever, and PINGs still "succeed" into the
   // kernel buffer. Any inbound message (PONG, REQUEST, INVOKE_RESPONSE, ACK) proves the
   // connection alive; pingLoop drops the connection after deadAfter_ of silence, and run()
-  // reconnects. Milliseconds of std::chrono::steady_clock, set by connect() and messageLoop().
-  std::atomic<int64_t> lastHeardMs_{0};
+  // reconnects. Set by connect() and messageLoop(), read by pingLoop().
+  std::atomic<std::chrono::steady_clock::time_point> lastHeard_{};
   std::chrono::milliseconds pingInterval_{std::chrono::seconds(30)};
   std::chrono::milliseconds deadAfter_{std::chrono::seconds(75)}; // two lost PONGs + margin
 

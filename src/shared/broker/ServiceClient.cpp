@@ -51,16 +51,12 @@ bool ServiceClient::connect() {
 }
 
 void ServiceClient::markHeard() {
-  lastHeardMs_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
-                         std::chrono::steady_clock::now().time_since_epoch())
-                         .count());
+  lastHeard_.store(std::chrono::steady_clock::now());
 }
 
 std::chrono::milliseconds ServiceClient::sinceHeard() const {
-  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::steady_clock::now().time_since_epoch())
-                       .count();
-  return std::chrono::milliseconds(now - lastHeardMs_.load());
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                               lastHeard_.load());
 }
 
 void ServiceClient::setHeartbeat(std::chrono::milliseconds pingInterval,
