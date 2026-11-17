@@ -28,7 +28,7 @@ x-service-limits: &service-limits
 
 services:
   gateway:
-    image: ghcr.io/rdmse/rdws_us/service_gateway_http:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_gateway_prod
     restart: unless-stopped
     deploy:
@@ -39,6 +39,7 @@ services:
       - "8080:8080" # TCP — backends registry (ServiceGateway)
       - "3001:3001" # HTTP — gateway API
     environment:
+      RDWS_SERVICE: service_gateway_http
       RDWS_AUTH_MODE: jwt
       RDWS_JWT_SECRET: ${RDWS_JWT_SECRET:?RDWS_JWT_SECRET não definido (ver .env.prod.example)}
       RDWS_JWT_ISSUER: ${RDWS_JWT_ISSUER:-}
@@ -49,12 +50,13 @@ services:
 
   auth_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/auth_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_auth_prod
     restart: unless-stopped
     depends_on:
       - gateway
     environment:
+      RDWS_SERVICE: auth_service
       <<: *db-env
       # Mesmo segredo do gateway (RDWS_JWT_SECRET) — nome de env diferente porque o
       # auth_service lê JWT_SECRET diretamente, sem o prefixo RDWS_.
@@ -63,74 +65,87 @@ services:
 
   farm_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/farm_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_farm_prod
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: farm_service
     command: ["farm_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
   field_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/field_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_field_prod
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: field_service
     command: ["field_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
   device_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/device_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_device_prod
     restart: unless-stopped
     depends_on:
       - gateway
     environment:
+      RDWS_SERVICE: device_service
       <<: *db-env
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY não definido (32 bytes, ver .env.prod.example)}
     command: ["device_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
   device_config_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/device_config_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_device_config_prod
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: device_config_service
     command: ["device_config_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
   sensor_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/sensor_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_sensor_prod
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: sensor_service
     command: ["sensor_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
   sensor_reading_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/sensor_reading_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_sensor_reading_prod
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: sensor_reading_service
     command: ["sensor_reading_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
   persistence_service:
     <<: *service-limits
-    image: ghcr.io/rdmse/rdws_us/persistence_service:${IMAGE_TAG:-latest}
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-latest}
     container_name: rdws_persistence_prod
     restart: unless-stopped
     depends_on:
       - gateway
-    environment: *db-env
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: persistence_service
     command: ["persistence_prod_001", "gateway-prod", "tcp://gateway:8080"]
 
 volumes:
