@@ -42,6 +42,16 @@ private:
   std::atomic<bool> connected{false};
   std::atomic<bool> registered{false};
   std::atomic<bool> stopRequested{false};
+
+  // Half-open connection detection: a gateway that hangs, or a network that drops without
+  // closing the connection, leaves recv() blocked forever, and PINGs still "succeed" into the
+  // kernel buffer. Any inbound message (PONG, REQUEST, INVOKE_RESPONSE, ACK) proves the
+  // connection alive; pingLoop drops the connection after deadAfter_ of silence, and run()
+  // reconnects. Set by connect() and messageLoop(), read by pingLoop().
+  std::atomic<std::chrono::steady_clock::time_point> lastHeard_{};
+  std::chrono::milliseconds pingInterval_{std::chrono::seconds(30)};
+  std::chrono::milliseconds deadAfter_{std::chrono::seconds(75)}; // two lost PONGs + margin
+
   std::thread messageThread;
   std::thread pingThread;
 
@@ -93,6 +103,10 @@ public:
   // Request handling
   void setRequestHandler(const RequestHandler& handler);
 
+  // PING period and how long a silent broker is tolerated before reconnecting (defaults
+  // 30 s / 75 s). Call before run(); tests use short values.
+  void setHeartbeat(std::chrono::milliseconds pingInterval, std::chrono::milliseconds deadAfter);
+
   // Communication
   [[nodiscard]] bool sendPing() const;
   [[nodiscard]] bool sendPing(const rapidjson::Document& stats) const;
@@ -116,7 +130,9 @@ private:
   [[nodiscard]] int createConnection() const;
   [[nodiscard]] bool sendMessage(const rapidjson::Document& message) const;
   void messageLoop();
-  void pingLoop() const;
+  void pingLoop();
+  void markHeard();
+  [[nodiscard]] std::chrono::milliseconds sinceHeard() const;
   // Blocks in small increments (so stop() can interrupt promptly) for `backoff`,
   // then doubles it up to a cap. Returns the next backoff to use.
   std::chrono::milliseconds waitBeforeReconnect(std::chrono::milliseconds backoff) const;

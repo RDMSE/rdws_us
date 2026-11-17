@@ -15,6 +15,10 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 ## [Não lançado]
 
 ### Plataforma
+- O client do broker detecta uma conexão meio-aberta (gateway travado, ou a rede caiu sem
+  fechar a conexão): sem nenhuma mensagem do broker por 75 s, desconecta e o laço de reconexão
+  assume. Antes, o `recv()` ficava bloqueado para sempre e o serviço parecia no ar sem receber
+  nada ([RDWS-212]).
 - O client do broker (`ServiceClient`, `ServiceIdentity`) virou a biblioteca `rdws_broker_client`
   em `src/shared/broker/`, Apache-2.0 como o resto de `src/shared`. Os serviços a linkam no lugar
   do gateway inteiro (só o `auth_service` ainda usa o gateway, para assinar o JWT). Outro projeto
@@ -158,3 +162,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-203]: https://github.com/RDMSE/rdws_us/issues/203
 [RDWS-205]: https://github.com/RDMSE/rdws_us/issues/205
 [RDWS-210]: https://github.com/RDMSE/rdws_us/issues/210
+[RDWS-212]: https://github.com/RDMSE/rdws_us/issues/212

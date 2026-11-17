@@ -796,11 +796,13 @@ Afetava todo `App*Service` que usa `ServiceClient`.
   `socketFd` atômico, `invoke()` só depois de registrado).
 - ✅ Sem novos zumbis no QA de 2026-07-23 a 2026-10-23.
 - ⬜ Não investigado: o gatilho da queda original (2026-07-22, ~09:18).
-- ⬜ Conexão meio-aberta (o gateway some sem FIN): `recv()` fica bloqueado e o `send()`
-  do PING continua aceito pelo kernel enquanto o TCP retransmite, então nada derruba a
-  conexão. Proposta: timeout de PONG no cliente — sem PONG por ~2 intervalos de ping,
-  `shutdown()` no socket e o laço de reconexão assume. Preferido a `SO_KEEPALIVE`, que não
-  pega um gateway travado com o socket aberto. No `Backlog.md` (P2).
+- ✅ Conexão meio-aberta (o gateway some sem FIN): `recv()` fica bloqueado e o `send()`
+  do PING continua aceito pelo kernel enquanto o TCP retransmite, então nada derrubava a
+  conexão. RDWS-212: o cliente marca a última mensagem recebida do broker (qualquer uma, não
+  só PONG); sem nada por 75 s (dois PONGs perdidos e uma margem, com PING a cada 30 s), o
+  `pingLoop` chama `disconnect()`, o `shutdown()` desbloqueia o `recv()` e o laço de
+  reconexão assume. Preferido a `SO_KEEPALIVE`, que não pega um gateway travado com o socket
+  aberto. Testado com um broker falso que responde ao IDENTIFY e depois fica em silêncio.
 
 ---
 
@@ -811,11 +813,10 @@ e 13b estão feitas, assim como o pipeline de ingestão (`Plano_Ingestion.md`), 
 A reconexão do `ServiceClient` (RDWS-92) e a autenticação do CRUD de `/routes` (RDWS-155)
 também. O que sobra deste plano, em ordem sugerida de valor:
 
-1. **Timeout de PONG no `ServiceClient`** (conexão meio-aberta, seção do RDWS-92).
-2. Trocar a senha do admin no QA e criar um usuário próprio para o deploy (RDWS-187).
-3. Fase 13c (dono e acesso cruzado), com o `rdws_web` (RDWS-189).
-4. Wrappers semânticos do `ResponseHelper`, metadados livres do device, testes de carga.
-5. Fase 14 (multi-instância) e migrar `routes.json`/`GatewayConfig` para o banco — por
+1. Trocar a senha do admin no QA e criar um usuário próprio para o deploy (RDWS-187).
+2. Fase 13c (dono e acesso cruzado), com o `rdws_web` (RDWS-189).
+3. Wrappers semânticos do `ResponseHelper`, metadados livres do device, testes de carga.
+4. Fase 14 (multi-instância) e migrar `routes.json`/`GatewayConfig` para o banco — por
    último, sem data.
 
 A lista consolidada de pendências dos planos está em `docs/Backlog.md`.

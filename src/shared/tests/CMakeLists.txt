@@ -212,3 +212,15 @@ target_link_libraries(shared_version_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_version_tests)
+
+add_executable(shared_service_client_heartbeat_tests
+    test_service_client_heartbeat.cpp
+)
+target_link_libraries(shared_service_client_heartbeat_tests PRIVATE
+    rdws_broker_client
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_service_client_heartbeat_tests
+    PROPERTIES TIMEOUT 30 # fake broker over a UNIX socket, a few seconds each
+)
