@@ -15,7 +15,7 @@ int main() {
   identity.capabilities = {"hello.say"};
 
   const servicegateway::ServiceClient client(identity, "unix:///tmp/rdws_consumer_smoke.sock");
-  std::cout << "rdws_us " << rdws::kVersion << " (API " << rdws::kApiVersion << "): "
+  std::cout << "rdws_us " << rdws::version() << " (API " << rdws::kApiVersion << "): "
             << identity.serviceName << " ready, connected=" << std::boolalpha
             << client.isConnected() << '\n';
   return client.isConnected() ? 1 : 0; // nothing to connect to

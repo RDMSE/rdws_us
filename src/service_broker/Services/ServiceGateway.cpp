@@ -932,7 +932,7 @@ rapidjson::Document ServiceGateway::getGatewayStatus() const {
 
   rapidjson::Value statusValue = json::JsonObj(allocator)
       .set("status", running.load())
-      .set("version", rdws::kVersion)
+      .set("version", rdws::version())
       .set("apiVersion", rdws::kApiVersion)
       .set("tcpPort", tcpPort)
       .set("unixSocket", unixSocketPath)

@@ -174,7 +174,7 @@ public:
     identity.serviceName = "sensor_simulator_service";
     identity.serviceId = "simulator_" + deviceId_;
     identity.machineName = "localhost";
-    identity.version = rdws::kVersion;
+    identity.version = rdws::version();
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 1;
     identity.capabilities = {};

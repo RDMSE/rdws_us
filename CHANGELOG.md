@@ -27,7 +27,10 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   runtime leva os binários que o builder compilou e testou, e cada container escolhe o dele
   por `RDWS_SERVICE`. O CI a constrói e publica uma vez; o deploy de QA a puxa pelo SHA do
   commit em vez de construir. Saem os 12 pacotes por serviço no GHCR e o job `push-ghcr`.
-  Do merge ao QA atualizado: de ~21 min para ~9 min (estimado; medido no QA) ([RDWS-205]).
+  Do merge ao QA atualizado: de ~21 min para ~7 min ([RDWS-205]).
+- A versão da solução vai para a imagem como variável de ambiente (`RDWS_VERSION`, lida por
+  `rdws::version()`), e não mais compilada: o CI do merge reaproveita a compilação do PR em vez
+  de compilar tudo de novo, porque a versão muda a cada commit ([RDWS-210]).
 
 ### Ingestão
 - No QA, a ingestion se registra no gateway com o ambiente `qa` (antes, `test`: faltava o
@@ -154,3 +157,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-201]: https://github.com/RDMSE/rdws_us/issues/201
 [RDWS-203]: https://github.com/RDMSE/rdws_us/issues/203
 [RDWS-205]: https://github.com/RDMSE/rdws_us/issues/205
+[RDWS-210]: https://github.com/RDMSE/rdws_us/issues/210

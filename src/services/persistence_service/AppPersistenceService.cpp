@@ -78,7 +78,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "persistence_service";
     identity.serviceId = serviceId;
-    identity.version = rdws::kVersion;
+    identity.version = rdws::version();
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"persistence.save.request", "persistence.save.metrics"};

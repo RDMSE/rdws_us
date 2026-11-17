@@ -89,7 +89,7 @@ public:
 
   void run() {
     running_.store(true);
-    logger::info("ReadingWriterService starting", std::string("version=") + rdws::kVersion);
+    logger::info("ReadingWriterService starting", std::string("version=") + rdws::version());
     const auto onReading = [this](const std::string& body) { return handleMessage(body); };
     const auto onTelemetry = [this](const std::string& body) {
       return handleTelemetryMessage(body);

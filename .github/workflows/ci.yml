@@ -33,8 +33,8 @@ jobs:
       - name: Build builder stage (build and prepare tests)
         run: |
           echo "version: $RDWS_VERSION"
-          docker build --target builder --build-arg RDWS_VERSION="$RDWS_VERSION" \
-            -t rdws_us-builder:${{ github.sha }} .
+          # No version here: the builder doesn't take it (Dockerfile, it's set in the runtime stage)
+          docker build --target builder -t rdws_us-builder:${{ github.sha }} .
 
       - name: Run ctest
         run: |
@@ -46,7 +46,7 @@ jobs:
       # dependencies the builder already fetched.
       - name: Consumer smoke test (RDWS_SHARED_ONLY)
         run: |
-          docker run --rm rdws_us-builder:${{ github.sha }} bash -c \
+          docker run --rm -e RDWS_VERSION="$RDWS_VERSION" rdws_us-builder:${{ github.sha }} bash -c \
             'cmake -S tests/consumer -B /tmp/consumer -DFETCHCONTENT_BASE_DIR=/src/build/_deps \
              && cmake --build /tmp/consumer -j"$(nproc)" && /tmp/consumer/hello'
 

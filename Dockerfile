@@ -26,16 +26,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 
-# .git isn't in the build context (.dockerignore), so the version comes from outside:
-# scripts/rdws_version.sh in CI/deploy (README, "Versões"). Empty = v0.0.0-unknown.
-ARG RDWS_VERSION=
-
 # Complete build (all targets, including tests): the most expensive layer, cached between
-# builds while the sources don't change.
+# builds while the sources don't change. The version is deliberately NOT an input here: it is
+# the commit's `git describe`, so it would change the cache key on every commit (a merge would
+# recompile what its PR's CI had just compiled). The binaries read it at runtime from
+# RDWS_VERSION, set in the runtime stage below (rdws::version()); compiled in, it stays the
+# placeholder v0.0.0-unknown (.git isn't in the build context).
 # The job count shows in the build log: all the CPUs the build sees (no limit on the daemon)
 RUN echo "compile jobs: $(nproc)" \
     && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
-        -DRDWS_VERSION="${RDWS_VERSION}" \
     && cmake --build build -j"$(nproc)"
 
 # The service binaries that go into the image. They are located in different places depending
@@ -72,5 +71,10 @@ RUN chmod +x ./docker-entrypoint.sh
 # TCP broker (service registry) + HTTP API — only the gateway listens, but harmless
 # to declare for the other services as well.
 EXPOSE 8080 3001
+
+# Last, and cheap: the version of the solution (scripts/rdws_version.sh in CI, README "Versões"),
+# read at runtime by rdws::version(). Empty = the compiled placeholder.
+ARG RDWS_VERSION=
+ENV RDWS_VERSION=${RDWS_VERSION}
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
