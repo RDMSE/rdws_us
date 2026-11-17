@@ -5,7 +5,13 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        # After a release tag's CI (README, "Lançar uma versão"), `qa` is the tag's build
+        description: "Image tag to deploy (a commit SHA, or qa = the latest main/release build)"
+        required: true
+        default: qa
 
 jobs:
   deploy:
@@ -14,6 +20,12 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, homelab, docker]
     environment: qa
+    permissions:
+      contents: read
+      packages: read # pull the images CI built
+    env:
+      # The commit CI just built and pushed; by hand, the chosen tag
+      IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,8 +48,11 @@ jobs:
           RABBITMQ_USER=${{ vars.RABBITMQ_USER }}
           RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
           EOF
-          # Version of the solution for the images' build args (README, "Versões")
+          # Version of the solution for the images' build args (README, "Versões"): only used
+          # by a local `docker compose build`, the deploy pulls the images CI built
           echo "RDWS_VERSION=$(scripts/rdws_version.sh)" >> .env.qa
+          # Which images: compose and scripts/qa_simulators.sh read it from this file
+          echo "IMAGE_TAG=$IMAGE_TAG" >> .env.qa
 
       - name: Ensure QA Postgres is up
         run: docker compose -f docker-compose.qa-db.yml --env-file .env.qa up -d postgres
@@ -48,8 +63,19 @@ jobs:
       - name: Ensure QA RabbitMQ is up
         run: docker compose -f docker-compose.qa-mq.yml --env-file .env.qa up -d
 
-      - name: Build and deploy gateway + services
-        run: docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d --build
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No build here: the images are the ones CI built and pushed for this commit (ci.yml)
+      - name: Pull and deploy gateway + services
+        run: |
+          echo "image tag: $IMAGE_TAG"
+          docker compose -f docker-compose.qa-app.yml --env-file .env.qa pull
+          docker compose -f docker-compose.qa-app.yml --env-file .env.qa up -d
 
       - name: Deploy sensor simulators (one per devices.is_simulated)
         run: scripts/qa_simulators.sh .env.qa

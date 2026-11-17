@@ -3,6 +3,10 @@
 # Postgres. The db compose must be running (docker-compose.qa-db.yml up -d) before
 # this one, so the services can resolve "postgres" via the shared network
 # (name: rdws_qa is the same in both files).
+#
+# Images: the ones CI built and pushed (ci.yml), pulled by the deploy with IMAGE_TAG = the
+# commit's SHA (`qa` by default: the latest main or release build). The build sections stay
+# for a local `docker compose build`.
 name: rdws_qa
 
 x-db-env: &db-env
@@ -20,7 +24,7 @@ services:
       target: runtime
       args:
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-gateway:qa
+    image: ghcr.io/rdmse/rdws_us/service_gateway_http:${IMAGE_TAG:-qa}
     container_name: rdws_gateway_qa
     restart: unless-stopped
     ports:
@@ -42,7 +46,7 @@ services:
       args:
         SERVICE: auth_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-auth:qa
+    image: ghcr.io/rdmse/rdws_us/auth_service:${IMAGE_TAG:-qa}
     container_name: rdws_auth_qa
     restart: unless-stopped
     depends_on:
@@ -61,7 +65,7 @@ services:
       args:
         SERVICE: farm_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-farm:qa
+    image: ghcr.io/rdmse/rdws_us/farm_service:${IMAGE_TAG:-qa}
     container_name: rdws_farm_qa
     restart: unless-stopped
     depends_on:
@@ -76,7 +80,7 @@ services:
       args:
         SERVICE: field_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-field:qa
+    image: ghcr.io/rdmse/rdws_us/field_service:${IMAGE_TAG:-qa}
     container_name: rdws_field_qa
     restart: unless-stopped
     depends_on:
@@ -91,7 +95,7 @@ services:
       args:
         SERVICE: device_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-device:qa
+    image: ghcr.io/rdmse/rdws_us/device_service:${IMAGE_TAG:-qa}
     container_name: rdws_device_qa
     restart: unless-stopped
     depends_on:
@@ -108,7 +112,7 @@ services:
       args:
         SERVICE: device_config_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-device-config:qa
+    image: ghcr.io/rdmse/rdws_us/device_config_service:${IMAGE_TAG:-qa}
     container_name: rdws_device_config_qa
     restart: unless-stopped
     depends_on:
@@ -123,7 +127,7 @@ services:
       args:
         SERVICE: sensor_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-sensor:qa
+    image: ghcr.io/rdmse/rdws_us/sensor_service:${IMAGE_TAG:-qa}
     container_name: rdws_sensor_qa
     restart: unless-stopped
     depends_on:
@@ -138,7 +142,7 @@ services:
       args:
         SERVICE: sensor_reading_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-sensor-reading:qa
+    image: ghcr.io/rdmse/rdws_us/sensor_reading_service:${IMAGE_TAG:-qa}
     container_name: rdws_sensor_reading_qa
     restart: unless-stopped
     depends_on:
@@ -153,7 +157,7 @@ services:
       args:
         SERVICE: persistence_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-persistence:qa
+    image: ghcr.io/rdmse/rdws_us/persistence_service:${IMAGE_TAG:-qa}
     container_name: rdws_persistence_qa
     restart: unless-stopped
     depends_on:
@@ -168,7 +172,7 @@ services:
       args:
         SERVICE: ingestion_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-ingestion:qa
+    image: ghcr.io/rdmse/rdws_us/ingestion_service:${IMAGE_TAG:-qa}
     container_name: rdws_ingestion_qa
     restart: unless-stopped
     depends_on:
@@ -192,7 +196,7 @@ services:
       args:
         SERVICE: reading_writer_service
         RDWS_VERSION: ${RDWS_VERSION:-}
-    image: rdws_us-reading-writer:qa
+    image: ghcr.io/rdmse/rdws_us/reading_writer_service:${IMAGE_TAG:-qa}
     container_name: rdws_reading_writer_qa
     restart: unless-stopped
     environment:

@@ -344,7 +344,7 @@ nenhum arquivo do repositório guarda o número.
    `:v0.1.0` e republica a `:qa`, agora construída com a versão da tag. O deploy de QA só roda
    sozinho depois do CI do `main` (que já rodou no merge do mesmo commit): para o QA mostrar a
    versão da tag no `GET /status`, rode o **Deploy QA** à mão (Actions → Deploy QA → Run
-   workflow) depois que o CI da tag terminar.
+   workflow, com o `image_tag` padrão `qa`) depois que o CI da tag terminar.
 
 ## Licença
 

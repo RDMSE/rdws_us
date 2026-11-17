@@ -13,6 +13,16 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: [self-hosted, homelab, docker]
+    permissions:
+      contents: read
+      packages: write # the service images, on main and on release tags
+    env:
+      # Every service image: the 9 HTTP-facing ones plus ingestion, writer and simulator, which
+      # the QA deploy used to build itself. Each is the runtime stage over the same builder.
+      SERVICES: >-
+        service_gateway_http auth_service farm_service field_service device_service
+        device_config_service sensor_service sensor_reading_service persistence_service
+        ingestion_service reading_writer_service sensor_simulator_service
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,65 +61,55 @@ jobs:
         run: |
           docker build --build-arg RDWS_VERSION="$RDWS_VERSION" -t rdws_us-gateway:${{ github.sha }} .
 
-      - name: Clean up local images
-        if: always()
-        run: |
-          docker image rm rdws_us-builder:${{ github.sha }} rdws_us-gateway:${{ github.sha }} || true
-
-  push-ghcr:
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: [self-hosted, homelab, docker]
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        service:
-          - service_gateway_http
-          - auth_service
-          - farm_service
-          - field_service
-          - device_service
-          - device_config_service
-          - sensor_service
-          - sensor_reading_service
-          - persistence_service
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0 # tags, for scripts/rdws_version.sh
-
-      - name: Version of the solution
-        run: echo "RDWS_VERSION=$(scripts/rdws_version.sh)" >> "$GITHUB_ENV"
-
+      # Built once, here, from the builder already in the cache: the QA deploy pulls these
+      # instead of building (README, "Versões"). In parallel, since each one only adds the
+      # runtime stage; then pushed in parallel too.
       - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push the service images
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         run: |
-          IMAGE=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')/${{ matrix.service }}
-          docker build --build-arg SERVICE=${{ matrix.service }} \
-            --build-arg RDWS_VERSION="$RDWS_VERSION" \
-            -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:qa" -t "$IMAGE:latest" .
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:qa"
-          docker push "$IMAGE:latest"
-          # On a release tag, the image also gets the version (vX.Y.Z)
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:${{ github.ref_name }}"
-            docker push "$IMAGE:${{ github.ref_name }}"
-          fi
+          REPO=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          TAGS="${{ github.sha }} qa latest"
+          # On a release tag the images also get the version (vX.Y.Z)
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then TAGS="$TAGS ${{ github.ref_name }}"; fi
+
+          run_all() { # run_all <label> <command...>, one per service in $SERVICES, in parallel
+            local label=$1; shift
+            local pids=() names=() failed=0
+            for svc in $SERVICES; do
+              ( "$@" "$svc" > "/tmp/$label-$svc.log" 2>&1 ) & pids+=($!); names+=("$svc")
+            done
+            for i in "${!pids[@]}"; do
+              if ! wait "${pids[$i]}"; then
+                echo "::error::$label failed for ${names[$i]}"; cat "/tmp/$label-${names[$i]}.log"; failed=1
+              fi
+            done
+            return $failed
+          }
+          build_image() {
+            local args=(); for t in $TAGS; do args+=(-t "$REPO/$1:$t"); done
+            docker build --build-arg SERVICE="$1" --build-arg RDWS_VERSION="$RDWS_VERSION" "${args[@]}" .
+          }
+          push_image() { for t in $TAGS; do docker push "$REPO/$1:$t"; done; }
+          export REPO TAGS RDWS_VERSION
+          time run_all build build_image
+          time run_all push push_image
 
       - name: Clean up local images
         if: always()
         run: |
-          IMAGE=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')/${{ matrix.service }}
-          docker image rm "$IMAGE:${{ github.sha }}" "$IMAGE:qa" "$IMAGE:latest" \
-            "$IMAGE:${{ github.ref_name }}" 2>/dev/null || true
+          docker image rm rdws_us-builder:${{ github.sha }} rdws_us-gateway:${{ github.sha }} || true
+          REPO=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          for svc in $SERVICES; do
+            for t in "${{ github.sha }}" "${{ github.ref_name }}"; do
+              docker image rm "$REPO/$svc:$t" 2>/dev/null || true
+            done
+          done
+
