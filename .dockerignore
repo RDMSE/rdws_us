@@ -1,8 +1,32 @@
+# Build context of the Dockerfile (`COPY . .`): anything listed here that changes no longer
+# invalidates the cache, so the compile step is reused across commits that don't touch the
+# sources (docs, Bruno, infra, CI) and across CI and the QA deploy on the same Docker host.
+# The image needs src/, cmake/, CMakeLists.txt, scripts/, tests/ (consumer smoke test),
+# routes.json, docker-entrypoint.sh, .env and .env.dev (copy_env_file).
+
 .git
+.github
+.dockerignore
+docker-compose*.yml
+
+# Local build trees
 build
-build-debug
-cmake-build-debug
-cmake-build-release
+build-*
+cmake-build-*
+
+# Written by the deploys (secrets) or local only: never in the image, and a fresh .env.qa on
+# every QA deploy used to invalidate the whole build
+.env.qa
+.env.prod
+.env.dev-db
+.env.*.example
+
+# Not part of the build
+bruno
+docs
+infra
+db
+sim_data
 logs
 *.log
-bruno
+/*.md
