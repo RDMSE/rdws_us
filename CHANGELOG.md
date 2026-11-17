@@ -23,8 +23,8 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - `.dockerignore` tira do contexto do build o que não é código (docs, Bruno, infra, CI, os
   `.env` gerados pelos deploys): o deploy de QA reaproveita a compilação do CI e um commit só de
   docs não recompila nada ([RDWS-205]).
-- As imagens dos 12 serviços são construídas uma vez só, no CI, em paralelo, e publicadas no
-  GHCR (inclusive ingestion, writer e simulador, que antes o deploy construía); o job
+- As imagens dos 12 serviços são construídas uma vez só, no CI, numa sessão do BuildKit
+  (`docker-compose.build.yml`), e publicadas no GHCR (inclusive ingestion, writer e simulador, que antes o deploy construía); o job
   `push-ghcr` saiu. O deploy de QA puxa as imagens do commit em vez de construí-las
   ([RDWS-205]).
 
