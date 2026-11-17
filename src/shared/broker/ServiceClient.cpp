@@ -7,6 +7,7 @@
 #include "../utils/logger.h"
 #include "../utils/response_helper.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -42,10 +43,30 @@ bool ServiceClient::connect() {
     return false;
   }
 
+  markHeard(); // a fresh connection starts the silence count
   connected.store(true);
   logger::info("Connected to broker", gatewayAddress);
 
   return true;
+}
+
+void ServiceClient::markHeard() {
+  lastHeardMs_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch())
+                         .count());
+}
+
+std::chrono::milliseconds ServiceClient::sinceHeard() const {
+  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                       .count();
+  return std::chrono::milliseconds(now - lastHeardMs_.load());
+}
+
+void ServiceClient::setHeartbeat(std::chrono::milliseconds pingInterval,
+                                 std::chrono::milliseconds deadAfter) {
+  pingInterval_ = pingInterval;
+  deadAfter_ = deadAfter;
 }
 
 void ServiceClient::disconnect() {
@@ -398,6 +419,7 @@ void ServiceClient::messageLoop() {
       break;
     }
 
+    markHeard(); // anything from the broker proves the connection alive
     buffer[bytesRead] = '\0';
     accumulator.append(buffer, bytesRead);
 
@@ -412,14 +434,31 @@ void ServiceClient::messageLoop() {
   }
 }
 
-void ServiceClient::pingLoop() const {
+void ServiceClient::pingLoop() {
+  // Ticks often enough for stop()/disconnect() to exit quickly and for the silence check to
+  // fire close to deadAfter_; a PING goes out every pingInterval_.
+  const auto tick = std::min<std::chrono::milliseconds>(std::chrono::seconds(1), pingInterval_);
+  auto sincePing = std::chrono::milliseconds::zero();
+
   while (connected.load()) {
-    // Sleep in 1-second increments so stop()/disconnect() can exit quickly.
-    for (int i = 0; i < 30 && connected.load(); ++i) {
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(tick);
+    sincePing += tick;
+    if (!connected.load()) {
+      break;
     }
 
-    if (connected.load() && registered.load()) {
+    // Half-open connection: nothing from the broker for too long (not even the PONGs of our
+    // own PINGs). Drop it; shutdown() unblocks messageLoop's recv() and run() reconnects.
+    if (const auto silent = sinceHeard(); silent > deadAfter_) {
+      logger::error("No message from the broker for " + std::to_string(silent.count() / 1000) +
+                        " s (gateway hung or connection half-open), reconnecting",
+                    identity.serviceId);
+      disconnect();
+      break;
+    }
+
+    if (sincePing >= pingInterval_ && registered.load()) {
+      sincePing = std::chrono::milliseconds::zero();
       // Send ping with current stats
       rapidjson::Document stats;
       stats.SetObject();
