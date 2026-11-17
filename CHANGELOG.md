@@ -9,10 +9,18 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
+| v0.3.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.2.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
+
+## [v0.3.0] — 2026-11-17
+
+Ponto estável antes do passo 3 da separação open-core (a exchange fanout, que mexe no caminho de
+escrita das leituras). Sem mudança de API nem de schema. O client do broker vira biblioteca
+própria e ganha a detecção de conexão meio-aberta; o CI e o deploy de QA passam a usar uma imagem
+só, e do merge ao QA atualizado caiu de ~21 para ~4 min.
 
 ### Plataforma
 - O client do broker detecta uma conexão meio-aberta (gateway travado, ou a rede caiu sem
