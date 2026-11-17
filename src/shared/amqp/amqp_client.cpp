@@ -58,14 +58,33 @@ bool declareQueue(amqp_connection_state_t conn, const std::string& queueName) {
   return rpcOk(conn);
 }
 
+// Durable fanout exchange and the queue's binding to it; idempotent, both producer and
+// consumer call it. Nothing to do without an exchange.
+bool declareExchangeAndBind(amqp_connection_state_t conn, const std::string& exchange,
+                            const std::string& queueName) {
+  if (exchange.empty()) {
+    return true;
+  }
+  amqp_exchange_declare(conn, kChannel, amqp_cstring_bytes(exchange.c_str()),
+                        amqp_cstring_bytes("fanout"), /*passive=*/0, /*durable=*/1,
+                        /*auto_delete=*/0, /*internal=*/0, amqp_empty_table);
+  if (!rpcOk(conn)) {
+    return false;
+  }
+  amqp_queue_bind(conn, kChannel, amqp_cstring_bytes(queueName.c_str()),
+                  amqp_cstring_bytes(exchange.c_str()), amqp_empty_bytes, amqp_empty_table);
+  return rpcOk(conn);
+}
+
 } // namespace
 
 // ─── AmqpProducer ──────────────────────────────────────────────────────────
 
 AmqpProducer::AmqpProducer(std::string host, uint16_t port, std::string user,
-                          std::string password, std::string queueName)
+                          std::string password, std::string queueName, std::string exchange)
     : host_(std::move(host)), port_(port), user_(std::move(user)),
-      password_(std::move(password)), queueName_(std::move(queueName)) {}
+      password_(std::move(password)), queueName_(std::move(queueName)),
+      exchange_(std::move(exchange)) {}
 
 AmqpProducer::~AmqpProducer() { disconnect(); }
 
@@ -85,7 +104,8 @@ bool AmqpProducer::connect() {
   }
 
   amqp_channel_open(conn, kChannel);
-  bool ok = rpcOk(conn) && declareQueue(conn, queueName_);
+  bool ok = rpcOk(conn) && declareQueue(conn, queueName_) &&
+            declareExchangeAndBind(conn, exchange_, queueName_);
   if (ok) {
     amqp_confirm_select(conn, kChannel);
     ok = rpcOk(conn);
@@ -137,10 +157,15 @@ bool AmqpProducer::publishChunk(const std::vector<std::string>& bodies, size_t b
   props._flags = AMQP_BASIC_DELIVERY_MODE_FLAG;
   props.delivery_mode = 2; // persistent
 
+  // To the exchange (a fanout ignores the routing key), or to the default exchange with the
+  // queue's name as routing key
+  const amqp_bytes_t exchange =
+      exchange_.empty() ? amqp_empty_bytes : amqp_cstring_bytes(exchange_.c_str());
+  const amqp_bytes_t routingKey =
+      exchange_.empty() ? amqp_cstring_bytes(queueName_.c_str()) : amqp_empty_bytes;
   const uint64_t firstTag = nextDeliveryTag_;
   for (size_t i = begin; i < end; ++i) {
-    const int status = amqp_basic_publish(conn, kChannel, amqp_empty_bytes,
-                                          amqp_cstring_bytes(queueName_.c_str()),
+    const int status = amqp_basic_publish(conn, kChannel, exchange, routingKey,
                                           /*mandatory=*/0, /*immediate=*/0, &props,
                                           amqp_cstring_bytes(bodies[i].c_str()));
     if (status != AMQP_STATUS_OK) {
@@ -206,9 +231,10 @@ void AmqpProducer::disconnect() {
 // ─── AmqpConsumer ──────────────────────────────────────────────────────────
 
 AmqpConsumer::AmqpConsumer(std::string host, uint16_t port, std::string user,
-                          std::string password, std::string queueName)
+                          std::string password, std::string queueName, std::string exchange)
     : host_(std::move(host)), port_(port), user_(std::move(user)),
-      password_(std::move(password)), queueName_(std::move(queueName)) {}
+      password_(std::move(password)), queueName_(std::move(queueName)),
+      exchange_(std::move(exchange)) {}
 
 AmqpConsumer::~AmqpConsumer() { disconnect(); }
 
@@ -228,7 +254,8 @@ bool AmqpConsumer::connect() {
   }
 
   amqp_channel_open(conn, kChannel);
-  if (!rpcOk(conn) || !declareQueue(conn, queueName_)) {
+  if (!rpcOk(conn) || !declareQueue(conn, queueName_) ||
+      !declareExchangeAndBind(conn, exchange_, queueName_)) {
     amqp_destroy_connection(conn);
     return false;
   }

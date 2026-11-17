@@ -10,6 +10,11 @@
 
 namespace rdws::amqp {
 
+// Fanout exchange of the readings (open-core split, step 3): every consumer gets a copy of each
+// reading in its own queue — the writer in "sensor_readings", the private AlertingService in its
+// own. Several consumers on one queue would compete instead (each message to a single one).
+inline constexpr const char* kSensorReadingsExchange = "rdws.sensor_readings";
+
 // Thin wrappers around rabbitmq-c (AMQP 0-9-1) for the sensor_readings pipeline
 // (Plano_Ingestion.md) — one durable queue, one message per reading. Both classes
 // own a single connection for their lifetime (not pooled), matching the
@@ -18,19 +23,24 @@ namespace rdws::amqp {
 
 class AmqpProducer {
 public:
+  // exchange empty: publishes to the default exchange with queueName as routing key (one
+  // queue). With a fanout exchange: publishes to it, and also declares queueName and binds it
+  // there, so the queue of record exists before the first message: a fanout with no bound
+  // queue drops messages silently, and the confirm still acks.
   AmqpProducer(std::string host, uint16_t port, std::string user, std::string password,
-              std::string queueName);
+              std::string queueName, std::string exchange = {});
   ~AmqpProducer();
 
   AmqpProducer(const AmqpProducer&) = delete;
   AmqpProducer& operator=(const AmqpProducer&) = delete;
 
-  // Connects, declares the durable queue and puts the channel in confirm mode. Returns false
-  // on any failure.
+  // Connects, declares the durable queue (plus the exchange and the binding, when there is
+  // one) and puts the channel in confirm mode. Returns false on any failure.
   [[nodiscard]] bool connect();
 
-  // Publishes to the default exchange with the queue name as routing key and waits for the
-  // broker's confirm (basic.ack), so true means the broker has the message. A plain publish
+  // Publishes (to the exchange, or to the default one with the queue name as routing key) and
+  // waits for the broker's confirm (basic.ack), so true means the broker has the message: in
+  // every queue bound to the exchange, since they are durable. A plain publish
   // only writes to the socket: after a broker restart the first one still "succeeds" into
   // the kernel buffer and is lost. On failure the connection is dropped, reconnected and the
   // publish retried once — a message the broker did get before the failure may then arrive
@@ -57,6 +67,7 @@ private:
   std::string user_;
   std::string password_;
   std::string queueName_;
+  std::string exchange_; // empty = default exchange
   void* conn_ = nullptr; // amqp_connection_state_t, opaque to avoid leaking amqp.h here
   std::string lastError_;
 
@@ -77,8 +88,9 @@ public:
   };
   using MessageHandler = std::function<Outcome(const std::string& body)>;
 
+  // exchange set: the queue is also bound to it (its copy of a fanout's messages)
   AmqpConsumer(std::string host, uint16_t port, std::string user, std::string password,
-              std::string queueName);
+              std::string queueName, std::string exchange = {});
   ~AmqpConsumer();
 
   AmqpConsumer(const AmqpConsumer&) = delete;
@@ -106,6 +118,7 @@ private:
   std::string user_;
   std::string password_;
   std::string queueName_;
+  std::string exchange_; // empty = not bound to any exchange (default exchange only)
   void* conn_ = nullptr;
   bool consuming_ = false;
   std::string lastError_;

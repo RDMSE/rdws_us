@@ -15,6 +15,12 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ## [Não lançado]
 
+### Ingestão
+- As leituras passam por uma exchange fanout (`rdws.sensor_readings`): cada consumidor recebe a
+  própria cópia, numa fila sua. O writer continua na fila `sensor_readings`; a ingestion
+  declara essa fila e a ligação, para nenhuma leitura se perder se ela subir antes do writer.
+  Prepara o `AlertingService` do repositório privado ([RDWS-216]).
+
 ## [v0.3.0] — 2026-11-17
 
 Ponto estável antes do passo 3 da separação open-core (a exchange fanout, que mexe no caminho de
@@ -171,3 +177,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-205]: https://github.com/RDMSE/rdws_us/issues/205
 [RDWS-210]: https://github.com/RDMSE/rdws_us/issues/210
 [RDWS-212]: https://github.com/RDMSE/rdws_us/issues/212
+[RDWS-216]: https://github.com/RDMSE/rdws_us/issues/216

@@ -55,6 +55,13 @@ trigger não abre alarme nenhum. Os dados chegam mais cedo, e quem decide é a C
 
 **Decisão de design:** processo separado, consumindo o mesmo stream do RabbitMQ que o `ReadingWriterService` (fan-out — RabbitMQ já suporta múltiplos consumers/filas independentes do mesmo exchange), em paralelo, sem adicionar latência no caminho de escrita.
 
+**Como recebe a cópia (RDWS-216):** declara a própria fila durável (por exemplo
+`sensor_readings.alerting`) e a liga à exchange fanout `rdws.sensor_readings` (no código,
+`AmqpConsumer` com `rdws::amqp::kSensorReadingsExchange`). Não consome da `sensor_readings`:
+ali dois consumidores dividiriam as mensagens em vez de cada um receber todas. Enquanto a fila
+dele ainda não existir (antes da primeira subida), as leituras não chegam a ele; o registro no
+banco não é afetado, porque a ingestion garante a fila do writer.
+
 - **Sem estado em memória para série temporal.** Assumindo `sensor_readings` como
   hypertable TimescaleDB — **nota: isso ainda não é decisão fechada.** `Plano_DB_IOT_Sensors.md`
   lista TimescaleDB como "alternativa recomendada" ao particionamento manual, não como

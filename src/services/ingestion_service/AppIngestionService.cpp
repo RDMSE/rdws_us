@@ -87,7 +87,11 @@ public:
       : serviceId_(std::move(serviceId)), machineName_(std::move(machineName)),
         gatewayAddress_(std::move(gatewayAddress)), coapBindHost_(std::move(coapBindHost)),
         coapPort_(coapPort),
-        producer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
+        // To the readings' fanout: every consumer gets its copy. The producer also declares and
+        // binds the writer's queue, the record, so no reading is dropped while the writer
+        // hasn't started yet (a fanout with no bound queue discards silently)
+        producer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings",
+                  rdws::amqp::kSensorReadingsExchange),
         telemetryProducer_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
                            "device_telemetry") {}
 

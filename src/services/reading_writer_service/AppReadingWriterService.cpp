@@ -6,8 +6,10 @@
 // é um worker puro, sem capability registrada no gateway"). No ServiceClient/gateway
 // connection at all: just a direct Postgres connection and an AMQP consumer.
 //
-// Consumes the "sensor_readings" queue (one message per reading, published by
-// IngestionService; optional "flags" = SenML fl_ bitmask, V10) and writes to
+// Consumes the "sensor_readings" queue, its copy of the rdws.sensor_readings fanout exchange
+// (one message per reading, published by IngestionService; optional "flags" = SenML fl_
+// bitmask, V10; other consumers, like the private AlertingService, have their own queue on the
+// same exchange) and writes to
 // sensor_readings, idempotently (UNIQUE(sensor_id, timestamp), V8 migration) — only acks
 // after the insert is confirmed, so a crash mid-processing leaves the message for
 // redelivery instead of losing it.
@@ -81,7 +83,9 @@ public:
   AppReadingWriterService(std::string mqHost, uint16_t mqPort, std::string mqUser,
                           std::string mqPassword, int retentionDays)
       : retentionDays_(retentionDays),
-        consumer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings"),
+        // Its copy of the readings' fanout (the queue keeps its name from before the exchange)
+        consumer_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings",
+                  rdws::amqp::kSensorReadingsExchange),
         telemetryConsumer_(mqHost, mqPort, mqUser, mqPassword, "device_telemetry"),
         deadReadings_(mqHost, mqPort, mqUser, mqPassword, "sensor_readings.dead"),
         deadTelemetry_(std::move(mqHost), mqPort, std::move(mqUser), std::move(mqPassword),
