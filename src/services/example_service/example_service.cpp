@@ -141,7 +141,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "example_service";
     identity.serviceId = serviceId;
-    identity.version = rdws::kVersion;
+    identity.version = rdws::version();
     identity.environment = devMode ? "dev" : "prod";
     identity.maxConcurrent = 10;
     identity.capabilities = {"ping", "echo", "status", "info", "math"};

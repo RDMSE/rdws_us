@@ -103,7 +103,7 @@ public:
     identity.serviceName = "ingestion_service";
     identity.serviceId = serviceId_;
     identity.machineName = machineName_;
-    identity.version = rdws::kVersion;
+    identity.version = rdws::version();
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 1;
     identity.capabilities = {}; // pure client — never serves a capability

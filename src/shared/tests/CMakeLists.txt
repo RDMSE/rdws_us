@@ -202,3 +202,13 @@ target_link_libraries(shared_refresh_schedule_tests PRIVATE
     gtest
 )
 gtest_discover_tests(shared_refresh_schedule_tests)
+
+add_executable(shared_version_tests
+    test_version.cpp
+)
+target_link_libraries(shared_version_tests PRIVATE
+    rdws_version
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_version_tests)

@@ -91,7 +91,7 @@ public:
     identity.machineName = machineName;
     identity.serviceName = "farm_service";
     identity.serviceId = serviceId;
-    identity.version = rdws::kVersion;
+    identity.version = rdws::version();
     identity.environment = rdws::Config().getEnvironment();
     identity.maxConcurrent = 20;
     identity.capabilities = {"farm.list",   "farm.get",    "farm.create",
