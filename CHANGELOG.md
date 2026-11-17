@@ -20,6 +20,9 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   do gateway inteiro (só o `auth_service` ainda usa o gateway, para assinar o JWT). Outro projeto
   pode incluir o `rdws_us` e compilar só as bibliotecas compartilhadas (`RDWS_SHARED_ONLY`),
   testado no CI por `tests/consumer/` ([RDWS-201]).
+- `.dockerignore` tira do contexto do build o que não é código (docs, Bruno, infra, CI, os
+  `.env` gerados pelos deploys): o deploy de QA reaproveita a compilação do CI e um commit só de
+  docs não recompila nada ([RDWS-205]).
 
 ### Ingestão
 - No QA, a ingestion se registra no gateway com o ambiente `qa` (antes, `test`: faltava o
@@ -145,3 +148,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-199]: https://github.com/RDMSE/rdws_us/issues/199
 [RDWS-201]: https://github.com/RDMSE/rdws_us/issues/201
 [RDWS-203]: https://github.com/RDMSE/rdws_us/issues/203
+[RDWS-205]: https://github.com/RDMSE/rdws_us/issues/205
