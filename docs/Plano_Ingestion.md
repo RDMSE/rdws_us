@@ -306,9 +306,9 @@ type : ENUM('temperature', 'moisture', 'ph', 'humidity', 'luminosity',
 
 **Contexto:** com transmissão de até 1x/dia (o mínimo configurável), uma condição que
 merece alarme (geada, rajada perigosa, etc.) pode ocorrer logo após uma transmissão e só
-ser reportada até 24h depois — tarde demais para qualquer ação do produtor. O
-`Plano_Alerting.md` só avalia o que já chegou ao servidor; se o dado não chega, não tem
-o que avaliar.
+ser reportada até 24h depois — tarde demais para qualquer ação do produtor. A avaliação
+de alarmes (fora deste repositório, `Plano_Alerting.md`) só vê o que já chegou ao servidor;
+se o dado não chega, não tem o que avaliar.
 
 > **Revisto em 2026-10-07 e implementado em 2026-11-09/10** (contrato no §4 do
 > `rdws_weather_node/docs/Plano_Firmware_WeatherNode.md`): as regras vão em `triggers[]` dentro
@@ -336,11 +336,12 @@ regra local, o device dispara uma transmissão **imediata, fora do agendamento r
 - **Cooldown local, no próprio firmware:** evita que uma condição que oscila perto do
   limite (ex. vento variando ao redor do threshold de rajada) esgote a bateria disparando
   transmissão extra repetidamente — intervalo mínimo entre disparos de gatilho,
-  independente do cooldown que já existe no `NotificationService` (`Plano_Alerting.md`),
-  que é uma camada de proteção diferente (evita SMS repetido, não transmissão repetida).
+  independente do cooldown de notificação do lado dos alarmes, que é uma camada de proteção
+  diferente (evita SMS repetido, não transmissão repetida).
 - **Sem duplicar a lógica do `AlertingService`:** a leitura enviada por gatilho entra no
   pipeline exatamente como qualquer outra (`IngestionService` → fila →
-  `ReadingWriterService` → banco → Camada 1/2 do `Plano_Alerting.md`), só que mais cedo.
+  `ReadingWriterService` → banco, e a cópia pela fanout para quem avalia alarmes,
+  `Plano_Alerting.md`), só que mais cedo.
   O firmware não decide se é alarme — só decide que aquela leitura não pode esperar o
   próximo ciclo regular. A avaliação completa (histerese, correlação, notificação)
   continua sendo feita do lado servidor, como já desenhado.

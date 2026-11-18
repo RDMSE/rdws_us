@@ -16,6 +16,13 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ## [Não lançado]
 
+### Documentação
+- `Plano_Indices_Derivados.md` e `Plano_Alerting.md` ficam só com o que é da plataforma: a
+  config de cada leitura (D1.1), a altitude do device e o fuso da fazenda (D7), os triggers do
+  device (Camada 1), a plausibilidade e a cópia das leituras pela fanout. O cálculo dos índices
+  e a avaliação de alarmes saem deste repositório, com as seções correspondentes do
+  `Backlog.md` (separação open-core, passo 5) ([RDWS-221]).
+
 ## [v0.4.0] — 2026-11-17
 
 As leituras passam pela exchange fanout `rdws.sensor_readings` (passo 3 da separação open-core),
@@ -191,3 +198,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-212]: https://github.com/RDMSE/rdws_us/issues/212
 [RDWS-216]: https://github.com/RDMSE/rdws_us/issues/216
 [RDWS-219]: https://github.com/RDMSE/rdws_us/issues/219
+[RDWS-221]: https://github.com/RDMSE/rdws_us/issues/221

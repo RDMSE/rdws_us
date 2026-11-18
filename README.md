@@ -201,14 +201,14 @@ que o device triggerado está selecionado ali.
 
 - `Backlog.md` — pendências do backend com prioridade (o do firmware fica em `rdws_weather_node/docs/Backlog.md`).
 - `Plano_Telemetria.md` — contrato SenML com o device, diagnósticos (`device_telemetry`), config pelo `2.04` (D11) e saúde da frota.
-- `Plano_Indices_Derivados.md` — índices calculados no servidor (ponto de orvalho, `daily_weather`) e o histórico de config por leitura.
+- `Plano_Indices_Derivados.md` — o que a plataforma fornece aos índices derivados: a config de cada leitura (D1.1), a altitude do device e o fuso da fazenda (D7). O cálculo dos índices fica fora deste repositório.
 - `Plano_API_REST.md` — endpoints/capabilities de cada microserviço e contrato de payload.
 - `Plano_DB_IOT_Sensors.md` — modelo de dados, índices, particionamento e retenção.
 - `Plano_Gateway_HTTP.md` — histórico de evolução do gateway HTTP (fases concluídas e roadmap).
 - `Plano_Ingestion.md` — pipeline de ingestão de leituras (CoAP/DTLS → fila → escrita).
 - `Plano_Ingestion_Implementacao.md` — detalhamento de implementação (IngestionService, RabbitMQ, ReadingWriterService) + runbook de como subir tudo localmente e disparar via Bruno.
 - `Plano_DeviceCredentials.md` — provisionamento/rotação de credenciais PSK por device.
-- `Plano_Alerting.md` — detecção de condições anormais (limites, dewpoint) e geração de alarmes por fazenda.
+- `Plano_Alerting.md` — fronteira dos alarmes: triggers do device (Camada 1), plausibilidade e a cópia das leituras pela fanout. A avaliação de alarmes e a notificação ficam fora deste repositório.
 - `Plano_Deployment.md` — dockerização e CI/CD para os ambientes dev local, QA homelab e prod VPS.
 - `Plano_SensorSimulatorService.md` — plano da ferramenta `Sensor Simulator Service`, usada para simular dados de sensores enquanto o hardware físico não está disponível.
 - `Plano_SensorSimulatorService_Implementacao.md` — detalhamento de implementação (device_credentials, is_simulated, cliente CoAP/DTLS).
