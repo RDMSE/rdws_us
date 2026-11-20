@@ -23,6 +23,12 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   e a avaliação de alarmes saem deste repositório, com as seções correspondentes do
   `Backlog.md` (separação open-core, passo 5) ([RDWS-221]).
 
+### Plataforma
+- O `Dockerfile` instala os pacotes do Ubuntu de um mirror do país (`ARG UBUNTU_MIRROR`, padrão
+  `http://at.archive.ubuntu.com/ubuntu`, também para o `-security`) nos dois estágios: em
+  2026-11-19 o `archive.ubuntu.com` e o `security.ubuntu.com` ficaram horas inacessíveis daqui,
+  e um build sem as camadas do apt em cache teria falhado. Muda com `--build-arg` ([RDWS-224]).
+
 ## [v0.4.0] — 2026-11-17
 
 As leituras passam pela exchange fanout `rdws.sensor_readings` (passo 3 da separação open-core),
@@ -199,3 +205,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-216]: https://github.com/RDMSE/rdws_us/issues/216
 [RDWS-219]: https://github.com/RDMSE/rdws_us/issues/219
 [RDWS-221]: https://github.com/RDMSE/rdws_us/issues/221
+[RDWS-224]: https://github.com/RDMSE/rdws_us/issues/224

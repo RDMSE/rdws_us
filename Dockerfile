@@ -6,6 +6,13 @@
 #   docker build -t rdws_us-services:qa .
 #   docker run -e RDWS_SERVICE=auth_service rdws_us-services:qa <args>
 
+# Ubuntu packages from a country mirror rather than archive.ubuntu.com/security.ubuntu.com: on
+# 2026-11-19 those central servers were unreachable from here for hours while the mirrors
+# answered (a build without cached apt layers would have failed). Country mirrors carry the
+# -security pocket too. Override with
+#   docker build --build-arg UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu .
+ARG UBUNTU_MIRROR=http://at.archive.ubuntu.com/ubuntu
+
 # --- Stage: builder -----------------------------------------------------
 # Complete toolchain (GCC, CMake, development headers) for compiling and testing.
 # Ubuntu 24.04 (not Debian bookworm): requires libpqxx-dev >= 7.x
@@ -14,7 +21,11 @@ FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG UBUNTU_MIRROR
+RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+           -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
         git \
@@ -56,7 +67,11 @@ FROM ubuntu:24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG UBUNTU_MIRROR
+RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+           -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
         libssl3 \
         libpqxx-7.8t64 \
         ca-certificates \
