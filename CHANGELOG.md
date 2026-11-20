@@ -9,12 +9,19 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
+| v0.4.1 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.4.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.3.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.2.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
+
+## [v0.4.1] — 2026-11-20
+
+Correções e infraestrutura, sem mudança de API nem de schema: a ingestão descarta registros com
+instante impossível, o build não depende mais dos servidores centrais do Ubuntu, o mapa do Farm
+Overview volta a ter fundo e o Grafana fica numa versão fixa.
 
 ### Documentação
 - `Plano_Indices_Derivados.md` e `Plano_Alerting.md` ficam só com o que é da plataforma: a
