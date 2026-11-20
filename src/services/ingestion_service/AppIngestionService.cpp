@@ -658,8 +658,9 @@ private:
   // diagnostics (D2), grouped by instant into device_telemetry rows (D5).
   // Whole pack: unparseable -> kFormatError, any name outside the authenticated device ->
   // kForbidden, any reading RabbitMQ didn't take -> kUnavailable. Per record (dropped with a
-  // log, the rest goes on): foreign sensor, no numeric value, time_unsynced or unknown fl_
-  // bits (DP3/F3), unit without a rule (DP1).
+  // log, the rest goes on): an impossible instant (readings and diagnostics alike, counted as
+  // invalid_time; sensor_limits.h), foreign sensor, no numeric value, time_unsynced or unknown
+  // fl_ bits (DP3/F3), unit without a rule (DP1).
   int handleSenml(const std::string& authDeviceId, const std::string& body,
                   std::optional<long long>& declaredCfg) {
     const auto now = static_cast<double>(std::time(nullptr));
@@ -688,6 +689,8 @@ private:
     std::optional<long long> recCfg;
     int outOfRange = 0;
     std::string outOfRangeExample;
+    int invalidTime = 0;
+    std::string invalidTimeExample;
     std::optional<double> firstTime; // of the readings accepted from this pack
     std::optional<double> lastTime;
     std::string seq = "-";
@@ -700,6 +703,16 @@ private:
       const bool numeric = !local.empty() && std::all_of(local.begin(), local.end(), [](char c) {
         return std::isdigit(static_cast<unsigned char>(c)) != 0;
       });
+
+      // rec_cfg is the pack's metadata, without an instant of its own
+      if (local != "rec_cfg" && !rdws::senml::isPlausibleTime(rec.time, now)) {
+        sensorRecords += numeric ? 1 : 0;
+        if (invalidTime++ == 0) {
+          invalidTimeExample = "device_id=" + authDeviceId + " name=" + local +
+                               " time=" + rdws::senml::toIso8601(rec.time);
+        }
+        continue;
+      }
 
       if (!numeric) {
         if (local == "rec_cfg") {
@@ -783,6 +796,10 @@ private:
       }
     }
 
+    if (invalidTime > 0) {
+      logger::warn("IngestionService: records with an impossible instant, dropping",
+                   "count=" + std::to_string(invalidTime) + " first: " + invalidTimeExample);
+    }
     if (outOfRange > 0) {
       logger::warn("IngestionService: readings outside the plausible range, flagged",
                    "count=" + std::to_string(outOfRange) + " first: " + outOfRangeExample);
@@ -793,6 +810,7 @@ private:
                      std::to_string(sensorRecords) + " published=" + std::to_string(published) +
                      " unpublished=" + std::to_string(unpublished) +
                      " out_of_range=" + std::to_string(outOfRange) +
+                     " invalid_time=" + std::to_string(invalidTime) +
                      " diagnostics=" + (diagnostics.empty() ? "-" : diagnostics));
     return unpublished > 0 ? kUnavailable : published;
   }
