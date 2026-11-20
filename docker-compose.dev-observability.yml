@@ -45,7 +45,8 @@ services:
       - loki
 
   grafana:
-    image: grafana/grafana:latest
+    # Pinned: an upgrade is a deliberate change (`latest` changed the map's basemap unannounced)
+    image: grafana/grafana:13.1.0
     container_name: rdws_grafana_dev
     # dns points to Tailscale's MagicDNS resolver (100.100.100.100) — that's the only
     # way the container resolves "fedora-server" (dev Postgres). Network stays plain
@@ -61,6 +62,9 @@ services:
       DB_NAME: ${DB_NAME:-rdws_us_dev}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_SECURITY_DISABLE_BRUTE_FORCE_LOGIN_PROTECTION: "false"
+      # Every geomap's "default" basemap: OpenStreetMap tiles, which need no API key (Grafana's
+      # own default, CARTO, asks for one). Light use, within OSM's tile usage policy.
+      GF_GEOMAP_DEFAULT_BASELAYER_CONFIG: '{"type":"xyz","config":{"attribution":"© OpenStreetMap contributors","url":"https://tile.openstreetmap.org/{z}/{x}/{y}.png"}}'
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_dev_data:/var/lib/grafana

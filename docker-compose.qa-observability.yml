@@ -47,12 +47,16 @@ services:
       - loki
 
   grafana:
-    image: grafana/grafana:latest
+    # Pinned: an upgrade is a deliberate change (`latest` changed the map's basemap unannounced)
+    image: grafana/grafana:13.1.0
     container_name: rdws_grafana_qa
     restart: unless-stopped
     environment:
       <<: *db-env
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Every geomap's "default" basemap: OpenStreetMap tiles, which need no API key (Grafana's
+      # own default, CARTO, asks for one). Light use, within OSM's tile usage policy.
+      GF_GEOMAP_DEFAULT_BASELAYER_CONFIG: '{"type":"xyz","config":{"attribution":"© OpenStreetMap contributors","url":"https://tile.openstreetmap.org/{z}/{x}/{y}.png"}}'
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_qa_data:/var/lib/grafana

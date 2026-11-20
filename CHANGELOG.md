@@ -29,6 +29,13 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   2026-11-19 o `archive.ubuntu.com` e o `security.ubuntu.com` ficaram horas inacessíveis daqui,
   e um build sem as camadas do apt em cache teria falhado. Muda com `--build-arg` ([RDWS-224]).
 
+### Observabilidade
+- O mapa do Farm Overview volta a ter fundo: a camada "default" dos mapas do Grafana passa a ser
+  o OpenStreetMap (`GF_GEOMAP_DEFAULT_BASELAYER_CONFIG`, nos compose de dev e de QA), que não
+  pede chave; o padrão do Grafana (CARTO) passou a pedir uma. Vale para todo mapa novo, e o
+  painel não muda. O Grafana fica fixo na versão 13.1.0 (era `latest`): atualizar passa a ser
+  uma mudança deliberada ([RDWS-223]).
+
 ## [v0.4.0] — 2026-11-17
 
 As leituras passam pela exchange fanout `rdws.sensor_readings` (passo 3 da separação open-core),
@@ -205,4 +212,5 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-216]: https://github.com/RDMSE/rdws_us/issues/216
 [RDWS-219]: https://github.com/RDMSE/rdws_us/issues/219
 [RDWS-221]: https://github.com/RDMSE/rdws_us/issues/221
+[RDWS-223]: https://github.com/RDMSE/rdws_us/issues/223
 [RDWS-224]: https://github.com/RDMSE/rdws_us/issues/224
