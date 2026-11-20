@@ -44,4 +44,20 @@ inline constexpr SensorLimits kSensorLimits[] = {
   return true;
 }
 
+// Plausible instants of a record (Plano_Telemetria.md, "Instantes impossíveis"). A record outside
+// them is dropped, not stored with a flag: its time can't be corrected afterwards, and once
+// stored it lands in every time series at the wrong place. The cases seen: an RTC at its reset
+// value (an STM32 without backup battery restarts at 2000-01-01, an absolute SenML time) and a
+// counter from power-on, which RFC 8428 reads as relative to now (bt: 18000 → now + 5 h).
+//   - not before 2020-01-01: older than any device of this platform;
+//   - at most 1 h ahead of the server's clock: room for clock drift and packs in transit.
+inline constexpr double kEarliestTime = 1577836800.0; // 2020-01-01T00:00:00Z
+inline constexpr double kMaxAheadSeconds = 3600.0;
+
+// False when `time` (epoch seconds, as resolved by parse()) is outside those bounds, `now` being
+// the server's clock in epoch seconds.
+[[nodiscard]] inline bool isPlausibleTime(double time, double now) {
+  return time >= kEarliestTime && time <= now + kMaxAheadSeconds;
+}
+
 } // namespace rdws::senml

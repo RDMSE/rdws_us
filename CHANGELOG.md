@@ -36,6 +36,11 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   painel não muda. O Grafana fica fixo na versão 13.1.0 (era `latest`): atualizar passa a ser
   uma mudança deliberada ([RDWS-223]).
 
+### Ingestão
+- Registros com instante impossível, antes de 2020-01-01 ou mais de 1 h à frente do relógio do
+  servidor, são descartados: leituras e diagnósticos, contados em `invalid_time` na linha de log
+  do pack, que continua sendo confirmado. Pega o RTC em 2000-01-01 depois de um reset e o
+  contador desde o boot lido como tempo relativo (`Plano_Telemetria.md`) ([RDWS-225]).
 ## [v0.4.0] — 2026-11-17
 
 As leituras passam pela exchange fanout `rdws.sensor_readings` (passo 3 da separação open-core),
@@ -214,3 +219,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-221]: https://github.com/RDMSE/rdws_us/issues/221
 [RDWS-223]: https://github.com/RDMSE/rdws_us/issues/223
 [RDWS-224]: https://github.com/RDMSE/rdws_us/issues/224
+[RDWS-225]: https://github.com/RDMSE/rdws_us/issues/225

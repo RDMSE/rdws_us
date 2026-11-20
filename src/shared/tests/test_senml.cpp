@@ -11,6 +11,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 using rdws::senml::parse;
 
@@ -293,4 +294,56 @@ TEST(SensorLimits, UnitWithoutLimitsIsAlwaysPlausible) {
 TEST(SensorLimits, FlagFitsSmallintAndAvoidsFirmwareBits) {
   EXPECT_LE(rdws::senml::kFlagOutOfRange, 32767);
   EXPECT_EQ(rdws::senml::kFlagOutOfRange & rdws::senml::kKnownFlags, 0);
+}
+
+// Instants (Plano_Telemetria.md, "Instantes impossíveis")
+TEST(SensorTimes, BoundsAreInclusive) {
+  using rdws::senml::isPlausibleTime;
+  using rdws::senml::kEarliestTime;
+  using rdws::senml::kMaxAheadSeconds;
+  EXPECT_TRUE(isPlausibleTime(kEarliestTime, kNow));
+  EXPECT_FALSE(isPlausibleTime(kEarliestTime - 1, kNow));
+  EXPECT_TRUE(isPlausibleTime(kNow + kMaxAheadSeconds, kNow));
+  EXPECT_FALSE(isPlausibleTime(kNow + kMaxAheadSeconds + 1, kNow));
+}
+
+TEST(SensorTimes, ResolvedPackTimes) {
+  using rdws::senml::isPlausibleTime;
+  const auto check = [](const std::string& pack) {
+    const auto recs = parse(pack, kNow);
+    EXPECT_TRUE(recs) << recs.error();
+    return recs && recs->size() == 1 && isPlausibleTime((*recs)[0].time, kNow);
+  };
+  // An RTC at its reset value: an absolute time, in 2000
+  EXPECT_FALSE(check(R"([{"bn":"12/","bt":946684800,"n":"31","u":"Cel","v":20}])"));
+  // 2019-06-01
+  EXPECT_FALSE(check(R"([{"bn":"12/","bt":1559347200,"n":"31","u":"Cel","v":20}])"));
+  // A counter from power-on, read as relative: now + 5 h
+  EXPECT_FALSE(check(R"([{"bn":"12/","bt":18000,"n":"31","u":"Cel","v":20}])"));
+  // 2 h ahead, absolute
+  EXPECT_FALSE(check(R"([{"bn":"12/","bt":1791047200,"n":"31","u":"Cel","v":20}])"));
+  // 30 min ahead: clock drift, accepted
+  EXPECT_TRUE(check(R"([{"bn":"12/","bt":1791041800,"n":"31","u":"Cel","v":20}])"));
+  // Epoch 0 is relative per RFC 8428 §4.5.3: it means now, accepted
+  EXPECT_TRUE(check(R"([{"bn":"12/","bt":0,"n":"31","u":"Cel","v":20}])"));
+}
+
+TEST(SensorTimes, MixedPackKeepsTheValidRecords) {
+  // Readings and a diagnostic, valid and not: the ingestion drops each impossible one alone
+  const auto recs = parse(R"([
+    {"bn":"12/", "bt":1791035100, "n":"seq", "v":812},
+    {"n":"31", "u":"Cel", "v":25.4},
+    {"n":"32", "t":-845100000, "u":"%RH", "v":62.1},
+    {"n":"rssi", "t":-845100000, "v":-67},
+    {"n":"33", "t":600, "u":"Pa", "v":98780}
+  ])",
+                          kNow);
+  ASSERT_TRUE(recs) << recs.error();
+  std::vector<std::string> kept;
+  for (const auto& r : *recs) {
+    if (rdws::senml::isPlausibleTime(r.time, kNow)) {
+      kept.push_back(r.name);
+    }
+  }
+  EXPECT_EQ(kept, (std::vector<std::string>{"12/seq", "12/31", "12/33"}));
 }

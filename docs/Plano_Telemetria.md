@@ -388,6 +388,27 @@ No servidor (F3, 2026-10-05):
   `SMALLINT` positivo, longe dos bits do firmware, que crescem a partir do bit 0. O
   firmware nunca o envia: em `fl_` ele seria bit desconhecido.
 
+### Instantes impossíveis (RDWS-225, 2026-11-20)
+
+Um registro cujo instante, já resolvido pelo parser, cai **antes de 2020-01-01** ou **mais de
+1 h à frente do relógio do servidor** é **descartado**, e não gravado com um bit como o
+`out_of_range`. Um instante errado não se corrige depois, e uma vez gravado ele aparece em toda
+série temporal no lugar errado. A regra vale para leituras e diagnósticos (`device_telemetry`,
+inclusive a posição). Os descartados são contados em `invalid_time` na linha de log do pack,
+com um aviso que mostra o primeiro deles. O resto do pack segue normalmente e o pack é
+confirmado, para o device não reenviar para sempre. Limites em
+`src/shared/senml/sensor_limits.h` (`isPlausibleTime`). O `rec_cfg` não passa por eles, porque
+é metadado do pack e não tem instante próprio.
+
+Os casos que a regra pega:
+- **RTC no valor de reset:** um STM32 sem bateria de backup volta a 2000-01-01, um tempo
+  absoluto.
+- **Contador desde que o device ligou:** um tempo abaixo de 2^28 é relativo a agora (RFC 8428
+  §4.5.3), então `bt: 18000` vira agora + 5 h.
+
+`bt: 0` vira "agora" e é aceito. As 687 leituras de 1970 do device 11 no QA vieram da
+ingestão anterior ao SenML (agosto de 2026), com um relógio que contava desde o boot.
+
 ## Decisões de implementação da Fase 1 (F, 2026-10-05)
 
 - **F1**: sem id local de sensor; `n` é o `sensor_id` global (D2).
