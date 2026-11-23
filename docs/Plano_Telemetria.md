@@ -505,7 +505,9 @@ Decidido em 2026-10-07:
   mesmo bot e o mesmo chat das notificações ao produtor, e a mensagem começa com "📡 Fleet:".
   Cada regra de frota aponta para o contact point (`notification_settings`), sem mexer na árvore
   de notificação: uma árvore provisionada por arquivo seria reescrita a cada reinício do
-  Grafana, apagando as rotas que outras ferramentas acrescentam pela API.
+  Grafana, apagando as rotas que outras ferramentas acrescentam pela API. As regras de frota só
+  consideram devices com `status = 'active'`: os aposentados (`inactive`) e os em manutenção ficam
+  de fora.
 - **R3**: sem partições por enquanto. O volume é pequeno (~4 mil leituras/dia por estação);
   particionar `sensor_readings` exige trocar a PK (`id` → `(id, timestamp)`) e migrar dados.
   Revisitar quando `sensor_readings` passar de ~50 milhões de linhas ou as consultas do

@@ -13,7 +13,9 @@ groups:
       # One alert instance per station (label `device`): fires when nothing arrived for
       # more than 3 x its expected uplink interval (device_liveness, V14 — same rule as the
       # online/offline panel). Devices that never sent anything are left out: that's an
-      # installation not done yet, not a station that went quiet.
+      # installation not done yet, not a station that went quiet. So are devices not 'active':
+      # a retired one ('inactive') would otherwise be reported forever, every few hours, and one
+      # in 'maintenance' is silent on purpose.
       - uid: rdws-silent-station
         title: Silent station
         condition: C
@@ -34,6 +36,8 @@ groups:
                 FROM device_liveness l
                 JOIN devices d ON d.id = l.device_id
                 WHERE l.last_seen IS NOT NULL
+                  -- only stations in service: 'inactive' (retired) and 'maintenance' don't alert
+                  AND d.status = 'active'
           - refId: C
             datasourceUid: __expr__
             model:
@@ -84,6 +88,7 @@ groups:
                 JOIN devices d ON d.id = t.device_id
                 WHERE t.data ? 'crash_boot'
                   AND t.timestamp > now() - interval '6 hours'
+                  AND d.status = 'active'  -- not 'inactive' (retired) nor 'maintenance'
                 GROUP BY d.type, t.device_id
           - refId: C
             datasourceUid: __expr__
