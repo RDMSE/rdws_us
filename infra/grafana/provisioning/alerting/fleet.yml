@@ -1,6 +1,7 @@
 # Fleet (operations) alerts — not the producer's alarms, which are AlertingService's job
-# (Plano_Telemetria.md, D10 / Fase 3). No contact point yet (R2): firing alerts show in
-# Grafana's alert list; the notification channel for the fleet is still open.
+# (Plano_Telemetria.md, D10 / Fase 3). Each rule sends to the Telegram contact point of
+# contact_points.yml by itself (notification_settings), without touching the notification policy
+# tree.
 apiVersion: 1
 
 groups:
@@ -49,6 +50,8 @@ groups:
         labels:
           scope: fleet
           severity: warning
+        notification_settings:
+          receiver: rdws-fleet-telegram
         annotations:
           summary: "{{ $labels.device }} is silent"
           description: >-
@@ -98,6 +101,8 @@ groups:
         labels:
           scope: fleet
           severity: warning
+        notification_settings:
+          receiver: rdws-fleet-telegram
         annotations:
           summary: "{{ $labels.device }} is in a restart loop"
           description: >-

@@ -1,0 +1,27 @@
+# Where the fleet alerts (fleet.yml) are sent: Telegram (Plano_Telemetria.md, D10). Token and
+# chat id come from Grafana's environment: .env.qa on QA (deploy-qa.yml, from the
+# TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets), "unset" in dev, where nothing is sent. Without
+# them Grafana doesn't start ("could not find Bot Token"): a new compose (prod) must set them.
+# Each fleet rule names this contact point itself (notification_settings in fleet.yml): the
+# notification policy tree is left alone, since a file-provisioned tree would be rewritten on
+# every Grafana restart, dropping routes that other tools add to it through the API.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: rdws-fleet-telegram
+    receivers:
+      - uid: rdws-fleet-telegram
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: ${TELEGRAM_BOT_TOKEN}
+          chatid: ${TELEGRAM_CHAT_ID}
+          # One line per alert, without Grafana's default listing (values, labels, and links to
+          # a root URL QA's Grafana doesn't have); "Fleet" tells them from other alerts in the chat
+          parse_mode: None
+          disable_web_page_preview: true
+          message: |-
+            {{ range .Alerts.Firing }}📡 Fleet: {{ .Annotations.summary }}
+            {{ end }}{{ range .Alerts.Resolved }}✅ Resolved, fleet: {{ .Annotations.summary }}
+            {{ end }}

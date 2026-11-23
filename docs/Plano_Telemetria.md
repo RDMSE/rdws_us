@@ -498,8 +498,14 @@ Decidido em 2026-10-07:
 - **R1**: `last_seen` como coluna `devices.last_seen` (hora de **chegada**, não a da
   leitura), atualizada pelo `ReadingWriterService` no máximo ~1×/min por device (freio em
   memória + guarda no SQL).
-- **R2**: alerta de estação silenciosa no Grafana; canal de notificação de frota fica para
-  depois (segue nos pontos em aberto).
+- **R2**: alerta de estação silenciosa no Grafana. Canal de notificação de frota (RDWS-231,
+  2026-11-23): **Telegram**, por um contact point provisionado por arquivo
+  (`infra/grafana/provisioning/alerting/contact_points.yml`). Token e chat vêm do ambiente do
+  Grafana (secrets `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`, no `.env.qa`); por enquanto, o
+  mesmo bot e o mesmo chat das notificações ao produtor, e a mensagem começa com "📡 Fleet:".
+  Cada regra de frota aponta para o contact point (`notification_settings`), sem mexer na árvore
+  de notificação: uma árvore provisionada por arquivo seria reescrita a cada reinício do
+  Grafana, apagando as rotas que outras ferramentas acrescentam pela API.
 - **R3**: sem partições por enquanto. O volume é pequeno (~4 mil leituras/dia por estação);
   particionar `sensor_readings` exige trocar a PK (`id` → `(id, timestamp)`) e migrar dados.
   Revisitar quando `sensor_readings` passar de ~50 milhões de linhas ou as consultas do
@@ -549,7 +555,7 @@ Decidido em 2026-10-07:
   `Backlog.md`.
 - ~~Limite da estação silenciosa e onde a regra roda~~ — 3× o intervalo esperado do
   device, regra no Grafana (Fase 3, R5/R2).
-- Canal de notificação dos alertas de frota, separado das notificações ao produtor
-  (hoje o alerta "Silent station" só aparece no Grafana).
+- ~~Canal de notificação dos alertas de frota~~ — Telegram (R2, RDWS-231). Um chat próprio de
+  frota, separado do produtor, é só trocar o `TELEGRAM_CHAT_ID`.
 - Se as falhas (`crash_*`) devem sair da retenção de 90 dias de `device_telemetry`. Elas são
   raras e valem para comparar versões, e a limpeza apaga a linha inteira.
