@@ -47,6 +47,8 @@ jobs:
           CREDENTIAL_ENCRYPTION_KEY=${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
           RABBITMQ_USER=${{ vars.RABBITMQ_USER }}
           RABBITMQ_PASSWORD=${{ secrets.RABBITMQ_PASSWORD }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}
           EOF
           # Version of the solution for the images' build args (README, "Versões"): only used
           # by a local `docker compose build`, the deploy pulls the images CI built

@@ -62,6 +62,10 @@ services:
       DB_NAME: ${DB_NAME:-rdws_us_dev}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_SECURITY_DISABLE_BRUTE_FORCE_LOGIN_PROTECTION: "false"
+      # The fleet alerts' Telegram contact point: harmless defaults, so Grafana starts without them
+      # (nothing is sent); set them to try the notifications in dev
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-unset}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-unset}
       # Every geomap's "default" basemap: OpenStreetMap tiles, which need no API key (Grafana's
       # own default, CARTO, asks for one). Light use, within OSM's tile usage policy.
       GF_GEOMAP_DEFAULT_BASELAYER_CONFIG: '{"type":"xyz","config":{"attribution":"© OpenStreetMap contributors","url":"https://tile.openstreetmap.org/{z}/{x}/{y}.png"}}'

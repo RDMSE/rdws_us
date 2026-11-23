@@ -17,6 +17,13 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ## [Não lançado]
 
+### Observabilidade
+- Os alertas de frota ("Silent station", "Restart loop") passam a notificar por **Telegram**: um
+  contact point provisionado por arquivo, com token e chat vindos do ambiente do Grafana
+  (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`), e cada regra apontando para ele, sem mexer na árvore
+  de notificação. Antes caíam na política raiz, cujo receiver é `empty`, e não chegavam a ninguém
+  ([RDWS-231]).
+
 ## [v0.4.1] — 2026-11-20
 
 Correções e infraestrutura, sem mudança de API nem de schema: a ingestão descarta registros com
@@ -227,3 +234,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-223]: https://github.com/RDMSE/rdws_us/issues/223
 [RDWS-224]: https://github.com/RDMSE/rdws_us/issues/224
 [RDWS-225]: https://github.com/RDMSE/rdws_us/issues/225
+[RDWS-231]: https://github.com/RDMSE/rdws_us/issues/231
