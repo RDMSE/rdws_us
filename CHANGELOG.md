@@ -21,8 +21,9 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - Os alertas de frota ("Silent station", "Restart loop") passam a notificar por **Telegram**: um
   contact point provisionado por arquivo, com token e chat vindos do ambiente do Grafana
   (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`), e cada regra apontando para ele, sem mexer na árvore
-  de notificação. Antes caíam na política raiz, cujo receiver é `empty`, e não chegavam a ninguém
-  ([RDWS-231]).
+  de notificação. Antes caíam na política raiz, cujo receiver é `empty`, e não chegavam a ninguém.
+  As duas regras só consideram devices `active`: um device aposentado (`inactive`) seria
+  notificado para sempre, e um em `maintenance` está parado de propósito ([RDWS-231]).
 
 ## [v0.4.1] — 2026-11-20
 
