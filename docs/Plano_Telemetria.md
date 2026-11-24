@@ -124,6 +124,7 @@ prefixo `<device_id>/` contra a PSK (D4) e classifica o restante:
   | `lat` / `lon`   | `v`  | graus (WGS84)     | Posição; o par mais recente do pack vira `devices.location` (RDWS-165) |
   | `trg`           | `v`  | bitmask           | Edge triggers em violação, bit *i* = `triggers[i]` da config que o mesmo pack declara em `cfg_version`; só com regras (firmware, passo 8, 2026-11-09) |
   | `cfg_rej`       | `v`  | versão            | Última versão de config que o firmware recusou; só enquanto houver uma (2026-11-09) |
+  | `clk_adj`       | `v`  | s                 | Última correção do RTC pelo SNTP (positiva = o RTC estava atrasado); só no pacote seguinte a ela (2026-11-24) |
   | `up_rej`        | `v`  | contagem          | Lotes que o servidor recusou 3 vezes com `4.xx` de conteúdo e o firmware descartou, ainda não reportados (2026-11-10) |
   | `up_rej_code`   | `v`  | código            | Último código desses descartes, como classe × 100 + detalhe (ex. `400`); vai com `up_rej` |
 
