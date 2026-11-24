@@ -696,11 +696,11 @@
     {
       "id": 41,
       "title": "Ingestion delay",
-      "description": "Max delay per device between a reading's window and its arrival at the server, in minutes (created_at - timestamp). Normally about the uplink interval; peaks mean the station stayed offline and then sent its backlog.",
+      "description": "Age of the newest reading of each uplink cycle when it arrived (created_at - timestamp), in minutes. Normally at most about one aggregation window, whatever the uplink interval. Negative: the station's clock is ahead of the server's.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 46
       },
@@ -712,13 +712,49 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "-- How late readings arrive: arrival (created_at) minus the reading's own window\n-- (timestamp). Around the uplink interval normally; peaks = a station catching up on a\n-- backlog (D10).\nSELECT $__timeGroupAlias(sr.created_at, $__interval),\n       d.type::text || ' #' || d.id::text AS metric,\n       max(extract(epoch FROM sr.created_at - sr.timestamp)) / 60 AS value\nFROM sensor_readings sr\nJOIN sensors s ON s.id = sr.sensor_id\nJOIN devices d ON d.id = s.device_id\nJOIN fields f ON f.id = d.field_id\nJOIN farms fm ON fm.id = f.farm_id\nWHERE $__timeFilter(sr.created_at)\n  AND (fm.id::text IN (${farm_id:singlequote}))\n  AND (f.id::text IN (${field_id:singlequote}))\n  AND (d.id::text IN (${device_id:singlequote}))\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "-- A device's arrivals are grouped into uplink cycles (a gap over 45 s starts another): the packs\n-- of a cycle go oldest first, so a single pack says nothing about how late the cycle is.\n-- How late data arrives: the age of the cycle's newest reading (D10).\nWITH arrivals AS (\n  SELECT d.id AS device_id, d.type::text || ' #' || d.id::text AS metric,\n         sr.created_at, sr.created_at - sr.timestamp AS age,\n         (sr.created_at - lag(sr.created_at) OVER (PARTITION BY d.id ORDER BY sr.created_at)\n            > interval '45 seconds')::int AS starts_cycle\n  FROM sensor_readings sr\n  JOIN sensors s ON s.id = sr.sensor_id\n  JOIN devices d ON d.id = s.device_id\n  JOIN fields f ON f.id = d.field_id\n  JOIN farms fm ON fm.id = f.farm_id\n  WHERE $__timeFilter(sr.created_at)\n    AND (fm.id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n), numbered AS (\n  SELECT *, sum(starts_cycle) OVER (PARTITION BY device_id ORDER BY created_at) AS cycle\n  FROM arrivals\n), cycles AS (\n  SELECT device_id, metric, max(created_at) AS at, min(age) AS newest, max(age) AS oldest\n  FROM numbered\n  GROUP BY device_id, metric, cycle\n  -- one still arriving hasn't delivered its newest readings yet\n  HAVING max(created_at) < now() - interval '45 seconds'\n)\nSELECT $__timeGroupAlias(at, $__interval), metric,\n       max(extract(epoch FROM newest)) / 60 AS value\nFROM cycles\nGROUP BY 1, 2\nORDER BY 1",
           "rawQuery": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "m"
+          "unit": "m",
+          "custom": {
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 45,
+      "title": "Uplink backlog",
+      "description": "How much older than the expected uplink interval the oldest reading of each uplink cycle was, in minutes. Normally about 0; peaks mean the station stayed offline and then sent its backlog. Judged by the current interval, also for older data.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 46
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "rdws-persistence"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "-- A device's arrivals are grouped into uplink cycles (a gap over 45 s starts another): the packs\n-- of a cycle go oldest first, so a single pack says nothing about how late the cycle is.\n-- How far behind the station was: the age of the cycle's oldest reading beyond the expected\n-- uplink interval (today's, for the whole range) (D10).\nWITH arrivals AS (\n  SELECT d.id AS device_id, d.type::text || ' #' || d.id::text AS metric,\n         sr.created_at, sr.created_at - sr.timestamp AS age,\n         (sr.created_at - lag(sr.created_at) OVER (PARTITION BY d.id ORDER BY sr.created_at)\n            > interval '45 seconds')::int AS starts_cycle\n  FROM sensor_readings sr\n  JOIN sensors s ON s.id = sr.sensor_id\n  JOIN devices d ON d.id = s.device_id\n  JOIN fields f ON f.id = d.field_id\n  JOIN farms fm ON fm.id = f.farm_id\n  WHERE $__timeFilter(sr.created_at)\n    AND (fm.id::text IN (${farm_id:singlequote}))\n    AND (f.id::text IN (${field_id:singlequote}))\n    AND (d.id::text IN (${device_id:singlequote}))\n), numbered AS (\n  SELECT *, sum(starts_cycle) OVER (PARTITION BY device_id ORDER BY created_at) AS cycle\n  FROM arrivals\n), cycles AS (\n  SELECT device_id, metric, max(created_at) AS at, min(age) AS newest, max(age) AS oldest\n  FROM numbered\n  GROUP BY device_id, metric, cycle\n  -- one still arriving hasn't delivered its newest readings yet\n  HAVING max(created_at) < now() - interval '45 seconds'\n)\nSELECT $__timeGroupAlias(c.at, $__interval), c.metric,\n       greatest(max(extract(epoch FROM c.oldest) - l.expected_interval_s), 0) / 60 AS value\nFROM cycles c\nJOIN device_liveness l ON l.device_id = c.device_id\nGROUP BY 1, 2\nORDER BY 1",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "custom": {
+            "spanNulls": true
+          }
         },
         "overrides": []
       }
@@ -730,8 +766,8 @@
       "type": "timeseries",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 46
       },
       "datasource": {

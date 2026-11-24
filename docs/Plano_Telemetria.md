@@ -267,9 +267,13 @@ Uma estação sem conectividade não consegue reportar que está sem conectivida
   - Alternativas mais baratas: derivar de `max(created_at)` de `sensor_readings` e
     `device_telemetry` por device (sem escrita extra; índice já existe), ou atualizar
     `last_seen` só quando o valor gravado tiver mais de N minutos.
-- **Atraso de ingestão**: calculado a partir de `created_at - timestamp` das leituras
-  recebidas. Picos indicam que a estação ficou um período sem conseguir enviar e
-  descarregou o backlog.
+- **Atraso de ingestão e backlog**: calculados a partir de `created_at - timestamp`, por
+  ciclo de envio (chegadas do device separadas por no máximo 45 s). A leitura mais **nova** do
+  ciclo dá o atraso real; a mais **antiga**, menos o intervalo esperado, dá o backlog: picos
+  indicam que a estação ficou um período sem conseguir enviar. O máximo de
+  `created_at - timestamp` sozinho mede só o intervalo de envio (cerca de 60 min numa estação
+  horária com a rede perfeita) e fica serrilhado a cada envio antecipado por trigger. Atraso
+  negativo = relógio da estação adiantado em relação ao do servidor.
 - ✅ **Reinícios seguidos** (RDWS-176, 2026-11-10): desde 2026-11-05 a estação reinicia
   sozinha depois de uma falha, então o alerta de estação silenciosa não pega falha isolada nem
   repetida. Alerta "Restart loop" (`infra/grafana/provisioning/alerting/fleet.yml`): 3 ou mais
@@ -525,8 +529,10 @@ Decidido em 2026-10-07:
   device (rótulo `device`), dispara após 5 min acima de 3× o intervalo esperado. Devices
   que nunca enviaram nada ficam de fora (instalação pendente, não estação caída). Sem
   contact point ainda (R2). Validada num Grafana 13 local e no QA (2026-10-07).
-- ✅ 3c. Painel de atraso de ingestão (`created_at - timestamp`) por device (D10): "Ingestion
-  delay", máximo por device em minutos, na linha "Fleet Health" do Farm Overview.
+- ✅ 3c. Painéis de atraso de ingestão e de backlog por device (D10), em minutos, na linha
+  "Fleet Health" do Farm Overview: "Ingestion delay" (leitura mais nova de cada ciclo de envio)
+  e "Uplink backlog" (a mais antiga menos o intervalo esperado **atual**, de `device_liveness`,
+  também para os dados antigos). Até 2026-11-24 era um painel só, com o máximo.
 - ✅ 3d. Painéis de saúde da frota no tempo (RSSI, boots, FS por device), complementando a
   tabela Device diagnostics: "RSSI", "Boot count" (degrau = reboot) e "FS used (%)", na
   mesma linha, com os filtros de fazenda/campo/device do dashboard.
