@@ -9,6 +9,7 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 | `rdws_us` | API (`apiVersion`) | Schema (Flyway) | `rdws_web` | Estação (`rdws_weather_node`) |
 |---|---|---|---|---|
+| v0.4.2 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.4.1 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.4.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 | v0.3.0 | 2 | V22 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
@@ -16,6 +17,14 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 | v0.1.0 | 1 | V16 | — (não iniciado) | SenML JSON, CoAP Content-Format 110 (`Plano_Telemetria.md`) |
 
 ## [Não lançado]
+
+## [v0.4.2] — 2026-11-24
+
+Os alertas de frota passam a chegar por Telegram. Sem mudança de API nem de schema.
+
+**Ao atualizar:** o Grafana passa a exigir `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` no ambiente e
+não sobe sem eles ("could not find Bot Token"). No QA vêm do `.env.qa` (secrets do GitHub); no
+dev há um valor padrão; um compose novo (produção) precisa defini-los.
 
 ### Observabilidade
 - Os alertas de frota ("Silent station", "Restart loop") passam a notificar por **Telegram**: um
