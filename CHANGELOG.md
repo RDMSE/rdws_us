@@ -18,6 +18,11 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 
 ## [Não lançado]
 
+### Observabilidade
+- "Ingestion delay" (Farm Overview) passa a mostrar o atraso real, a idade da leitura mais nova de
+  cada ciclo de envio, em vez do intervalo de envio; o painel novo **"Uplink backlog"** mostra o
+  quanto a estação ficou para trás além do intervalo esperado ([RDWS-236]).
+
 ## [v0.4.2] — 2026-11-24
 
 Os alertas de frota passam a chegar por Telegram. Sem mudança de API nem de schema.
@@ -245,3 +250,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-224]: https://github.com/RDMSE/rdws_us/issues/224
 [RDWS-225]: https://github.com/RDMSE/rdws_us/issues/225
 [RDWS-231]: https://github.com/RDMSE/rdws_us/issues/231
+[RDWS-236]: https://github.com/RDMSE/rdws_us/issues/236
