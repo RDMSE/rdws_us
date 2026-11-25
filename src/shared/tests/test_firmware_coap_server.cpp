@@ -257,6 +257,7 @@ TEST_F(FirmwareCoapServerTest, BadBlocks) {
   EXPECT_EQ(c.block(5).code, 400);                          // past the end
   EXPECT_EQ(c.block(0, 7).code, 400);                       // reserved size
   EXPECT_EQ(c.get(Bytes{0xff, 0xff, 0xf6}).code, 400);      // the largest number
+  EXPECT_NE(c.get(Bytes{0, 0, 0, 6}).code, 205);            // longer than the option allows
   EXPECT_EQ(c.block(0).code, 205);                          // still alive
 }
 

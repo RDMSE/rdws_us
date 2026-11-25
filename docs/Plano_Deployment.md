@@ -117,6 +117,18 @@ continua inteiro no homelab:
 | QA | homelab (compose de QA, junto do RabbitMQ e do `rdws_qa`) | VPS `:5685` → relay UDP → `fedora-server:5684` via Tailscale |
 | prod | VPS (`docker-compose.prod-app.yml`) | VPS `:5684` |
 
+**Entrega de firmware (OTA, `Plano_OTA.md`):** o `firmware_service` tem porta própria, com a mesma PSK
+da ingestão, e chega pelo mesmo caminho:
+
+| Ambiente | Onde roda | Como o device chega |
+|---|---|---|
+| dev (bancada) | notebook ou homelab | LAN direto (`fedora-server:5690`) |
+| QA | homelab (compose de QA) | VPS `:5691` → relay UDP → `fedora-server:5690` via Tailscale |
+| prod | VPS | VPS `:5690` |
+
+O relay, o firewall e o compose de prod só entram quando a primeira estação fora da LAN for atualizada;
+até lá, só a bancada usa a porta.
+
 - **VPS entra no tailnet** — o device não precisa, a VPS sim. É o que permite o relay de
   QA alcançar o homelab sem expor nada da rede de casa.
 - **Relay de QA é "burro"** (nginx `stream` com `listen 5685 udp` ou `socat`): só repassa
@@ -136,7 +148,8 @@ continua inteiro no homelab:
   - HelloVerifyRequest (cookie DTLS) ativo contra amplificação/spoofing — padrão no
     libcoap, confirmar no servidor.
   - Rate limit por IP de origem no firewall da VPS (nftables); só `5684/udp` e
-    `5685/udp` abertos além do SSH.
+    `5685/udp` abertos além do SSH (mais `5690/udp` e `5691/udp`, da entrega de firmware, quando
+    ligados; o limite deles precisa deixar passar um download, um pedido por ida e volta).
   - Portas distintas e conjuntos de PSK distintos por ambiente (`rdws_qa` × `rdws_prod`)
     — device de QA nunca autentica em prod.
 - **NB-IoT (futuro)**: o endpoint é o mesmo, mas o NAT da operadora expira rápido
@@ -495,7 +508,8 @@ de CI/CD — servindo de referência para a implementação e para sessões futu
     Não afeta o dashboard principal (`gateway-overview.json`), só o Explore.
 11. **Endpoint CoAP público** (§2.2) — quando o primeiro `rdws_weather_node` sair da
     bancada. VPS no tailnet, relay UDP `5685 → fedora-server:5684` para QA, firewall
-    (nftables + rate limit) e `5684/udp` publicado no compose de prod. Na bancada o
+    (nftables + rate limit) e `5684/udp` publicado no compose de prod; o mesmo para a entrega de
+    firmware (`5691 → fedora-server:5690`, e `5690/udp` em prod). Na bancada o
     device fala direto com o homelab pela LAN, sem depender deste passo.
 
 ## Verificação
