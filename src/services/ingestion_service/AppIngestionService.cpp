@@ -37,8 +37,8 @@
 
 #include "../../shared/broker/ServiceClient.h"
 #include "../../shared/amqp/amqp_client.h"
+#include "../../shared/coap/psk_cache.h"
 #include "../../shared/config/config.h"
-#include "../../shared/crypto/credential_cipher.h"
 #include "../../shared/senml/conversion.h"
 #include "../../shared/senml/sensor_limits.h"
 #include "../../shared/senml/trigger_config.h"
@@ -71,6 +71,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -156,17 +157,9 @@ private:
   std::thread refreshThread_;
   std::atomic<bool> running_{false};
 
-  // psk_identity -> plaintext key + owning device, refreshed periodically (poll instead of the
-  // EventBus bridge that Plano_DeviceCredentials.md envisions — see
-  // Plano_Ingestion_Implementacao.md for the trade-off).
-  struct CachedCredential {
-    std::string key;
-    std::string deviceId;       // internal: readings, telemetry and logs carry it
-    std::string devicePublicId; // what device_config.get takes (the API's device id)
-    coap_bin_const_t bin{}; // .s points into `key`'s storage, kept alive by the map
-  };
-  std::mutex cacheMutex_;
-  std::unordered_map<std::string, CachedCredential> pskCache_;
+  // Refreshed periodically (poll instead of the EventBus bridge that Plano_DeviceCredentials.md
+  // envisions — see Plano_Ingestion_Implementacao.md for the trade-off).
+  rdws::coap::PskCache pskCache_;
 
   // sensor_id -> owner + sensors.unit (sensor.list_owners). A failed refresh keeps the
   // previous map.
@@ -185,12 +178,9 @@ private:
   static constexpr int kFirstLoadRetrySec = 5;
   static constexpr unsigned kSessionTimeoutSec = 60;
 
-  // The credential cache has loaded at least once (a later failed refresh keeps the old map)
-  std::atomic<bool> credentialsLoaded_{false};
-
   [[nodiscard]] bool cachesLoaded() {
     std::scoped_lock lock(ownersMutex_);
-    return credentialsLoaded_.load() && ownersLoaded_;
+    return pskCache_.loaded() && ownersLoaded_;
   }
 
   void refreshLoop() {
@@ -262,48 +252,26 @@ private:
       return;
     }
 
-    rapidjson::Document envelope;
-    if (envelope.Parse(result.responsePayload.c_str()).HasParseError() || !envelope.IsObject()) {
+    if (!pskCache_.load(result.responsePayload)) {
+      logger::error("device_credential.list_active: unexpected answer, keeping the cache", "");
       return;
     }
-    const auto* dataArr = json::getArray(envelope, "data");
-    if (dataArr == nullptr) {
-      return;
+    if (pskCache_.skipped() > 0) {
+      logger::error("device_credential.list_active: invalid credentials left out",
+                    "count=" + std::to_string(pskCache_.skipped()));
     }
-
-    std::scoped_lock lock(cacheMutex_);
-    pskCache_.clear();
-    for (const auto& entry : dataArr->GetArray()) {
-      const auto identity = json::getString(entry, "psk_identity");
-      const auto keyHex = json::getString(entry, "psk_key");
-      const auto deviceId = json::getString(entry, "device_id");
-      if (!identity || !keyHex || !deviceId) {
-        continue;
-      }
-      const auto keyBytes = rdws::crypto::fromHex(*keyHex);
-      CachedCredential cred;
-      cred.key = std::string(keyBytes.begin(), keyBytes.end());
-      cred.deviceId = *deviceId;
-      cred.devicePublicId = json::getString(entry, "device_public_id").value_or(std::string{});
-      auto [it, inserted] = pskCache_.emplace(*identity, std::move(cred));
-      it->second.bin.length = it->second.key.size();
-      it->second.bin.s = reinterpret_cast<const uint8_t*>(it->second.key.data());
-    }
-    credentialsLoaded_.store(true);
     logger::info("IngestionService: credential cache refreshed",
-                "count=" + std::to_string(pskCache_.size()));
+                 "count=" + std::to_string(pskCache_.size()));
   }
 
   static const coap_bin_const_t* pskLookup(coap_bin_const_t* identity, coap_session_t* /*session*/,
                                            void* arg) {
     auto* self = static_cast<AppIngestionService*>(arg);
-    std::scoped_lock lock(self->cacheMutex_);
-    const std::string identityStr(reinterpret_cast<const char*>(identity->s), identity->length);
-    const auto it = self->pskCache_.find(identityStr);
-    if (it == self->pskCache_.end()) {
-      return nullptr;
-    }
-    return &it->second.bin;
+    return self->pskCache_.keyForHandshake(identityView(identity));
+  }
+
+  static std::string_view identityView(const coap_bin_const_t* identity) {
+    return {reinterpret_cast<const char*>(identity->s), identity->length};
   }
 
   void runCoapServer() {
@@ -362,35 +330,22 @@ private:
     coap_free_context(ctx);
   }
 
-  // Device bound to the DTLS session's PSK identity (Plano_Telemetria.md, Fase 0). Empty if
+  // Device bound to the DTLS session's PSK identity (Plano_Telemetria.md, Fase 0). nullopt if
   // the credential left the cache (revoked/rotated) after the handshake.
-  struct AuthenticatedDevice {
-    std::string id;       // internal
-    std::string publicId; // empty only if device_service didn't send it
-  };
-  AuthenticatedDevice authenticatedDevice(coap_session_t* session) {
+  std::optional<rdws::coap::PskDevice> authenticatedDevice(const coap_session_t* session) const {
     const coap_bin_const_t* identity = coap_session_get_psk_identity(session);
-    if (identity == nullptr) {
-      return {};
-    }
-    const std::string identityStr(reinterpret_cast<const char*>(identity->s), identity->length);
-    std::scoped_lock lock(cacheMutex_);
-    const auto it = pskCache_.find(identityStr);
-    if (it == pskCache_.end()) {
-      return {};
-    }
-    return {.id = it->second.deviceId, .publicId = it->second.devicePublicId};
+    return identity == nullptr ? std::nullopt : pskCache_.device(identityView(identity));
   }
 
   void onRequest(coap_resource_t* resource, coap_session_t* session, const coap_pdu_t* request,
                  const coap_string_t* query, coap_pdu_t* response) {
     const auto device = authenticatedDevice(session);
-    const std::string& deviceId = device.id;
-    if (deviceId.empty()) {
+    if (!device) {
       logger::warn("IngestionService: session has no known PSK identity, rejecting", "");
       coap_pdu_set_code(response, COAP_RESPONSE_CODE_UNAUTHORIZED);
       return;
     }
+    const std::string& deviceId = device->id;
 
     const uint8_t* data = nullptr;
     size_t len = 0, offset = 0, total = 0;
@@ -419,7 +374,7 @@ private:
     // it runs; if it's behind, this 2.04 carries the current one. Block2 when it doesn't
     // fit in one PDU — libcoap handles the follow-up block requests.
     if (result >= 0 && declaredCfg) {
-      if (auto reply = configReply(device, *declaredCfg)) {
+      if (auto reply = configReply(*device, *declaredCfg)) {
         auto* owned = new std::string(std::move(*reply));
         coap_add_data_large_response(
             resource, session, request, response, query, COAP_MEDIATYPE_APPLICATION_JSON, -1,
@@ -432,7 +387,7 @@ private:
   // {"version": N, "config": {...}} when the device's config is newer than `declared`, else
   // nullopt. Fetched on demand (device_config.get): it only runs once per uplink cycle per
   // device, so no cache. A failure only logs — the station asks again next cycle.
-  std::optional<std::string> configReply(const AuthenticatedDevice& device, long long declared) {
+  std::optional<std::string> configReply(const rdws::coap::PskDevice& device, long long declared) {
     const std::string& deviceId = device.id; // logs keep the internal id, like the rest
     if (device.publicId.empty()) {
       logger::warn("IngestionService: no device public id in the credential cache, config not "

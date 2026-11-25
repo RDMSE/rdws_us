@@ -118,6 +118,17 @@ target_link_libraries(shared_coap_dtls_client_tests PRIVATE
 )
 gtest_discover_tests(shared_coap_dtls_client_tests)
 
+# --- PskCache: what the CoAP servers' handshake callback reads ---
+add_executable(shared_psk_cache_tests
+    test_psk_cache.cpp
+)
+target_link_libraries(shared_psk_cache_tests PRIVATE
+    rdws_shared_coap
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_psk_cache_tests)
+
 # --- Shared ID validation tests ---
 add_executable(shared_id_validation_tests
     test_validation.cpp

@@ -30,6 +30,12 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   `/firmware-images`, `/devices/{id}/firmware-target`, `/devices/{id}/firmware-ota` e
   `/devices/{id}/firmware-status`, só para admin. Nada é entregue às estações ainda ([RDWS-241]).
 
+### Corrigido
+- Ingestão: durante um handshake, a `libcoap` podia ler a PSK de um cache que o refresh periódico
+  acabara de apagar (janela de microssegundos, sem ocorrência conhecida), e uma credencial com hex
+  inválido derrubava o processo. O cache virou a classe compartilhada `rdws::coap::PskCache`, com um
+  conteúdo imutável por carga; uma credencial inválida é ignorada e registrada no log ([RDWS-244]).
+
 ## [v0.4.2] — 2026-11-24
 
 Os alertas de frota passam a chegar por Telegram. Sem mudança de API nem de schema.
@@ -259,3 +265,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-231]: https://github.com/RDMSE/rdws_us/issues/231
 [RDWS-236]: https://github.com/RDMSE/rdws_us/issues/236
 [RDWS-241]: https://github.com/RDMSE/rdws_us/issues/241
+[RDWS-244]: https://github.com/RDMSE/rdws_us/issues/244
