@@ -111,7 +111,7 @@ services:
       RDWS_SERVICE: firmware_service
       FIRMWARE_IMAGES_DIR: /app/firmware
     volumes:
-      # Filled by rdws_weather_node's scripts/fw_publish.sh, through a one-off container: the service
+      # Filled by rdws_weather_node's scripts/fw_publish.py, through a one-off container: the service
       # only reads
       - firmware_images:/app/firmware:ro
     command: ["firmware_qa_001", "gateway-qa", "tcp://gateway:8080"]
