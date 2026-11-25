@@ -23,6 +23,7 @@
 #include "../../shared/service/DeviceCredentialService.h"
 #include "../../shared/service/DeviceService.h"
 #include "../../shared/service/client/FieldServiceClient.h"
+#include "../../shared/utils/authorization.h"
 #include "../../shared/utils/capability_router.h"
 #include "../../shared/utils/json_helper.h"
 #include "../../shared/utils/lambda_params_helper.h"
@@ -195,7 +196,7 @@ public:
         "device.update",
         "device.delete",
         "device.diagnostics",
-        // Exposed over HTTP, admin only (see requireAdmin()).
+        // Exposed over HTTP, admin only (requireAdmin, authorization.h).
         "device_credential.rotate",
         "device_credential.revoke",
         // Internal-only — deliberately absent from routes.json. Note:
@@ -588,7 +589,7 @@ private:
   handleCredentialGetActive(const rdws::utils::CapabilityContext& ctx,
                             rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
-    if (auto denied = requireInternal(req)) {
+    if (auto denied = rdws::utils::requireInternal(req)) {
       return std::move(*denied);
     }
     const std::string deviceId = json::getString(req, "device_id").value_or(std::string{});
@@ -607,26 +608,6 @@ private:
           .set("psk_key", rdws::crypto::toHex(result.getData().pskKeyPlaintext))
           .take();
     });
-  }
-
-  // Credential rotation/revocation is sensitive (rotate returns the new key in clear), so over
-  // HTTP only role=admin may call it. Requests without an injected identity (auth mode NONE in
-  // dev, or an internal ServiceClient::invoke) are let through, same as every other route.
-  static std::optional<rapidjson::Document> requireAdmin(const rapidjson::Document& req) {
-    if (json::hasActorIdentity(req) && json::getActorClaim(req, "role") != "admin") {
-      return ResponseHelper::returnErrorDoc("Forbidden: admin role required", 403);
-    }
-    return std::nullopt;
-  }
-
-  // Service-only capabilities (the active PSK keys): the gateway injects an identity into every
-  // authenticated HTTP request, and a service's ServiceClient::invoke carries none. So any
-  // identity here means the request came from an HTTP client.
-  static std::optional<rapidjson::Document> requireInternal(const rapidjson::Document& req) {
-    if (json::hasActorIdentity(req)) {
-      return ResponseHelper::returnErrorDoc("Forbidden: internal capability", 403);
-    }
-    return std::nullopt;
   }
 
   // The device of /devices/{id}/credential/...: the path carries its public id, the credential
@@ -650,7 +631,7 @@ private:
   static rapidjson::Document
   handleCredentialListActive(const rdws::utils::CapabilityContext& ctx,
                              rdws::device::DeviceCredentialService& svc) {
-    if (auto denied = requireInternal(ctx.request)) {
+    if (auto denied = rdws::utils::requireInternal(ctx.request)) {
       return std::move(*denied);
     }
     auto t = ctx.profiler.scoped("db.query");
@@ -677,7 +658,7 @@ private:
   handleCredentialRotate(const rdws::utils::CapabilityContext& ctx,
                          rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
-    if (auto denied = requireAdmin(req)) {
+    if (auto denied = rdws::utils::requireAdmin(req)) {
       return std::move(*denied);
     }
     auto resolved = credentialDeviceId(req);
@@ -705,7 +686,7 @@ private:
   handleCredentialRevoke(const rdws::utils::CapabilityContext& ctx,
                          rdws::device::DeviceCredentialService& svc) {
     const auto& req = ctx.request;
-    if (auto denied = requireAdmin(req)) {
+    if (auto denied = rdws::utils::requireAdmin(req)) {
       return std::move(*denied);
     }
     auto resolved = credentialDeviceId(req);

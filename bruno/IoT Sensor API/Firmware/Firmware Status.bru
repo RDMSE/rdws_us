@@ -1,0 +1,19 @@
+meta {
+  name: Firmware Status
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/devices/:dev/firmware-status
+  body: none
+  auth: bearer
+}
+
+params:path {
+  dev: {{deviceId}}
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

@@ -100,6 +100,22 @@ services:
       RDWS_SERVICE: device_config_service
     command: ["device_config_qa_001", "gateway-qa", "tcp://gateway:8080"]
 
+  firmware_service:
+    image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
+    container_name: rdws_firmware_qa
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment:
+      <<: *db-env
+      RDWS_SERVICE: firmware_service
+      FIRMWARE_IMAGES_DIR: /app/firmware
+    volumes:
+      # Filled by rdws_weather_node's scripts/fw_publish.sh, through a one-off container: the service
+      # only reads
+      - firmware_images:/app/firmware:ro
+    command: ["firmware_qa_001", "gateway-qa", "tcp://gateway:8080"]
+
   sensor_service:
     image: ghcr.io/rdmse/rdws_us/services:${IMAGE_TAG:-qa}
     container_name: rdws_sensor_qa
@@ -167,3 +183,4 @@ services:
 
 volumes:
   gateway_data:
+  firmware_images:

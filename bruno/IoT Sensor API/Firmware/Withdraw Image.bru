@@ -1,0 +1,19 @@
+meta {
+  name: Withdraw Image
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/firmware-images/:image/withdraw
+  body: none
+  auth: bearer
+}
+
+params:path {
+  image: {{firmwareImageId}}
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

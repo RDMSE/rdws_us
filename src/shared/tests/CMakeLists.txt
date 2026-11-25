@@ -67,6 +67,29 @@ target_link_libraries(shared_mcuboot_image_tests PRIVATE
 )
 gtest_discover_tests(shared_mcuboot_image_tests)
 
+add_executable(shared_file_image_store_tests
+    test_file_image_store.cpp
+)
+target_include_directories(shared_file_image_store_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/shared
+)
+target_link_libraries(shared_file_image_store_tests PRIVATE
+    rdws_shared_firmware
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_file_image_store_tests)
+
+add_executable(shared_authorization_tests
+    test_authorization.cpp
+)
+target_link_libraries(shared_authorization_tests PRIVATE
+    rdws_shared_utils
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_authorization_tests)
+
 add_executable(shared_firmware_service_tests
     test_firmware_service.cpp
     ${CMAKE_SOURCE_DIR}/src/shared/service/FirmwareService.cpp

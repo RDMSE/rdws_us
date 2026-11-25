@@ -52,7 +52,7 @@ RUN echo "compile jobs: $(nproc)" \
 # on the target (the gateway has no fixed RUNTIME_OUTPUT_DIRECTORY, the other services go to
 # build/bin/), so they are found by name instead of a fixed path; a missing one fails the build.
 ARG SERVICES="service_gateway_http auth_service farm_service field_service device_service \
-device_config_service sensor_service sensor_reading_service persistence_service \
+device_config_service firmware_service sensor_service sensor_reading_service persistence_service \
 ingestion_service reading_writer_service sensor_simulator_service"
 RUN mkdir -p /out \
     && for svc in ${SERVICES}; do \

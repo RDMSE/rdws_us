@@ -7,6 +7,7 @@ add_subdirectory(farm_service)
 add_subdirectory(field_service)
 add_subdirectory(device_service)
 add_subdirectory(device_config_service)
+add_subdirectory(firmware_service)
 add_subdirectory(sensor_service)
 add_subdirectory(sensor_reading_service)
 add_subdirectory(persistence_service)
@@ -33,6 +34,7 @@ foreach(SVC
     field_service
     device_service
     device_config_service
+    firmware_service
     sensor_service
     sensor_reading_service
     persistence_service

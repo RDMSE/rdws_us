@@ -1,0 +1,26 @@
+meta {
+  name: Set Target
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/devices/:dev/firmware-target
+  body: json
+  auth: bearer
+}
+
+params:path {
+  dev: {{deviceId}}
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "imageId": "{{firmwareImageId}}",
+    "allowBench": false
+  }
+}

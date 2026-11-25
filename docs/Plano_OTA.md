@@ -120,7 +120,8 @@ chave. `scripts/fw_publish.sh` (no repositório do firmware):
 1. confere a assinatura com a chave pública;
 2. lê build ID, versão, tamanho e classe da placa do próprio artefato;
 3. copia para o volume com um nome temporário, renomeia para `<sha256>.bin` (**O19**) e chama a rota de
-   registro.
+   registro. A cópia é por um container avulso com o volume montado, porque o `firmware_service` o monta
+   só para leitura.
 
 O servidor **não confia no script**: lê do próprio arquivo o SHA-256, o tamanho, a classe e o build ID
 (a nota ELF na imagem), e recusa o que não for uma imagem do MCUboot íntegra. Conferido em 2026-11-25 nas
