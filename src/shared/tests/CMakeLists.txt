@@ -56,6 +56,33 @@ target_link_libraries(shared_credential_cipher_tests PRIVATE
 )
 gtest_discover_tests(shared_credential_cipher_tests)
 
+# --- MCUboot image parser unit tests ---
+add_executable(shared_mcuboot_image_tests
+    test_mcuboot_image.cpp
+)
+target_link_libraries(shared_mcuboot_image_tests PRIVATE
+    rdws_shared_firmware
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_mcuboot_image_tests)
+
+add_executable(shared_firmware_service_tests
+    test_firmware_service.cpp
+    ${CMAKE_SOURCE_DIR}/src/shared/service/FirmwareService.cpp
+)
+target_include_directories(shared_firmware_service_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/shared
+)
+target_link_libraries(shared_firmware_service_tests PRIVATE
+    rdws_shared_firmware
+    rdws_shared_types
+    rdws_shared_database
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_firmware_service_tests)
+
 # --- CoapDtlsClient (libcoap PSK/DTLS) integration test — real handshake against a
 # local in-process libcoap PSK server, see test file header comment. ---
 add_executable(shared_coap_dtls_client_tests
