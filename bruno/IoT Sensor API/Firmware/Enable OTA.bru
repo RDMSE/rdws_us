@@ -1,0 +1,25 @@
+meta {
+  name: Enable OTA
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{baseUrl}}/devices/:dev/firmware-ota
+  body: json
+  auth: bearer
+}
+
+params:path {
+  dev: {{deviceId}}
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "enabled": true
+  }
+}

@@ -6,7 +6,8 @@ Como uma estação recebe, valida e adota uma imagem nova sem cabo, e como o ser
 quê. Cobre os dois repositórios: `rdws_us` (registro, entrega, acompanhamento) e
 `rdws_weather_node` (download, troca, rollback).
 
-**Estado:** decisões aceitas em 2026-11-25; fase 0 feita (RDWS-WE-016). Próxima: fase 1.
+**Estado:** decisões aceitas em 2026-11-25, revistas no mesmo dia com uma revisão externa (O11 a O20);
+fase 0 feita (RDWS-WE-016). Próxima: fase 1.
 
 ## Decisões (2026-11-25)
 
@@ -24,16 +25,26 @@ O motivo de cada uma está na seção indicada.
 | O8 | Como a imagem entra no registro? | Script na máquina de desenvolvimento; a chave nunca vai para o servidor | 3 |
 | O9 | A estação 12 recebe a variante de bancada? | Sim, até haver release; a variante fica registrada | 3 |
 | O10 | O download tem limite de tempo por ciclo? | Sim, configurável; sem limite no Wi-Fi, ligado no NB-IoT | 6 |
+| O11 | O que confirma a imagem, e o que uma volta significa? | Só um `2.04` confirma; 24 h de prazo; a volta só rejeita com prova de falha, ou na segunda vez | 6 |
+| O12 | Proteção contra downgrade? | Contador de segurança no MCUboot; **adiada**, obrigatória antes da produção | 8 |
+| O13 | O que a retomada garante? | Ponto salvo só em limite de setor, depois de gravar e conferir | 6 |
+| O14 | Como se impede gravar além do `slot1`? | Tamanho conferido no servidor e no device, contra o `slot1` menos o trailer | 6 |
+| O15 | Como se protege uma estação da variante de bancada? | O servidor recusa `bench` sem `allowBench`, e o histórico registra | 3 |
+| O16 | Quem arbitra a QSPI? | O driver serializa; o OTA nunca segura mais que um setor de 4 KB | 6 |
+| O17 | Como não atualizar a frota de uma vez? | Device nasce sem permissão (`ota_enabled`); ondas na fase 8; limite de downloads simultâneos | 3, 4 |
+| O18 | Como se desfaz uma rejeição? | Nova tentativa pedida pelo admin, com um número que o device compara | 5, 6 |
+| O19 | Como a publicação evita arquivo pela metade? | Copia com nome temporário e renomeia antes de registrar | 3 |
+| O20 | E se o alvo muda ou é retirado no meio do download? | Outra oferta descarta a parcial; `4.04` larga o ciclo e a parcial fica | 6 |
 
-**O7 tem prazo:** o MCUboot não se atualiza em campo, então a conferência dentro dele entra na fase 0,
-antes de a primeira placa sair para um lugar sem cabo.
+**Têm prazo, porque o MCUboot não se atualiza em campo:** a O7, feita na fase 0, e a **O12**, que precisa
+entrar antes de a primeira estação ficar sem cabo.
 
 ## 1. O que já existe
 
 | Peça | Situação | Onde |
 |---|---|---|
 | MCUboot: swap, confirmação, rollback, assinatura ECDSA-P256 | Validado na estação 12 (2026-11-25) | RDWS-WE-012 |
-| Imagem em teste até o primeiro `2.04` de leituras; 3 h de limite | Validado | RDWS-WE-012 |
+| Imagem em teste até o primeiro `2.04` de leituras; 3 h de limite (passa a 24 h na fase 5, O11) | Validado com 300 s | RDWS-WE-012 |
 | Laço de boot da imagem confirmada | Validado | RDWS-WE-014 |
 | `slot1`: 864 KB na QSPI; imagem atual de ~274 KB | Medido | RDWS-WE-012 |
 | `fw_version` e `fw_build` (8 bytes do build ID) a cada ciclo, em `device_telemetry` | Em uso | `Plano_Telemetria.md` D2 |
@@ -77,30 +88,48 @@ disco.
 
 ```
 firmware_images
-  id, public_id, build_id (16 hex, único), sha256, size, board_class,
-  fw_version, variant ('bench' | 'field'), notes, created_at, created_by, withdrawn_at
+  id, public_id, build_id (16 hex, único), sha256 (único), size_bytes, board_class, version,
+  variant ('bench' | 'field'), notes, created_at, created_by, withdrawn_at, withdrawn_by
 
-device_firmware_targets
-  device_id (PK), image_id, set_at, set_by
+device_firmware                              1:1 com o device, criada com ele (trigger)
+  device_id (PK), device_public_id, ota_enabled (padrão false), ota_changed_at, ota_changed_by
+
+device_firmware_targets                      uma linha por alvo definido; a atual é a sem replaced_at
+  id, device_id, image_id, attempt, allow_bench, set_at, set_by, replaced_at, replaced_by
 ```
 
-Um alvo retirado (`withdrawn_at`) deixa de ser oferecido, e as imagens já instaladas não mudam.
+Um alvo retirado (`withdrawn_at`) deixa de ser oferecido, e as imagens já instaladas não mudam. Os alvos
+antigos ficam: uma imagem ruim que chegou a uma estação precisa ser rastreável.
 
-**O4.** O alvo é por device e manual. Sem grupos nem rollout automático: com poucas estações, escolher
-uma a uma é mais seguro. Um grupo canário vem depois, sobre a mesma tabela.
+**O4, O17. Nunca a frota toda.** O alvo é por device e manual, e não há chamada que atinja vários. Em
+duas camadas:
+
+1. **Fase 1.** Todo device nasce com `ota_enabled = false`. Sem permissão ele não recebe oferta, mesmo com
+   alvo. O admin habilita um a um.
+2. **Fase 8.** Uma imagem, uma lista ordenada de **ondas**; a primeira é o canário. A seguinte só sai por
+   ação do admin, depois de a anterior ficar `applied` por um tempo, e **para sozinha** se algum device
+   rejeitar ou reverter. Ela usa as mesmas tabelas de alvo.
+
+**O15. Variante.** A de bancada (`bench`) traz comandos destrutivos (`rdws fault`, `img erase`). Não se
+confia na atenção de quem escolhe: o servidor recusa definir um alvo `bench` sem `allowBench: true`, e a
+linha do alvo guarda quem autorizou.
 
 **O8.** A imagem é assinada na máquina que a compila. O servidor recebe um arquivo pronto e nunca a
 chave. `scripts/fw_publish.sh` (no repositório do firmware):
 
 1. confere a assinatura com a chave pública;
 2. lê build ID, versão, tamanho e classe da placa do próprio artefato;
-3. copia para o volume do servidor e chama a rota de registro.
+3. copia para o volume com um nome temporário, renomeia para `<sha256>.bin` (**O19**) e chama a rota de
+   registro. A cópia é por um container avulso com o volume montado, porque o `firmware_service` o monta
+   só para leitura.
 
-A rota de registro recalcula o SHA-256 do arquivo em disco e recusa se não bater. O upload não passa
-pelo gateway, porque ~274 KB em JSON pelo broker não fazem sentido.
+O servidor **não confia no script**: lê do próprio arquivo o SHA-256, o tamanho, a classe e o build ID
+(a nota ELF na imagem), e recusa o que não for uma imagem do MCUboot íntegra. Conferido em 2026-11-25 nas
+imagens da estação 12: o build ID lido do arquivo é o que a placa declara. Recusa também uma imagem
+maior que a do `slot1` (O14). O upload não passa pelo gateway, porque ~274 KB em JSON pelo broker não
+fazem sentido.
 
-**O9.** A variante (`bench` ou `field`) é registrada e mostrada. A de bancada traz comandos destrutivos
-(`rdws fault`, `img erase`), e quem decide o alvo precisa ver isso.
+**O9.** A estação 12 recebe a variante de bancada até haver release.
 
 ### REST (admin)
 
@@ -108,12 +137,15 @@ pelo gateway, porque ~274 KB em JSON pelo broker não fazem sentido.
 |---|---|
 | `POST /firmware-images` | Registra uma imagem já copiada |
 | `GET /firmware-images` | Lista |
-| `PUT /devices/{id}/firmware-target` | Define o alvo; `null` remove |
-| `GET /devices/{id}/firmware-status` | Imagem declarada, alvo e estado |
+| `POST /firmware-images/{id}/withdraw` | Deixa de oferecer |
+| `PUT /devices/{id}/firmware-target` | Define o alvo (`allowBench` para bancada); `null` remove |
+| `POST /devices/{id}/firmware-target/retry` | Nova tentativa depois de uma rejeição (O18) |
+| `PUT /devices/{id}/firmware-ota` | Habilita ou desabilita (`ota_enabled`) |
+| `GET /devices/{id}/firmware-status` | Imagem declarada, alvo, permissão e estado |
 
-Estado derivado do que a estação declara, nunca gravado à mão: `none` (sem alvo), `pending` (alvo
-diferente do declarado), `downloading`, `rejected` (o device declarou rejeição deste alvo),
-`applied` (declara o build do alvo).
+Estado derivado do que a estação declara, nunca gravado à mão: `none` (sem alvo), `disabled` (com alvo,
+sem permissão), `pending` (alvo diferente do declarado), `downloading`, `rejected` (o device declarou
+rejeição deste alvo), `applied` (declara o build do alvo).
 
 ## 4. Entrega dos blocos (rdws_us)
 
@@ -133,6 +165,8 @@ Contrato:
 - Bloco de até 1024 bytes; o device pode pedir menos.
 - A PSK é a mesma da ingestão, pela mesma capability, com o mesmo cache.
 - Uma sessão por device. Memória e CPU ficam limitadas no `docker-compose`.
+- No máximo N downloads simultâneos (configurável); os demais recebem `5.03` com `Max-Age`, e tentam no
+  ciclo seguinte. Protege o servidor e a ingestão de uma onda inteira acordando junto (O17).
 
 A porta nova precisa entrar no relay de QA, no firewall da VPS e no `Plano_Deployment.md` (§2.2).
 
@@ -140,7 +174,8 @@ A porta nova precisa entrar no relay de QA, no firewall da VPS e no `Plano_Deplo
 
 Medido na estação 12 em 2026-11-25 (RDWS-WE-016, `probe udp`, UDP sem DTLS na rede local): datagramas de
 512 a **1400 bytes**, 20 de 20 inteiros em todos os tamanhos, com ida e volta de 131 a 172 ms. O maior
-que a entrega precisa é de ~1100 (1024 + CoAP + DTLS): **bloco de 1024 bytes**.
+que a entrega precisa é de ~1100 (1024 + CoAP + DTLS): **bloco inicial de 1024 bytes**. O servidor aceita
+menores, então nada fica congelado antes da medida com CoAP e DTLS, que é o primeiro teste da fase 4.
 
 | Enlace | RTT | Download de ~275 KB (269 blocos) |
 |---|---|---|
@@ -160,14 +195,17 @@ se perde. Com 24 buffers cabe (+1.248 bytes de RAM): entra na fase 4.
 |---|---|---|
 | `ota` | 1 | Versão do contrato que o device entende |
 | `fw_class` | texto | Classe da placa (O7) |
-| `fw_rej` | texto | Build que o device recusou, só enquanto houver (O5) |
+| `fw_rej` | texto | `<build>/<tentativa>/<causa>` do que o device recusou, só enquanto houver (O5, O11, O18) |
 | `ota_pct` | 0–100 | Progresso, só durante um download |
 
 Se o alvo difere do `fw_build` declarado, e não é o `fw_rej`, o `2.04` traz:
 
 ```json
-{"fw": {"build": "93037114844a9152", "size": 274124, "sha256": "…", "class": "l475", "port": 5690}}
+{"fw": {"build": "93037114844a9152", "size": 274124, "sha256": "…", "class": "ef76f59e-…", "port": 5690, "try": 1}}
 ```
+
+`class` é o UUID da placa (O7). `try` é o número da tentativa (O18): sobe quando o admin pede uma nova, e
+o device ignora a própria rejeição se o da oferta for maior que o da rejeição guardada.
 
 - **Só para quem declara `ota`.** Um firmware antigo trataria esse corpo como uma config indecodável
   (um erro de log, sem outro efeito). Nenhum dos dois lados precisa atualizar ao mesmo tempo.
@@ -193,10 +231,10 @@ Se o alvo difere do `fw_build` declarado, e não é o `fw_rej`, o `2.04` traz:
   nunca fica inteira na RAM. Numa rede boa, todos os blocos saem na mesma sessão; só se divide em mais
   ciclos se algo interromper (rede, energia, edge trigger ou o limite da O10). Uma oferta igual à que
   já está em andamento continua; outra recomeça.
-- **Retomar:** o cursor avança a cada setor gravado e é salvo a cada 32 KB em `settings`. Uma queda
-  perde no máximo 32 KB. O Zephyr já traz isso (`STREAM_FLASH_PROGRESS`, a avaliar).
+- **Retomar:** o ponto é salvo a cada 32 KB em `settings`. Uma queda perde no máximo 32 KB. Contrato na
+  O13.
 - **Verificar:** SHA-256 do `slot1` inteiro contra o da oferta, antes de pedir o teste. O MCUboot
-  confere a assinatura de novo no boot.
+  confere a assinatura e a classe de novo no boot.
 - **Trocar:** grava em `settings` qual build está pendente, marca o teste e reinicia.
 
 **O6.** Enquanto baixa, o device continua amostrando, e o armazenamento grava no mesmo chip. Um edge
@@ -212,22 +250,77 @@ exemplo, 15 min viram 5 ciclos, e a atualização leva 5 envios horários. Ao at
 para entre dois blocos, salva o cursor e retoma no ciclo seguinte, como numa queda de rede. Não é
 rejeição. O valor do NB-IoT sai de uma medição, quando esse enlace existir.
 
+**O13. Contrato da retomada.**
+
+- O ponto salvo é sempre um **limite de setor** (4 KB), e cobre só bytes já gravados e relidos.
+- Ordem: apaga o setor, grava, relê e confere, e **só então** salva o ponto.
+- Na retomada, tudo a partir do ponto é apagado de novo antes de ser gravado.
+- O `stream_flash` do Zephyr serve (`STREAM_FLASH_PROGRESS`), com um cuidado: ao carregar o progresso ele
+  considera apagado o resto do setor do **último byte** salvo. Com o ponto no meio de um setor, os
+  bytes gravados depois dele não seriam apagados, e a regravação corromperia. Em limite de setor, o
+  seguinte é apagado (lido no código em 2026-11-25; testado na fase 4).
+- Testes com queda **durante o apagar, durante o gravar, e logo antes e logo depois de salvar o ponto**.
+
+**O14. Tamanho antes de começar.** O device recusa uma oferta com `size` zero ou maior que o `slot1` **menos
+o trailer do MCUboot**, e calcula `offset + tamanho` sem estouro de 32 bits. O limite vem da partição do
+devicetree, nunca da oferta. A escrita usa só a API de partição, que também recusa, e o limite do
+`slot1` é o último antes do LittleFS.
+
+**O16. Acesso à QSPI.** O driver do Zephyr serializa cada operação com uma trava, então escrita no `slot1`,
+LittleFS e leitura para envio não se misturam. O que resta é **não segurar a trava por muito tempo**:
+
+- o OTA apaga um setor de 4 KB por vez, nunca blocos maiores (`img erase`, da bancada, é a exceção);
+- o `slot1` e o LittleFS são partições separadas, então uma não corrompe a outra;
+- a ordem é: o envio dos dados e as gravações do `storage` têm prioridade; o download acontece no fim do
+  ciclo e cede entre blocos (O6).
+
+**O20. Alvo que muda.** Uma oferta de outro build, tamanho ou SHA-256 descarta a transferência anterior: o
+ponto salvo é apagado antes de gravar o primeiro bloco novo. Se a imagem é retirada, o servidor responde
+`4.04`: o device larga o ciclo e a parcial fica no `slot1`, sem efeito, até a próxima oferta.
+
+**O11. Confirmação e o que a volta significa.** Só um `2.04` de um pacote com amostra da própria imagem
+confirma (RDWS-WE-012). Confirmar só localmente foi considerado e **descartado**: uma imagem que quebre o
+Wi-Fi ou o DTLS está perfeita por dentro e, confirmada, não pode mais ser consertada pela rede. É a única
+falha que o OTA não pode deixar passar.
+
+O custo é o caso inverso: uma imagem boa numa rede fora do ar. Por isso:
+
+- o prazo passa de 3 h para **24 h**. Enquanto espera, a estação amostra e guarda normalmente;
+- a volta só **rejeita** quando há prova de falha da imagem. Sem prova, é inconclusiva, e vale uma segunda
+  tentativa:
+
+| O que houve | Como o device sabe | Efeito |
+|---|---|---|
+| Crash ou travamento em teste | Marca deixada no registrador de backup pelo tratador de falha; `reset_reason` de watchdog | Rejeitada |
+| Classe ou assinatura recusada pelo MCUboot | Nunca rodou: a marca "rodou" não foi gravada | Rejeitada |
+| SHA-256 errado | Conferência antes do teste | Rejeitada |
+| Prazo sem `2.04` | Gravado antes do reset | Inconclusiva |
+| Queda de energia ou reset em teste | Nenhuma das acima | Inconclusiva |
+
+Duas voltas inconclusivas do mesmo build rejeitam. A contagem é por build, zera ao confirmar e fica em
+`settings`. A marca fica no registrador reservado ao boot (`BKP_REG_BOOT`), porque o registro de falha em
+RAM pode estar em outro endereço na imagem antiga. Numa queda de energia o registrador se perde, o que
+cai na linha certa: inconclusiva.
+
 **O5. Laço de rollback.** Sem cuidado: o alvo entra, falha no teste, reverte; o device declara o build
 antigo, o servidor reoferece, e o ciclo se repete gastando rádio e flash. O que encerra isso:
 
 1. Antes de reiniciar, o device grava `pendente = build do alvo`.
-2. No boot, se roda outro build e não está em teste, o pendente **falhou**: passa a ser o rejeitado.
+2. No boot, se roda outro build e não está em teste, o pendente voltou, e a O11 decide: rejeitado, ou
+   inconclusivo (nova tentativa).
 3. O rejeitado vai em `fw_rej`, e o device **não baixa** de novo esse build.
-4. O servidor não o oferece e mostra `rejected`. Mudar o alvo para outro build volta a oferecer.
+4. O servidor não o oferece e mostra `rejected`. Mudar o alvo para outro build volta a oferecer, e uma
+   **nova tentativa do mesmo build** é uma ação do admin (O18).
 
-O mesmo vale para um SHA-256 errado. Uma queda no download **não** é rejeição.
+Uma queda no download **não** é rejeição.
 
 ### Orçamento
 
 - RAM: o build com MCUboot usa 67,4 KB de 96 KB. O buffer de bloco cabe no `request_buf`/`response_buf`
   já existentes. O contexto de escrita e o hash entram na medição da fase 4.
 - Watchdog: o download alimenta o canal do `uplink` a cada bloco. Apagar um setor não passa de 1 s.
-- Flash: `STREAM_FLASH_ERASE` apaga por setor, sob demanda, só dentro do `slot1`.
+- Flash: `STREAM_FLASH_ERASE` apaga por setor, sob demanda, só dentro do `slot1`. O `settings` fica em
+  outra partição, na flash interna.
 
 ### Falhas previstas
 
@@ -237,9 +330,12 @@ O mesmo vale para um SHA-256 errado. Uma queda no download **não** é rejeiçã
 | Energia cai no meio | Idem, do último cursor salvo; o slot0 não é tocado |
 | Limite de tempo do ciclo (O10) | Retoma do cursor no ciclo seguinte |
 | Servidor sem a imagem (`4.04`) | Desiste do ciclo; tenta no próximo |
+| Servidor cheio (`5.03`) | Respeita `Max-Age`; tenta no ciclo seguinte |
+| Tamanho maior que o permitido (O14) | Oferta recusada, sem baixar |
 | SHA-256 errado | Rejeitada |
-| Assinatura errada | MCUboot recusa; o device volta na mesma imagem e a marca rejeitada |
-| Imagem trava ou não envia | Rollback (RDWS-WE-012); rejeitada |
+| Assinatura ou classe errada | MCUboot recusa; o device volta na mesma imagem e a marca rejeitada |
+| Imagem trava | Rollback (RDWS-WE-012); rejeitada |
+| Imagem sem rede, ou queda de energia em teste | Rollback; inconclusiva, uma segunda tentativa (O11) |
 | Queda de energia no swap | MCUboot termina ao religar (validado) |
 | Config nova recusada pela imagem nova | `cfg_rej`, já existente; não é rollback |
 
@@ -262,9 +358,17 @@ passaria pela validação e, no melhor caso, travaria e reverteria.
 - A chave de assinatura nunca vai para o servidor nem para o repositório. A de desenvolvimento assina
   só placas de bancada; a de produção fica em secret de CI.
 - Servidor comprometido: o atacante pode **negar** atualizações, ou oferecer uma imagem **antiga**
-  legítima. Não consegue instalar uma que a chave não assinou. O rebaixamento só é barrado com
-  `MCUBOOT_DOWNGRADE_PREVENTION`, que usa a versão da imagem. Hoje ela é sempre 0.1.0, então só
-  serve depois do pipeline de release.
+  legítima. Não consegue instalar uma que a chave não assinou.
+- **O12, downgrade, adiado.** A proteção é do MCUboot, que funciona com o nosso modo de swap (o código só a
+  aplica ao swap de teste, então a reversão não é afetada). Há duas formas: por **versão**, que impediria
+  voltar de propósito a uma versão anterior, e por **contador de segurança**, que só sobe quando importa.
+  A escolhida é a segunda. Adiar não atrapalha as fases 1 a 6, mas cobra depois: ligá-la pede regravar o
+  bootloader **por cabo** em cada estação, e as que já estiverem sem cabo não a terão. **Obrigatória antes
+  de a primeira estação ficar fora do alcance de um cabo, e antes de o pipeline de produção ser
+  considerado pronto.** A imagem de slot0 sem contador aceita qualquer uma, então ligar depois é
+  compatível com as imagens já instaladas.
+- Três propriedades distintas, com mecanismos distintos: **autenticidade** (ECDSA-P256, MCUboot),
+  **integridade** (SHA-256) e **autorização da entrega** (PSK por device). Nenhuma substitui a outra.
 - `GET /fw` só entrega o alvo do device autenticado: um device não lista nem baixa outras imagens.
 - O volume de imagens é só leitura para o `firmware_service`.
 
@@ -276,20 +380,22 @@ estação; as de firmware são testadas contra um servidor de bancada antes do Q
 | Fase | Onde | Entrega | Pronto quando |
 |---|---|---|---|
 | **0** ✅ | firmware | Datagrama de ~1100 bytes pelo eswifi; classe da placa no MCUboot (O7) | Feita em 2026-11-25 (RDWS-WE-016): 1400 bytes inteiros; imagem de outra classe, ou sem classe, recusada |
-| **1** | rdws_us | Tabelas, registro, alvo, REST, estado derivado | Testes; um alvo definido aparece em `firmware-status` |
+| **1** | rdws_us | Tabelas, registro, alvo, permissão, REST, estado derivado | Testes; um alvo definido aparece em `firmware-status`; `bench` sem `allowBench` e device sem permissão são recusados |
 | **2** | rdws_us | `firmware_service` (GET com Block2, PSK, ETag) | Baixa a imagem inteira com um cliente CoAP e o SHA-256 confere; duas estações ao mesmo tempo; ingestão sem atraso medido |
 | **3** | rdws_us | Oferta no `2.04` | Só a quem declara `ota`; config tem prioridade; `fw_rej` suprime |
-| **4** | firmware | Download, retomada, verificação (sem reiniciar) | Testes `native_sim`; queda no meio e retomada; SHA errado recusado; RAM e flash medidos |
-| **5** | firmware | Pedido de teste automático, memória de rejeição, `ota_pct` | Laço de rollback encerrado na bancada |
+| **4** | firmware | Download, retomada, verificação (sem reiniciar) | **Primeiro:** bloco de 1024 com CoAP e DTLS. Testes `native_sim`; queda durante o apagar, o gravar, e antes e depois de salvar o ponto (O13); `size` acima do limite, zero e no estouro recusados, sem tocar em nada além do `slot1` (O14); SHA errado recusado; registros em LittleFS intactos depois do download; RAM e flash medidos |
+| **5** | firmware | Pedido de teste automático, causas da volta (O11), nova tentativa (O18), prazo de 24 h, `ota_pct` | Laço de rollback encerrado na bancada; cada linha da tabela da O11 provocada |
 | **6** | os dois | Ponta a ponta na estação 12 | Tabela da §6 exercitada; medição de tempo |
 | **7** | rdws_us | Painel: versão, alvo, estado e rejeições por device | Conferido no Grafana local e no QA |
+| **8** | rdws_us | Ondas de rollout (O17) | Canário primeiro; a seguinte só por ação do admin; para sozinha numa rejeição |
 
-Fases 1 a 3 e 0, 4 podem andar em paralelo. A 5 depende da 4, e a 6 depende das demais.
+Fases 1 a 3 e 0, 4 podem andar em paralelo. A 5 depende da 4, a 6 depende das demais, e a 8 não bloqueia
+nenhuma: com poucas estações, a permissão por device basta.
 
 ### Fora deste plano
 
-Atualização diferencial (fase posterior, pensada para NB-IoT), grupos e rollout gradual, CI de release
-com chave de produção, proteção contra rebaixamento, atualização do próprio MCUboot.
+Atualização diferencial (fase posterior, pensada para NB-IoT), CI de release com chave de produção,
+atualização do próprio MCUboot. A proteção contra downgrade está decidida e adiada (O12).
 
 ## 10. Riscos
 
@@ -298,6 +404,11 @@ com chave de produção, proteção contra rebaixamento, atualização do própr
 | Eswifi não entrega 1100 bytes com DTLS | Baixa | Medido sem DTLS até 1400 (fase 0); se falhar com DTLS, 512, pouco mais do dobro do tempo |
 | Download longo bloqueia o ciclo ou gasta bateria | Alta em NB-IoT | O6: cede entre blocos ao edge trigger; O10: limite por ciclo |
 | Laço de rollback | Certa sem O5 | O5, testada na fase 5 |
-| Escrita fora do `slot1` apaga registros | Baixa, grave | Só a API de partição do Zephyr; teste na fase 4 |
+| Imagem boa rejeitada por falta de rede | Média | O11: volta inconclusiva tem segunda tentativa, prazo de 24 h, e nova tentativa do admin (O18) |
+| Imagem que quebra a rede é confirmada | Baixa, sem conserto remoto | O11: só um `2.04` confirma |
+| Retomada no meio de um setor corrompe a imagem | Alta sem O13 | O13: ponto em limite de setor; e o SHA-256 antes do teste |
+| Escrita fora do `slot1` apaga registros | Baixa, grave | O14 e só a API de partição do Zephyr; teste na fase 4 |
+| Frota inteira atualizada com uma imagem ruim | Baixa | O17: permissão por device, ondas, downloads limitados |
+| Downgrade para uma imagem antiga legítima | Baixa até a produção | O12, obrigatória antes dela |
 | Perder a chave de produção | Baixa, grave | Backup; o MCUboot aceita mais de uma chave pública, o que permite trocar com antecedência |
 | Porta nova exposta | Baixa | PSK por device, limite por IP, relay sem conhecer a PSK |

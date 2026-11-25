@@ -1,0 +1,19 @@
+meta {
+  name: Retry Target
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/devices/:dev/firmware-target/retry
+  body: none
+  auth: bearer
+}
+
+params:path {
+  dev: {{deviceId}}
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}

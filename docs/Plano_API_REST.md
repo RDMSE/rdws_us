@@ -60,6 +60,13 @@ apareceu num log de debug em 2026-10-02 e ficou sem rotação por falta dessa ro
 |--------|-------------------------------------|---------------------------|-------------------------------------------------------|
 | POST   | /devices/{id}/credential/rotate     | device_credential.rotate  | Gera nova PSK (retornada uma única vez), revoga a atual |
 | POST   | /devices/{id}/credential/revoke     | device_credential.revoke  | Revoga a PSK ativa                                    |
+| POST   | /firmware-images                    | firmware_image.create     | Admin. Registra um arquivo já no volume, pelo SHA-256 (`Plano_OTA.md`) |
+| GET    | /firmware-images                    | firmware_image.list       | Admin. Imagens, da mais nova, e os devices que têm cada uma como alvo |
+| POST   | /firmware-images/{id}/withdraw      | firmware_image.withdraw   | Admin. Deixa de oferecer; as instaladas não mudam |
+| PUT    | /devices/{id}/firmware-target       | firmware_target.set       | Admin. `{"imageId", "allowBench"}`; `imageId` null remove |
+| POST   | /devices/{id}/firmware-target/retry | firmware_target.retry     | Admin. Nova tentativa depois de uma rejeição |
+| PUT    | /devices/{id}/firmware-ota          | firmware_ota.set          | Admin. `{"enabled"}`; todo device nasce sem permissão |
+| GET    | /devices/{id}/firmware-status       | firmware.status           | Admin. Build declarado, alvo, permissão e estado |
 
 - Restrito a `admin`, porque é operação sensível. A resposta do `rotate` traz a chave
   em claro, como no `device.create`. A checagem fica no handler (`requireAdmin()` em

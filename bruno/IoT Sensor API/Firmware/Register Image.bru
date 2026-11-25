@@ -1,0 +1,23 @@
+meta {
+  name: Register Image
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/firmware-images
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+body:json {
+  {
+    "sha256": "<64 hex digits: the file is <sha256>.bin in the volume>",
+    "variant": "bench",
+    "notes": ""
+  }
+}

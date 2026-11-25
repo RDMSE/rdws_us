@@ -15,10 +15,20 @@ namespace rdws::device {
 using rdws::device_config::DeclaredConfig;
 using rdws::device_config::DeclaredLookup;
 
-DeclaredLookup DeviceDiagnosticsClient::declared(const std::string& deviceId) {
+using rdws::firmware::DeclaredFirmware;
+using rdws::firmware::DeclaredFirmwareLookup;
+
+std::unique_ptr<DeviceDiagnosticsClient::Snapshot>
+DeviceDiagnosticsClient::snapshot(const std::string& deviceId) {
+  auto result = std::make_unique<Snapshot>();
+  const auto fail = [&result](int statusCode, std::string message) {
+    result->statusCode = statusCode;
+    result->errorMessage = std::move(message);
+    return std::move(result);
+  };
   if (!client_ || !client_->isConnected()) {
     logger::error("DeviceDiagnosticsClient: not connected to gateway", deviceId);
-    return {.statusCode = 503, .errorMessage = "Not connected to gateway"};
+    return fail(503, "Not connected to gateway");
   }
 
   rapidjson::Document data;
@@ -29,37 +39,61 @@ DeclaredLookup DeviceDiagnosticsClient::declared(const std::string& deviceId) {
       json::JsonObj(allocator).setValue("pathParameters", std::move(pathParams)).take();
   data.Swap(dataValue);
 
-  const auto result = client_->invoke("device.diagnostics", data);
-  if (!result.success) {
+  const auto invoked = client_->invoke("device.diagnostics", data);
+  if (!invoked.success) {
     logger::warn("DeviceDiagnosticsClient: device.diagnostics invoke failed",
-                 deviceId + ": " + result.errorMessage);
+                 deviceId + ": " + invoked.errorMessage);
     // Transient/operational failure (timeout, gateway error, ...): surface it, never "unknown"
-    const int statusCode = result.statusCode != 0 ? result.statusCode : 502;
-    return {.statusCode = statusCode, .errorMessage = result.errorMessage};
+    return fail(invoked.statusCode != 0 ? invoked.statusCode : 502, invoked.errorMessage);
   }
 
   // The envelope is the whole handler response ({"success", "statusCode", "data"/"error"})
-  rapidjson::Document envelope;
-  envelope.Parse(result.responsePayload.c_str());
+  auto& envelope = result->envelope;
+  envelope.Parse(invoked.responsePayload.c_str());
   if (envelope.HasParseError() || !envelope.IsObject()) {
-    return {.statusCode = 502, .errorMessage = "Invalid JSON envelope from device.diagnostics"};
+    return fail(502, "Invalid JSON envelope from device.diagnostics");
   }
   if (!json::getBool(envelope, "success").value_or(false)) {
-    return {.statusCode = json::getInt(envelope, "statusCode").value_or(502),
-            .errorMessage = json::getString(envelope, "error").value_or("device.diagnostics failed")};
+    return fail(json::getInt(envelope, "statusCode").value_or(502),
+                json::getString(envelope, "error").value_or("device.diagnostics failed"));
   }
+  result->body = json::getObject(envelope, "data");
+  result->data = result->body != nullptr ? json::getObject(*result->body, "data") : nullptr;
+  return result;
+}
 
-  // {"timestamp", "data"}: data is null when the device never sent diagnostics, and a snapshot
-  // without cfg_version (simulator) declares nothing either
-  const auto* body = json::getObject(envelope, "data");
-  const auto* snapshot = body != nullptr ? json::getObject(*body, "data") : nullptr;
-  const auto version = snapshot != nullptr ? json::getInt(*snapshot, "cfg_version") : std::nullopt;
+DeclaredLookup DeviceDiagnosticsClient::declared(const std::string& deviceId) {
+  const auto s = snapshot(deviceId);
+  if (s->statusCode != 200) {
+    return {.statusCode = s->statusCode, .errorMessage = s->errorMessage};
+  }
+  // A snapshot without cfg_version (simulator) declares nothing, like no snapshot at all
+  const auto version = s->data != nullptr ? json::getInt(*s->data, "cfg_version") : std::nullopt;
   if (!version) {
     return {};
   }
-  return {.declared = DeclaredConfig{.declared = *version,
-                                     .rejected = json::getInt(*snapshot, "cfg_rej"),
-                                     .declaredAt = json::getString(*body, "timestamp").value_or("")}};
+  return {.declared =
+              DeclaredConfig{.declared = *version,
+                             .rejected = json::getInt(*s->data, "cfg_rej"),
+                             .declaredAt = json::getString(*s->body, "timestamp").value_or("")}};
+}
+
+DeclaredFirmwareLookup DeviceDiagnosticsClient::declaredFirmware(const std::string& deviceId) {
+  const auto s = snapshot(deviceId);
+  if (s->statusCode != 200) {
+    return {.statusCode = s->statusCode, .errorMessage = s->errorMessage};
+  }
+  const auto build = s->data != nullptr ? json::getString(*s->data, "fw_build") : std::nullopt;
+  if (!build) {
+    return {};
+  }
+  return {.declared =
+              DeclaredFirmware{.build = *build,
+                               .version = json::getString(*s->data, "fw_version").value_or(""),
+                               .boardClass = json::getString(*s->data, "fw_class"),
+                               .rejected = json::getString(*s->data, "fw_rej"),
+                               .percent = json::getInt(*s->data, "ota_pct"),
+                               .declaredAt = json::getString(*s->body, "timestamp").value_or("")}};
 }
 
 } // namespace rdws::device

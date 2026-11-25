@@ -23,6 +23,13 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   cada ciclo de envio, em vez do intervalo de envio; o painel novo **"Uplink backlog"** mostra o
   quanto a estação ficou para trás além do intervalo esperado ([RDWS-236]).
 
+### Firmware (OTA)
+- Registro de imagens de firmware e alvo por device, base da atualização pela rede
+  (`docs/Plano_OTA.md`): leitor de imagens do MCUboot, schema **V23** (`firmware_images`,
+  `device_firmware`, `device_firmware_targets`) e o serviço novo **`firmware_service`**, com as rotas
+  `/firmware-images`, `/devices/{id}/firmware-target`, `/devices/{id}/firmware-ota` e
+  `/devices/{id}/firmware-status`, só para admin. Nada é entregue às estações ainda ([RDWS-241]).
+
 ## [v0.4.2] — 2026-11-24
 
 Os alertas de frota passam a chegar por Telegram. Sem mudança de API nem de schema.
@@ -251,3 +258,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-225]: https://github.com/RDMSE/rdws_us/issues/225
 [RDWS-231]: https://github.com/RDMSE/rdws_us/issues/231
 [RDWS-236]: https://github.com/RDMSE/rdws_us/issues/236
+[RDWS-241]: https://github.com/RDMSE/rdws_us/issues/241

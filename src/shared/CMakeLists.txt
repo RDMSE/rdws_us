@@ -67,6 +67,8 @@ target_link_libraries(rdws_shared_json_utils PUBLIC
 )
 
 add_library(rdws_shared_utils
+    utils/authorization.cpp
+    utils/authorization.h
     utils/lambda_params_helper.cpp
     utils/lambda_params_helper.h
     utils/metrics.cpp
@@ -84,6 +86,7 @@ target_link_libraries(rdws_shared_utils PUBLIC
     rdws_version
     expected_wrapper
     rapidjson_wrapper
+    rdws_shared_json_utils
 )
 
 add_library(rdws_shared_logger
@@ -111,6 +114,22 @@ target_include_directories(rdws_shared_crypto PUBLIC
 )
 
 target_link_libraries(rdws_shared_crypto PUBLIC
+    OpenSSL::Crypto
+)
+
+# --- Signed firmware images (OTA registry) ---
+add_library(rdws_shared_firmware
+    firmware/file_image_store.cpp
+    firmware/file_image_store.h
+    firmware/mcuboot_image.cpp
+    firmware/mcuboot_image.h
+)
+
+target_include_directories(rdws_shared_firmware PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(rdws_shared_firmware PUBLIC
     OpenSSL::Crypto
 )
 
