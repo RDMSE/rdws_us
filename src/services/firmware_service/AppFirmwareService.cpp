@@ -10,12 +10,18 @@
 // one device (O17).
 //
 // The image files come from a read-only volume (FIRMWARE_IMAGES_DIR), filled by the publish script.
-// Delivering them to the stations is the next phase.
+// FirmwareCoapServer delivers them to the stations (GET /fw, CoAP/DTLS), in a thread of its own, with
+// its own database connection; the stations' PSKs come from device_service, through the gateway.
+
+#include "FirmwareCoapServer.h"
 
 #include "../../shared/broker/ServiceClient.h"
+#include "../../shared/coap/psk_cache.h"
 #include "../../shared/config/config.h"
 #include "../../shared/database/postgresql_database.h"
 #include "../../shared/firmware/file_image_store.h"
+#include "../../shared/firmware/image_delivery.h"
+#include "../../shared/firmware/target_delivery.h"
 #include "../../shared/repository/FirmwareRepository.h"
 #include "../../shared/service/FirmwareService.h"
 #include "../../shared/service/client/DeviceDiagnosticsClient.h"
@@ -25,14 +31,20 @@
 #include "../../shared/utils/lambda_params_helper.h"
 #include "../../shared/utils/logger.h"
 #include "../../shared/utils/profiler.h"
+#include "../../shared/utils/refresh_schedule.h"
 #include "../../shared/utils/response_helper.h"
 #include "../../shared/utils/validation.h"
 #include "rdws_version.h"
 
 #include <atomic>
+#include <charconv>
+#include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
+#include <mutex>
 #include <rapidjson/document.h>
 #include <string>
 #include <thread>
@@ -55,6 +67,32 @@ std::string imagesDirectory() {
   return dir != nullptr && *dir != '\0' ? dir : "/app/firmware";
 }
 
+std::string coapHost() {
+  const char* host = std::getenv("FIRMWARE_BIND_HOST"); // NOLINT(concurrency-mt-unsafe)
+  return host != nullptr && *host != '\0' ? host : "0.0.0.0";
+}
+
+// `fallback` when it is unset, isn't a whole number or is out of range
+unsigned envNumber(const char* name, unsigned fallback, unsigned max) {
+  const char* text = std::getenv(name); // NOLINT(concurrency-mt-unsafe)
+  if (text == nullptr) {
+    return fallback;
+  }
+  unsigned value = 0;
+  const char* end = text + std::strlen(text);
+  const auto [stop, error] = std::from_chars(text, end, value);
+  if (error != std::errc{} || stop != end || value == 0 || value > max) {
+    logger::warn("Invalid setting, using the default", name);
+    return fallback;
+  }
+  return value;
+}
+
+constexpr unsigned kDefaultCoapPort = 5690;
+constexpr unsigned kDefaultMaxDownloads = 4;
+constexpr int kRefreshIntervalSec = 60;
+constexpr int kFirstLoadRetrySec = 5;
+
 } // namespace
 
 class AppFirmwareService {
@@ -72,11 +110,27 @@ private:
   rdws::device::DeviceDiagnosticsClient declaredSource_;
   FirmwareService svc_;
 
+  // Delivery: used by the CoAP thread only, but the credentials
+  rdws::database::PostgreSQLDatabase deliveryDb_;
+  FirmwareRepository deliveryRepo_;
+  TargetDelivery targets_;
+  ImageDelivery delivery_;
+  rdws::coap::PskCache credentials_;
+  FirmwareCoapServer coap_;
+  std::mutex clientMutex_; // connect() replaces `client` while the refresh may be using it
+  std::atomic<bool> failed_{false};
+
 public:
   AppFirmwareService(const std::string& serviceId, const std::string& machineName,
                      std::string broker)
       : gatewayAddress(std::move(broker)), repo_(db_), store_(imagesDirectory()),
-        declaredSource_(client), svc_(repo_, store_, declaredSource_) {
+        declaredSource_(client), svc_(repo_, store_, declaredSource_), deliveryRepo_(deliveryDb_),
+        targets_(deliveryRepo_),
+        delivery_(targets_, store_,
+                  envNumber("FIRMWARE_MAX_DOWNLOADS", kDefaultMaxDownloads, 1000)),
+        coap_(credentials_, delivery_, coapHost(),
+              static_cast<std::uint16_t>(
+                  envNumber("FIRMWARE_COAP_PORT", kDefaultCoapPort, UINT16_MAX))) {
     identity.machineName = machineName;
     identity.serviceName = "firmware_service";
     identity.serviceId = serviceId;
@@ -89,11 +143,23 @@ public:
                              "firmware.status"};
   }
 
-  void run() {
+  // False when the delivery couldn't start
+  bool run() {
     running.store(true);
     logger::info("FirmwareService starting", identity.serviceId + " images=" + imagesDirectory());
-    while (running.load()) {
-      connect();
+    connect();
+    std::thread refresh([this] { refreshLoop(); });
+    std::thread delivery([this] {
+      if (!coap_.serve(running)) {
+        logger::error("Firmware delivery can't open its port", identity.serviceId);
+        failed_.store(true);
+        shutdown();
+      }
+    });
+    for (bool first = true; running.load(); first = false) {
+      if (!first) {
+        connect();
+      }
       client->run();
       if (!running.load()) {
         break;
@@ -101,7 +167,10 @@ public:
       logger::warn("Reconnecting in 3s", identity.serviceId);
       std::this_thread::sleep_for(std::chrono::seconds(3));
     }
+    refresh.join();
+    delivery.join();
     logger::info("FirmwareService stopped", identity.serviceId);
+    return !failed_.load();
   }
 
   void shutdown() {
@@ -113,9 +182,51 @@ public:
 
 private:
   void connect() {
-    client = std::make_unique<ServiceClient>(identity, gatewayAddress);
-    client->setRequestHandler(
+    auto next = std::make_unique<ServiceClient>(identity, gatewayAddress);
+    next->setRequestHandler(
         [this](const rapidjson::Document& req) { return processRequest(req); });
+    std::scoped_lock lock(clientMutex_);
+    client = std::move(next);
+  }
+
+  void refreshLoop() {
+    for (int wait = 0; running.load(); --wait) {
+      if (wait <= 0) {
+        refreshCredentials();
+        wait = rdws::utils::nextRefreshDelaySec(credentials_.loaded(), kRefreshIntervalSec,
+                                                kFirstLoadRetrySec);
+      }
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
+
+  void refreshCredentials() {
+    InvokeResult result;
+    {
+      std::scoped_lock lock(clientMutex_);
+      if (!client->isConnected()) {
+        return;
+      }
+      result = client->invoke("device_credential.list_active",
+                              rapidjson::Document(rapidjson::kObjectType));
+    }
+    if (!result.success) {
+      logger::error("device_credential.list_active failed", result.errorMessage);
+      return;
+    }
+    const bool first = !credentials_.loaded();
+    if (!credentials_.load(result.responsePayload)) {
+      logger::error("device_credential.list_active: unexpected answer, keeping the cache", "");
+      return;
+    }
+    if (credentials_.skipped() > 0) {
+      logger::error("device_credential.list_active: invalid credentials left out",
+                    "count=" + std::to_string(credentials_.skipped()));
+    }
+    if (first) {
+      logger::info("Firmware delivery: credentials loaded",
+                   "count=" + std::to_string(credentials_.size()));
+    }
   }
 
   [[nodiscard]] rapidjson::Document processRequest(const rapidjson::Document& request) {
@@ -390,6 +501,5 @@ int main(int argc, char* argv[]) {
   gService = &service;
   signal(SIGTERM, signalHandler);
   signal(SIGINT, signalHandler);
-  service.run();
-  return 0;
+  return service.run() ? 0 : 1;
 }

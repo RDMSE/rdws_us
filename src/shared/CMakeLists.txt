@@ -121,6 +121,8 @@ target_link_libraries(rdws_shared_crypto PUBLIC
 add_library(rdws_shared_firmware
     firmware/file_image_store.cpp
     firmware/file_image_store.h
+    firmware/image_delivery.cpp
+    firmware/image_delivery.h
     firmware/mcuboot_image.cpp
     firmware/mcuboot_image.h
 )
