@@ -106,6 +106,37 @@ target_link_libraries(shared_firmware_service_tests PRIVATE
 )
 gtest_discover_tests(shared_firmware_service_tests)
 
+# --- Delivery of firmware images: blocks, targets and simultaneous downloads ---
+add_executable(shared_image_delivery_tests
+    test_image_delivery.cpp
+)
+target_include_directories(shared_image_delivery_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/shared
+)
+target_link_libraries(shared_image_delivery_tests PRIVATE
+    rdws_shared_firmware
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_image_delivery_tests)
+
+# --- firmware_service's CoAP/DTLS endpoint, over a real session ---
+add_executable(shared_firmware_coap_server_tests
+    test_firmware_coap_server.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/firmware_service/FirmwareCoapServer.cpp
+)
+target_include_directories(shared_firmware_coap_server_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(shared_firmware_coap_server_tests PRIVATE
+    rdws_shared_firmware
+    rdws_shared_coap
+    rdws_shared_logger
+    gtest_main
+    gtest
+)
+gtest_discover_tests(shared_firmware_coap_server_tests)
+
 # --- CoapDtlsClient (libcoap PSK/DTLS) integration test — real handshake against a
 # local in-process libcoap PSK server, see test file header comment. ---
 add_executable(shared_coap_dtls_client_tests

@@ -110,6 +110,15 @@ services:
       <<: *db-env
       RDWS_SERVICE: firmware_service
       FIRMWARE_IMAGES_DIR: /app/firmware
+      FIRMWARE_COAP_PORT: "5690"
+      FIRMWARE_MAX_DOWNLOADS: "4" # at once; the others get 5.03 and come back in the next cycle
+    ports:
+      - "5690:5690/udp" # CoAP/DTLS — stations download their image here (GET /fw)
+    deploy: # a wave of downloads must not take what the ingestion needs
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 64M
     volumes:
       # Filled by rdws_weather_node's scripts/fw_publish.py, through a one-off container: the service
       # only reads

@@ -29,6 +29,9 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
   `device_firmware`, `device_firmware_targets`) e o serviço novo **`firmware_service`**, com as rotas
   `/firmware-images`, `/devices/{id}/firmware-target`, `/devices/{id}/firmware-ota` e
   `/devices/{id}/firmware-status`, só para admin. Nada é entregue às estações ainda ([RDWS-241]).
+- Entrega da imagem por CoAP/DTLS: `GET /fw` em blocos, na porta **5690/udp** do `firmware_service`, com a
+  PSK do device, que só recebe o seu próprio alvo. No máximo 4 downloads ao mesmo tempo
+  (`FIRMWARE_MAX_DOWNLOADS`). Nenhuma estação pede ainda ([RDWS-244]).
 
 ### Corrigido
 - Ingestão: durante um handshake, a `libcoap` podia ler a PSK de um cache que o refresh periódico

@@ -61,3 +61,34 @@ TEST_F(FileImageStoreTest, NotALinkNorADirectory) {
   fs::create_directory(dir / (sha + ".bin"));
   EXPECT_FALSE(FileImageStore(dir).read(sha, 100).has_value());
 }
+
+TEST_F(FileImageStoreTest, ReadsABlock) {
+  put(dir / (sha + ".bin"), "0123456789");
+  FileImageStore store(dir);
+  const auto text = [](const auto& d) { return d ? std::string(d->begin(), d->end()) : "none"; };
+  EXPECT_EQ(text(store.readAt(sha, 10, 0, 4)), "0123");
+  EXPECT_EQ(text(store.readAt(sha, 10, 8, 2)), "89");
+  EXPECT_EQ(text(store.readAt(sha, 10, 0, 10)), "0123456789");
+  EXPECT_EQ(text(store.readAt(sha, 10, 10, 0)), "");
+  EXPECT_EQ(text(store.readAt(sha, 10, 8, 3)), "none");
+  EXPECT_EQ(text(store.readAt(sha, 10, 11, 0)), "none");
+  EXPECT_EQ(text(store.readAt(sha, 10, 1, SIZE_MAX)), "none");
+}
+
+TEST_F(FileImageStoreTest, ABlockOnlyFromAFileOfTheRegisteredSize) {
+  put(dir / (sha + ".bin"), "0123456789");
+  FileImageStore store(dir);
+  EXPECT_FALSE(store.readAt(sha, 9, 0, 4));
+  EXPECT_FALSE(store.readAt(sha, 11, 0, 4));
+  EXPECT_FALSE(store.readAt(std::string(64, 'b'), 10, 0, 4));
+}
+
+TEST_F(FileImageStoreTest, ABlockNeverFromElsewhere) {
+  put(root / "secret.bin", "0123456789");
+  fs::create_symlink(root / "secret.bin", dir / (sha + ".bin"));
+  fs::create_directory(dir / (std::string(64, 'c') + ".bin"));
+  FileImageStore store(dir);
+  EXPECT_FALSE(store.readAt(sha, 10, 0, 4));
+  EXPECT_FALSE(store.readAt("../secret", 10, 0, 4));
+  EXPECT_FALSE(store.readAt(std::string(64, 'c'), 0, 0, 0));
+}

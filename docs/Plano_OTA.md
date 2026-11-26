@@ -168,7 +168,21 @@ Contrato:
 - No máximo N downloads simultâneos (configurável); os demais recebem `5.03` com `Max-Age`, e tentam no
   ciclo seguinte. Protege o servidor e a ingestão de uma onda inteira acordando junto (O17).
 
-A porta nova precisa entrar no relay de QA, no firewall da VPS e no `Plano_Deployment.md` (§2.2).
+A porta é a **5690/udp**. O relay de QA (5691), o firewall da VPS e o compose de prod estão descritos no
+`Plano_Deployment.md` (§2.2), e só entram quando uma estação fora da LAN precisar.
+
+Como ficou (RDWS-244):
+
+- O Block2 é tratado pelo serviço, sem estado: cada bloco é lido do arquivo. O modo de blocos da libcoap
+  guardaria a imagem por sessão e responderia os seguintes sem perguntar, e um alvo trocado não mudaria
+  o `ETag`. Retomar em qualquer bloco, em outra sessão, sai de graça.
+- Baixa quem tem alvo atual, `ota_enabled` e imagem não retirada; qualquer outro caso é `4.04`, sem dizer
+  qual. O alvo vale 5 s em cache: uma retirada ou um alvo novo valem no meio do download.
+- 4 downloads simultâneos (`FIRMWARE_MAX_DOWNLOADS`). A vaga é de quem pediu um bloco nos últimos 30 s, e
+  acaba no último bloco, que não ocupa vaga: a resposta dele pode se perder, e o device o pede de novo.
+  Além do limite, `5.03` com `Max-Age: 3600`. Banco fora do ar: `5.03` com `Max-Age: 30`.
+- `5.00` se o arquivo falta ou não tem o tamanho registrado. O `Size2` vai no bloco 0.
+- A credencial é conferida a cada pedido: uma revogada perde o acesso numa sessão aberta.
 
 ### Tamanho do bloco e tempo
 
