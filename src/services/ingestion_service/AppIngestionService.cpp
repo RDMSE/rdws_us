@@ -26,6 +26,11 @@
 // device_config_spans (este serviço não acessa o banco). Se ela não chegar ao RabbitMQ, 5.03:
 // depois do 2.04 o device apaga o arquivo e o span não teria outra chance.
 //
+// Firmware offer (Plano_OTA.md §5, O3): a station that declares `ota` gets in the 2.04 the image it
+// should download, when there is one. firmware_service decides (firmware.offer, with fw_build,
+// fw_class and fw_rej from the same pack); a config waiting goes first, alone, and the offer comes in
+// the next cycle. Asked with a short timeout on this thread: a failure only logs, the 2.04 goes.
+//
 // Posição: registros SenML `lat`/`lon` (unidades RFC 8428 "lat"/"lon", graus) atualizam
 // devices.location pelo device.update_location — o par mais recente do pack. Substituem o
 // campo `location` do formato legado; nenhum device manda posição ainda (virá do firmware).
@@ -362,26 +367,89 @@ private:
       return;
     }
 
-    std::optional<long long> declaredCfg;
-    const int result = handleSenml(deviceId, body, declaredCfg);
+    Declared declared;
+    const int result = handleSenml(deviceId, body, declared);
 
     coap_pdu_set_code(response, result == kForbidden     ? COAP_RESPONSE_CODE_FORBIDDEN
                                 : result == kFormatError ? COAP_RESPONSE_CODE_BAD_REQUEST
                                 : result == kUnavailable ? COAP_RESPONSE_CODE_SERVICE_UNAVAILABLE
                                                          : COAP_RESPONSE_CODE_CHANGED);
 
+    if (result < 0) {
+      return;
+    }
     // Config piggyback (Plano_Telemetria.md, D11): the station declared the config version
     // it runs; if it's behind, this 2.04 carries the current one. Block2 when it doesn't
-    // fit in one PDU — libcoap handles the follow-up block requests.
-    if (result >= 0 && declaredCfg) {
-      if (auto reply = configReply(*device, *declaredCfg)) {
-        auto* owned = new std::string(std::move(*reply));
-        coap_add_data_large_response(
-            resource, session, request, response, query, COAP_MEDIATYPE_APPLICATION_JSON, -1,
-            0, owned->size(), reinterpret_cast<const uint8_t*>(owned->data()),
-            [](coap_session_t*, void* app) { delete static_cast<std::string*>(app); }, owned);
-      }
+    // fit in one PDU — libcoap handles the follow-up block requests. Otherwise, the firmware
+    // offer, if the station asked for one (see the header).
+    std::optional<std::string> reply;
+    if (declared.cfg) {
+      reply = configReply(*device, *declared.cfg);
     }
+    if (!reply && declared.ota.value_or(0) >= kOtaContract && declared.build) {
+      reply = offerReply(*device, declared);
+    }
+    if (reply) {
+      auto* owned = new std::string(std::move(*reply));
+      coap_add_data_large_response(
+          resource, session, request, response, query, COAP_MEDIATYPE_APPLICATION_JSON, -1, 0,
+          owned->size(), reinterpret_cast<const uint8_t*>(owned->data()),
+          [](coap_session_t*, void* app) { delete static_cast<std::string*>(app); }, owned);
+    }
+  }
+
+  // What a station declares about itself in the pack (Plano_Telemetria.md D11, Plano_OTA.md O3)
+  struct Declared {
+    std::optional<long long> cfg;          // cfg_version
+    std::optional<long long> ota;          // offer contract it understands
+    std::optional<std::string> build;      // fw_build
+    std::optional<std::string> boardClass; // fw_class
+    std::optional<std::string> rejected;   // fw_rej
+  };
+
+  static constexpr long long kOtaContract = 1;
+  static constexpr std::chrono::milliseconds kOfferTimeout{2000};
+
+  // {"fw": {"build", "size", "sha256", "class", "port", "try"}} when firmware_service says the
+  // station should download an image, else nullopt. A failure only logs: the next cycle asks again.
+  std::optional<std::string> offerReply(const rdws::coap::PskDevice& device,
+                                        const Declared& declared) {
+    const std::string& deviceId = device.id;
+    if (device.publicId.empty()) {
+      return std::nullopt;
+    }
+    rapidjson::Document req(rapidjson::kObjectType);
+    auto& alloc = req.GetAllocator();
+    const auto add = [&](const char* key, const std::optional<std::string>& value) {
+      if (value) {
+        req.AddMember(rapidjson::StringRef(key), rapidjson::Value(value->c_str(), alloc), alloc);
+      }
+    };
+    add("device", device.publicId);
+    add("fw_build", declared.build);
+    add("fw_class", declared.boardClass);
+    add("fw_rej", declared.rejected);
+    const auto result = credentialClient_->invoke("firmware.offer", req, kOfferTimeout);
+    if (!result.success) {
+      logger::warn("IngestionService: firmware.offer failed, no offer this cycle",
+                   "device_id=" + deviceId + " " + result.errorMessage);
+      return std::nullopt;
+    }
+    rapidjson::Document envelope;
+    if (envelope.Parse(result.responsePayload.c_str()).HasParseError() || !envelope.IsObject()) {
+      return std::nullopt;
+    }
+    const auto* data = json::getObject(envelope, "data");
+    const auto* offer = data != nullptr ? json::getObject(*data, "offer") : nullptr;
+    if (offer == nullptr) {
+      return std::nullopt;
+    }
+    rapidjson::Document reply(rapidjson::kObjectType);
+    reply.AddMember("fw", rapidjson::Value(*offer, reply.GetAllocator()), reply.GetAllocator());
+    logger::info("IngestionService: sending firmware offer",
+                 "device_id=" + deviceId + " build=" + json::getString(*offer, "build").value_or("?") +
+                     " try=" + std::to_string(json::getInt(*offer, "try").value_or(0)));
+    return json::docToString(reply);
   }
 
   // {"version": N, "config": {...}} when the device's config is newer than `declared`, else
@@ -616,8 +684,7 @@ private:
   // log, the rest goes on): an impossible instant (readings and diagnostics alike, counted as
   // invalid_time; sensor_limits.h), foreign sensor, no numeric value, time_unsynced or unknown
   // fl_ bits (DP3/F3), unit without a rule (DP1).
-  int handleSenml(const std::string& authDeviceId, const std::string& body,
-                  std::optional<long long>& declaredCfg) {
+  int handleSenml(const std::string& authDeviceId, const std::string& body, Declared& declared) {
     const auto now = static_cast<double>(std::time(nullptr));
     const auto pack = rdws::senml::parse(body, now);
     if (!pack) {
@@ -680,7 +747,15 @@ private:
           seq = rec.value ? std::to_string(static_cast<long long>(*rec.value)) : "?";
         } else {
           if (local == "cfg_version" && rec.value) {
-            declaredCfg = static_cast<long long>(*rec.value);
+            declared.cfg = static_cast<long long>(*rec.value);
+          } else if (local == "ota" && rec.value) {
+            declared.ota = static_cast<long long>(*rec.value);
+          } else if (local == "fw_build" && rec.stringValue) {
+            declared.build = *rec.stringValue;
+          } else if (local == "fw_class" && rec.stringValue) {
+            declared.boardClass = *rec.stringValue;
+          } else if (local == "fw_rej" && rec.stringValue) {
+            declared.rejected = *rec.stringValue;
           }
           // Also kept in device_telemetry below: a free position history for mobile devices.
           if (local == "lat" && rec.value) {
