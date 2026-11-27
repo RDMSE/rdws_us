@@ -3,6 +3,8 @@
 
 #include "FirmwareService.h"
 
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 
 namespace rdws::firmware {
@@ -38,7 +40,71 @@ Rejection parseRejection(const std::string& text) {
   return r;
 }
 
+bool isRejection(const std::optional<std::string>& declared, const DeviceFirmware::Target& target) {
+  if (!declared) {
+    return false;
+  }
+  const auto rejection = parseRejection(*declared);
+  // A retry raises the attempt: the rejection of an earlier one no longer counts (O18)
+  return rejection.build == target.image.buildId && rejection.attempt >= target.attempt;
+}
+
+std::string lower(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return text;
+}
+
 } // namespace
+
+std::string toString(NoOffer reason) {
+  switch (reason) {
+  case NoOffer::NoTarget:
+    return "no target";
+  case NoOffer::Disabled:
+    return "not enabled";
+  case NoOffer::Withdrawn:
+    return "withdrawn";
+  case NoOffer::Applied:
+    return "already running it";
+  case NoOffer::OtherClass:
+    return "another board class";
+  case NoOffer::Rejected:
+    return "rejected by the station";
+  }
+  return "unknown";
+}
+
+OfferDecision decideOffer(const DeviceFirmware& device, const OfferRequest& declared) {
+  const auto no = [](NoOffer reason) { return OfferDecision{.offer = std::nullopt, .reason = reason}; };
+  if (!device.target) {
+    return no(NoOffer::NoTarget);
+  }
+  const auto& target = *device.target;
+  const auto& image = target.image;
+  if (!device.otaEnabled) {
+    return no(NoOffer::Disabled);
+  }
+  if (!image.withdrawnAt.empty()) {
+    return no(NoOffer::Withdrawn);
+  }
+  if (declared.build == image.buildId) {
+    return no(NoOffer::Applied);
+  }
+  // Without a declared class, the station's MCUboot is the judge (O7)
+  if (declared.boardClass && lower(*declared.boardClass) != lower(image.boardClass)) {
+    return no(NoOffer::OtherClass);
+  }
+  if (isRejection(declared.rejected, target)) {
+    return no(NoOffer::Rejected);
+  }
+  return {.offer = FirmwareOffer{.build = image.buildId,
+                                 .size = image.sizeBytes,
+                                 .sha256 = image.sha256,
+                                 .boardClass = image.boardClass,
+                                 .attempt = target.attempt},
+          .reason = NoOffer::NoTarget};
+}
 
 std::string toString(UpdateState state) {
   switch (state) {
@@ -67,12 +133,8 @@ UpdateState deriveState(const DeviceFirmware& device,
   if (declared && declared->build == target.image.buildId) {
     return UpdateState::Applied;
   }
-  if (declared && declared->rejected) {
-    const auto rejection = parseRejection(*declared->rejected);
-    // A retry raises the attempt: the rejection of an earlier one no longer counts (O18)
-    if (rejection.build == target.image.buildId && rejection.attempt >= target.attempt) {
-      return UpdateState::Rejected;
-    }
+  if (declared && isRejection(declared->rejected, target)) {
+    return UpdateState::Rejected;
   }
   if (!device.otaEnabled) {
     return UpdateState::Disabled;
@@ -218,6 +280,15 @@ ServiceResult<FirmwareStatus> FirmwareService::status(const std::string& deviceP
   const auto state = deriveState(*device, lookup.declared);
   return Result::success(
       {.device = std::move(*device), .declared = std::move(lookup.declared), .state = state});
+}
+
+ServiceResult<OfferDecision> FirmwareService::offer(const std::string& devicePublicId,
+                                                    const OfferRequest& declared) {
+  const auto device = repo_.findDevice(devicePublicId);
+  if (!device) {
+    return ServiceResult<OfferDecision>::error("Device not found", 404);
+  }
+  return ServiceResult<OfferDecision>::success(decideOffer(*device, declared));
 }
 
 } // namespace rdws::firmware
