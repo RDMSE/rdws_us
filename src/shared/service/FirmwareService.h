@@ -40,6 +40,34 @@ enum class UpdateState {
 [[nodiscard]] UpdateState deriveState(const DeviceFirmware& device,
                                       const std::optional<DeclaredFirmware>& declared);
 
+// What a station declares in the first pack of a cycle (O3)
+struct OfferRequest {
+  std::string build;                     // fw_build
+  std::optional<std::string> boardClass; // fw_class
+  std::optional<std::string> rejected;   // fw_rej
+};
+
+// The image a station should download, and the attempt it belongs to (O18)
+struct FirmwareOffer {
+  std::string build;
+  int size = 0;
+  std::string sha256;
+  std::string boardClass;
+  int attempt = 1;
+};
+
+// Why there's no offer: kept for the log
+enum class NoOffer { NoTarget, Disabled, Withdrawn, Applied, OtherClass, Rejected };
+
+[[nodiscard]] std::string toString(NoOffer reason);
+
+struct OfferDecision {
+  std::optional<FirmwareOffer> offer;
+  NoOffer reason = NoOffer::NoTarget; // when there's none
+};
+
+[[nodiscard]] OfferDecision decideOffer(const DeviceFirmware& device, const OfferRequest& declared);
+
 struct FirmwareStatus {
   DeviceFirmware device;
   std::optional<DeclaredFirmware> declared;
@@ -77,6 +105,9 @@ public:
                                                            bool enabled, const std::string& by);
   [[nodiscard]] rdws::types::ServiceResult<FirmwareStatus>
   status(const std::string& devicePublicId);
+  // What the station that declared `declared` should download, if anything
+  [[nodiscard]] rdws::types::ServiceResult<OfferDecision> offer(const std::string& devicePublicId,
+                                                                const OfferRequest& declared);
 
 private:
   IFirmwareRepository& repo_;

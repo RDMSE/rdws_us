@@ -32,6 +32,10 @@ links no fim do arquivo); as anteriores ao fluxo de issues não têm referência
 - Entrega da imagem por CoAP/DTLS: `GET /fw` em blocos, na porta **5690/udp** do `firmware_service`, com a
   PSK do device, que só recebe o seu próprio alvo. No máximo 4 downloads ao mesmo tempo
   (`FIRMWARE_MAX_DOWNLOADS`). Nenhuma estação pede ainda ([RDWS-244]).
+- Oferta de firmware no `2.04`: a estação que declara `ota` recebe `{"fw": {build, size, sha256, class,
+  port, try}}` quando deve baixar uma imagem. Quem decide é o `firmware_service` (capability interna
+  `firmware.offer`); a config pendente vai antes, e a oferta no ciclo seguinte. Nenhum firmware declara
+  `ota` ainda ([RDWS-248]).
 
 ### Corrigido
 - Ingestão: durante um handshake, a `libcoap` podia ler a PSK de um cache que o refresh periódico
@@ -269,3 +273,4 @@ fica no repositório privado está em `docs/Backlog.md` e na memória do plano).
 [RDWS-236]: https://github.com/RDMSE/rdws_us/issues/236
 [RDWS-241]: https://github.com/RDMSE/rdws_us/issues/241
 [RDWS-244]: https://github.com/RDMSE/rdws_us/issues/244
+[RDWS-248]: https://github.com/RDMSE/rdws_us/issues/248

@@ -225,8 +225,21 @@ o device ignora a própria rejeição se o da oferta for maior que o da rejeiç�
   (um erro de log, sem outro efeito). Nenhum dos dois lados precisa atualizar ao mesmo tempo.
 - **Config primeiro.** Quando a config também está atrasada, vai só a config, e a oferta no ciclo
   seguinte. O corpo continua cabendo em um PDU (o firmware não busca Block2 da resposta).
-- O custo na ingestão é uma consulta a mais por ciclo, no mesmo lugar da config. Fica atrás de um
-  cache curto, e uma falha só atrasa a oferta, nunca o `2.04`.
+- O custo na ingestão é uma consulta a mais por ciclo, no mesmo lugar da config. Uma falha só atrasa a
+  oferta, nunca o `2.04`.
+
+Como ficou (RDWS-248):
+
+- Quem decide é o `firmware_service`, pela capability interna `firmware.offer` (sem rota HTTP), com o que
+  o pacote declarou: `fw_build`, `fw_class` e `fw_rej`. A ingestão não lê o banco nem conhece as regras.
+- Sem cache: é uma chamada por device por ciclo, e só quando o pacote declara `ota` ≥ 1 e o `2.04` não
+  leva config. O timeout é de 2 s, porque roda na thread do CoAP da ingestão; medido: com o
+  `firmware_service` travado, o `2.04` sai em 2,0 s, sem oferta e com as leituras gravadas.
+- Não há oferta sem alvo, sem permissão, com a imagem retirada, quando o device já roda o build, quando
+  declara outra classe (sem classe declarada, o MCUboot decide) ou quando rejeitou esta tentativa.
+- A porta anunciada vem de `FIRMWARE_OFFER_PORT` (padrão: a do serviço): é a que a estação vê, que no QA
+  pelo relay da VPS será a 5691. O host é o mesmo da ingestão.
+- A resposta com a oferta tem ~200 bytes: cabe num PDU.
 
 ## 6. O device (rdws_weather_node)
 

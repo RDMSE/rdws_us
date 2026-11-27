@@ -397,3 +397,102 @@ TEST(UpdateStateNames, AreStable) {
   EXPECT_EQ(toString(UpdateState::Downloading), "downloading");
   EXPECT_EQ(toString(UpdateState::Pending), "pending");
 }
+
+// --- The offer in the 2.04 (O3) ---
+
+namespace {
+
+class OfferTest : public ::testing::Test {
+protected:
+  DeviceFirmware device{.deviceId = "12", .devicePublicId = "d", .otaEnabled = true};
+  OfferRequest declared{.build = "aaaaaaaaaaaaaaaa"};
+
+  void SetUp() override {
+    FirmwareImage image;
+    image.buildId = "bbbbbbbbbbbbbbb1";
+    image.sha256 = std::string(64, 'c');
+    image.sizeBytes = 275416;
+    image.boardClass = "ef76f59e-3be9-481e-9223-71239633d8e3";
+    device.target = DeviceFirmware::Target{.image = image, .attempt = 1};
+  }
+  [[nodiscard]] std::optional<NoOffer> why() const {
+    const auto d = decideOffer(device, declared);
+    return d.offer ? std::nullopt : std::optional(d.reason);
+  }
+};
+
+} // namespace
+
+TEST_F(OfferTest, TheTarget) {
+  device.target->attempt = 3;
+  const auto d = decideOffer(device, declared);
+  ASSERT_TRUE(d.offer);
+  EXPECT_EQ(d.offer->build, "bbbbbbbbbbbbbbb1");
+  EXPECT_EQ(d.offer->size, 275416);
+  EXPECT_EQ(d.offer->sha256, std::string(64, 'c'));
+  EXPECT_EQ(d.offer->boardClass, "ef76f59e-3be9-481e-9223-71239633d8e3");
+  EXPECT_EQ(d.offer->attempt, 3);
+}
+
+TEST_F(OfferTest, NoneWithoutTargetPermissionOrImage) {
+  auto target = device.target;
+  device.target.reset();
+  EXPECT_EQ(why(), NoOffer::NoTarget);
+  device.target = target;
+  device.otaEnabled = false;
+  EXPECT_EQ(why(), NoOffer::Disabled);
+  device.otaEnabled = true;
+  device.target->image.withdrawnAt = "2026-11-27";
+  EXPECT_EQ(why(), NoOffer::Withdrawn);
+}
+
+TEST_F(OfferTest, NoneWhenItRunsIt) {
+  declared.build = "bbbbbbbbbbbbbbb1";
+  EXPECT_EQ(why(), NoOffer::Applied);
+}
+
+TEST_F(OfferTest, Class) {
+  declared.boardClass = "8a4b6d65-0647-47df-ae44-bd64f3a6fd17";
+  EXPECT_EQ(why(), NoOffer::OtherClass);
+  declared.boardClass = "EF76F59E-3BE9-481E-9223-71239633D8E3";
+  EXPECT_EQ(why(), std::nullopt);
+  declared.boardClass.reset(); // MCUboot is the judge
+  EXPECT_EQ(why(), std::nullopt);
+}
+
+TEST_F(OfferTest, RejectionOfThisBuildAndAttempt) {
+  declared.rejected = "bbbbbbbbbbbbbbb1/1/crash";
+  EXPECT_EQ(why(), NoOffer::Rejected);
+  device.target->attempt = 2; // retry
+  EXPECT_EQ(why(), std::nullopt);
+  EXPECT_EQ(decideOffer(device, declared).offer->attempt, 2);
+  declared.rejected = "bbbbbbbbbbbbbbb1/2/hang";
+  EXPECT_EQ(why(), NoOffer::Rejected);
+  declared.rejected = "ffffffffffffffff/9/crash";
+  EXPECT_EQ(why(), std::nullopt);
+}
+
+// The most specific reason, in this order: what the admin set, then what the station says
+TEST_F(OfferTest, Order) {
+  device.otaEnabled = false;
+  declared.build = "bbbbbbbbbbbbbbb1";
+  EXPECT_EQ(why(), NoOffer::Disabled);
+  device.otaEnabled = true;
+  declared.boardClass = "8a4b6d65-0647-47df-ae44-bd64f3a6fd17";
+  EXPECT_EQ(why(), NoOffer::Applied);
+}
+
+TEST_F(FirmwareServiceTest, OfferOfAnUnknownDevice) {
+  EXPECT_EQ(svc.offer("other-device", {.build = "x"}).getStatusCode(), 404);
+  targets("field");
+  repo.device->otaEnabled = true;
+  const auto r = svc.offer(kDevice, {.build = "aaaaaaaaaaaaaaaa"});
+  ASSERT_TRUE(r.isSuccess());
+  ASSERT_TRUE(r.getData().offer);
+  EXPECT_EQ(r.getData().offer->build, repo.images["field"].buildId);
+}
+
+TEST(NoOfferNames, AreStable) {
+  EXPECT_EQ(toString(NoOffer::NoTarget), "no target");
+  EXPECT_EQ(toString(NoOffer::Rejected), "rejected by the station");
+}

@@ -112,6 +112,9 @@ services:
       FIRMWARE_IMAGES_DIR: /app/firmware
       FIRMWARE_COAP_PORT: "5690"
       FIRMWARE_MAX_DOWNLOADS: "4" # at once; the others get 5.03 and come back in the next cycle
+      # The port the offer in the 2.04 announces: the stations' view of it. 5691 once they come
+      # through the VPS relay (Plano_Deployment.md §2.2)
+      FIRMWARE_OFFER_PORT: "5690"
     ports:
       - "5690:5690/udp" # CoAP/DTLS — stations download their image here (GET /fw)
     deploy: # a wave of downloads must not take what the ingestion needs

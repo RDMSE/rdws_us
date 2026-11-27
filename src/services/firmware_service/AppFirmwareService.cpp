@@ -6,6 +6,8 @@
 // docs/Plano_OTA.md). Capabilities, all admin only over HTTP:
 //   firmware_image.create / list / withdraw
 //   firmware_target.set / retry, firmware_ota.set, firmware.status
+// and firmware.offer, internal only (no route): asked by the ingestion with what a station declared,
+// it says which image to offer in the 2.04 (O3).
 // Path parameter {id} is a public id (UUID): the image's or the device's. No route reaches more than
 // one device (O17).
 //
@@ -119,6 +121,7 @@ private:
   FirmwareCoapServer coap_;
   std::mutex clientMutex_; // connect() replaces `client` while the refresh may be using it
   std::atomic<bool> failed_{false};
+  unsigned offerPort_; // what the stations reach: on QA, through a relay, not the same
 
 public:
   AppFirmwareService(const std::string& serviceId, const std::string& machineName,
@@ -130,7 +133,10 @@ public:
                   envNumber("FIRMWARE_MAX_DOWNLOADS", kDefaultMaxDownloads, 1000)),
         coap_(credentials_, delivery_, coapHost(),
               static_cast<std::uint16_t>(
-                  envNumber("FIRMWARE_COAP_PORT", kDefaultCoapPort, UINT16_MAX))) {
+                  envNumber("FIRMWARE_COAP_PORT", kDefaultCoapPort, UINT16_MAX))),
+        offerPort_(envNumber("FIRMWARE_OFFER_PORT",
+                             envNumber("FIRMWARE_COAP_PORT", kDefaultCoapPort, UINT16_MAX),
+                             UINT16_MAX)) {
     identity.machineName = machineName;
     identity.serviceName = "firmware_service";
     identity.serviceId = serviceId;
@@ -140,7 +146,7 @@ public:
     identity.capabilities = {"firmware_image.create", "firmware_image.list",
                              "firmware_image.withdraw", "firmware_target.set",
                              "firmware_target.retry",  "firmware_ota.set",
-                             "firmware.status"};
+                             "firmware.status",        "firmware.offer"};
   }
 
   // False when the delivery couldn't start
@@ -242,10 +248,15 @@ private:
             {"firmware_target.retry", handleTargetRetry},
             {"firmware_ota.set", handleOtaSet},
             {"firmware.status", handleStatus},
+            {"firmware.offer", [this](const CapabilityContext& ctx, FirmwareService& svc) {
+               return handleOffer(ctx, svc, offerPort_);
+             }},
         };
 
-    // Before any handler: none of them is for anyone else
-    if (auto denied = rdws::utils::requireAdmin(request)) {
+    // Before any handler: none of them is for anyone else. The offer is for the ingestion only.
+    auto denied = cap == "firmware.offer" ? rdws::utils::requireInternal(request)
+                                          : rdws::utils::requireAdmin(request);
+    if (denied) {
       return std::move(*denied);
     }
     try {
@@ -257,6 +268,42 @@ private:
       logger::error("Request error", identity.serviceId + " " + e.what());
       return ResponseHelper::returnErrorDoc("Internal server error", 500);
     }
+  }
+
+  // {"device": "<public id>", "fw_build", "fw_class"?, "fw_rej"?} → {"offer": {...} | null,
+  // "reason"}. The caller decides whether the station asked (`ota`) and whether a config goes first.
+  static rapidjson::Document handleOffer(const CapabilityContext& ctx, FirmwareService& svc,
+                                         unsigned port) {
+    const auto& req = ctx.request;
+    const auto device = json::getString(req, "device").value_or("");
+    const auto build = json::getString(req, "fw_build");
+    if (!isUuid(device) || !build) {
+      return ResponseHelper::returnErrorDoc("Missing/invalid field: device, fw_build", 400);
+    }
+    const auto result = svc.offer(device, {.build = *build,
+                                           .boardClass = json::getString(req, "fw_class"),
+                                           .rejected = json::getString(req, "fw_rej")});
+    if (!result.isSuccess()) {
+      return errorOf(result);
+    }
+    const auto& decision = result.getData();
+    return ResponseHelper::returnDataDoc([&](auto& alloc) {
+      JsonObj obj(alloc);
+      if (decision.offer) {
+        const auto& o = *decision.offer;
+        JsonObj offer(alloc);
+        offer.set("build", o.build)
+            .set("size", o.size)
+            .set("sha256", o.sha256)
+            .set("class", o.boardClass)
+            .set("port", static_cast<int>(port))
+            .set("try", o.attempt);
+        obj.setValue("offer", offer.take()).setNull("reason");
+      } else {
+        obj.setNull("offer").set("reason", toString(decision.reason));
+      }
+      return obj.take();
+    });
   }
 
   // The path's {id}, or the error response
