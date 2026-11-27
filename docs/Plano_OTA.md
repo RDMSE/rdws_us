@@ -7,7 +7,7 @@ quê. Cobre os dois repositórios: `rdws_us` (registro, entrega, acompanhamento)
 `rdws_weather_node` (download, troca, rollback).
 
 **Estado:** decisões aceitas em 2026-11-25, revistas no mesmo dia com uma revisão externa (O11 a O20);
-fases 0 (RDWS-WE-016) e 1 (RDWS-241, RDWS-WE-018) feitas. Próxima: fase 2.
+fases 0 (RDWS-WE-016), 1 (RDWS-241, RDWS-WE-018) e 2 (RDWS-244) feitas. Próxima: fase 3.
 
 ## Decisões (2026-11-25)
 
@@ -395,7 +395,7 @@ estação; as de firmware são testadas contra um servidor de bancada antes do Q
 |---|---|---|---|
 | **0** ✅ | firmware | Datagrama de ~1100 bytes pelo eswifi; classe da placa no MCUboot (O7) | Feita em 2026-11-25 (RDWS-WE-016): 1400 bytes inteiros; imagem de outra classe, ou sem classe, recusada |
 | **1** ✅ | rdws_us e firmware (`fw_publish.py`) | Tabelas, registro, alvo, permissão, REST, estado derivado | Feita em 2026-11-25 (RDWS-241, RDWS-WE-018): no QA, duas imagens publicadas e, na estação 12, `none` → `applied` → `disabled` → `pending` → `none`; `bench` sem `allowBench` recusado |
-| **2** | rdws_us | `firmware_service` (GET com Block2, PSK, ETag) | Baixa a imagem inteira com um cliente CoAP e o SHA-256 confere; duas estações ao mesmo tempo; ingestão sem atraso medido |
+| **2** ✅ | rdws_us | `firmware_service` (GET com Block2, PSK, ETag) | Feita em 2026-11-27 (RDWS-244): no QA, dois devices baixaram cada um a sua imagem, ao mesmo tempo, com o SHA-256 do registro, em ~1,3 s pela LAN; sem alvo ou sem permissão, `4.04`; nenhum atraso visível na ingestão |
 | **3** | rdws_us | Oferta no `2.04` | Só a quem declara `ota`; config tem prioridade; `fw_rej` suprime |
 | **4** | firmware | Download, retomada, verificação (sem reiniciar) | **Primeiro:** bloco de 1024 com CoAP e DTLS. Testes `native_sim`; queda durante o apagar, o gravar, e antes e depois de salvar o ponto (O13); `size` acima do limite, zero e no estouro recusados, sem tocar em nada além do `slot1` (O14); SHA errado recusado; registros em LittleFS intactos depois do download; RAM e flash medidos |
 | **5** | firmware | Pedido de teste automático, causas da volta (O11), nova tentativa (O18), prazo de 24 h, `ota_pct` | Laço de rollback encerrado na bancada; cada linha da tabela da O11 provocada |
